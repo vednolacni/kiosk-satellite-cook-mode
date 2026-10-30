@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "id": "kitchen-view",
+  "name": "Kitchen View",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "minAndroidSdk": 26,
+  "minAppVersion": "2026.10.42",
+  "entryClass": "io.github.vednolacni.kitchen.KitchenViewPlugin",
+  "description": "A kitchen view for the wall tablet: today's and this week's meals from any Home Assistant calendar, recipes opened full screen from your recipe app and a cook mode that keeps the screensaver away while you cook. Works with any app that puts its meal plan in a Home Assistant calendar.",
+  "author": "vednolacni",
+  "license": "Apache-2.0",
+  "capabilities": [
+    "overlay",
+    "entities",
+    "host.read",
+    "host.control",
+    "ha"
+  ],
+  "settings": [
+    {
+      "key": "calendars",
+      "type": "list",
+      "title": "Meal plan calendars",
+      "group": "Meal plan",
+      "addTitle": "Add calendar",
+      "maxItems": 6,
+      "description": "Home Assistant calendar entities that hold the meal plan, such as the ones the Tandoor or Mealie integrations add.",
+      "row": {
+        "title": "calendar",
+        "subtitle": "label"
+      },
+      "default": [],
+      "fields": [
+        {
+          "key": "calendar",
+          "type": "entity",
+          "title": "Calendar",
+          "required": true,
+          "description": "Pick a calendar entity, such as calendar.tandoor_meal_plan."
+        },
+        {
+          "key": "label",
+          "type": "string",
+          "title": "Label",
+          "description": "Optional. Shown with this calendar's meals, such as Lunch or School."
+        },
+        {
+          "key": "color",
+          "type": "color",
+          "title": "Color",
+          "default": "#43A047"
+        }
+      ]
+    },
+    {
+      "key": "days",
+      "type": "number",
+      "title": "Days to show",
+      "default": 7,
+      "min": 1,
+      "max": 14,
+      "step": 1,
+      "unit": "days",
+      "group": "Meal plan",
+      "description": "Today and the days after it."
+    },
+    {
+      "key": "splitTitles",
+      "type": "boolean",
+      "title": "Split the meal type from the dish",
+      "default": true,
+      "group": "Meal plan",
+      "description": "Show an event called \"Dinner: Lasagna\" as Dinner above Lasagna."
+    },
+    {
+      "key": "appUrl",
+      "type": "string",
+      "title": "Recipe app address",
+      "default": "",
+      "group": "Recipe app",
+      "description": "Home page of your recipe app, such as http://192.168.1.20:8080. It opens full screen as its own page, not in a frame, so its login keeps working. Meals without a recipe link open it too."
+    },
+    {
+      "key": "searchUrl",
+      "type": "string",
+      "title": "Recipe search address",
+      "default": "",
+      "group": "Recipe app",
+      "description": "Optional, for meals whose event has no link: a search page with {title} where the dish goes, such as http://192.168.1.20:8080/search/?query={title}."
+    },
+    {
+      "key": "cookMode",
+      "type": "boolean",
+      "title": "Cook mode",
+      "default": true,
+      "group": "Cook mode",
+      "description": "Keep the screensaver away while a recipe is open. Closing the recipe ends it."
+    },
+    {
+      "key": "cookMinutes",
+      "type": "number",
+      "title": "Longest cooking session",
+      "default": 180,
+      "min": 15,
+      "max": 480,
+      "step": 15,
+      "unit": "min",
+      "group": "Cook mode",
+      "visibleWhen": {
+        "key": "cookMode",
+        "equals": true
+      },
+      "description": "Only for Kiosk Satellite releases that cannot hold the screensaver for a page. Cook mode then ends after this long or when you press End cooking."
+    },
+    {
+      "key": "title",
+      "type": "string",
+      "title": "Panel title",
+      "default": "",
+      "group": "Panel",
+      "description": "Leave empty for Meal plan in the panel's language."
+    },
+    {
+      "key": "language",
+      "type": "select",
+      "title": "Language",
+      "default": "Auto",
+      "options": [
+        "Auto",
+        "English",
+        "Slovenščina"
+      ],
+      "group": "Panel",
+      "description": "Auto follows the device language."
+    },
+    {
+      "key": "closeOnScreensaver",
+      "type": "boolean",
+      "title": "Close when the screensaver starts",
+      "default": true,
+      "group": "Panel",
+      "description": "The way the built-in calendar and camera views go away when the kiosk is idle."
+    }
+  ],
+  "commands": [
+    {
+      "id": "showRecipes",
+      "title": "Show recipes"
+    },
+    {
+      "id": "hideRecipes",
+      "title": "Hide recipes"
+    },
+    {
+      "id": "toggleRecipes",
+      "title": "Toggle recipes"
+    },
+    {
+      "id": "openRecipeApp",
+      "title": "Open recipe app"
+    },
+    {
+      "id": "endCooking",
+      "title": "End cooking"
+    }
+  ]
+}
