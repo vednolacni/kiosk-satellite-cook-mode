@@ -11,6 +11,10 @@ import android.widget.TextView;
 /** A recipe before cooking: its picture, times, servings and ingredients, and the big button that starts. */
 final class RecipeScreen implements Screen {
     private static final int PICTURE_WIDTH_DP = 640;
+    /** The picture takes this share of the screen's height, so what matters stays in view on a small tablet. */
+    private static final int PICTURE_SHARE_PERCENT = 30;
+    private static final int PICTURE_LEAST_DP = 110;
+    private static final int PICTURE_MOST_DP = 240;
 
     private final Parts parts;
     private final Ui.Actions actions;
@@ -30,7 +34,7 @@ final class RecipeScreen implements Screen {
     private final TextView openInApp;
     private String shownImage;
 
-    RecipeScreen(Parts parts, Ui.Actions actions, Images images, Strings strings, boolean wide) {
+    RecipeScreen(Parts parts, Ui.Actions actions, Images images, Strings strings, boolean wide, int heightPx) {
         this.parts = parts;
         this.actions = actions;
         this.images = images;
@@ -69,21 +73,17 @@ final class RecipeScreen implements Screen {
         status = parts.text("", 16, 400, "onSurfaceVariant", 0);
         ingredientsTitle = parts.text(strings.ingredients, 18, 700, "onSurface", 1);
         ingredients = new IngredientList(parts, actions);
-        start = parts.pill(strings.startCooking, "mdi:chef-hat", true, actions::startCooking);
+        start = parts.pill(strings.startCooking, true, actions::startCooking);
         parts.theme().styleText(start, 19, 700, "onPrimary");
         start.setMinHeight(parts.px(64));
 
         LinearLayout summary = parts.column();
         LinearLayout list = parts.column();
-        if (wide) {
-            summary.addView(picture, new LinearLayout.LayoutParams(Parts.MATCH, parts.px(220)));
-        } else {
-            summary.addView(picture, new LinearLayout.LayoutParams(Parts.MATCH, parts.px(180)));
-        }
+        int pictureHeight = Math.max(parts.px(PICTURE_LEAST_DP), Math.min(parts.px(PICTURE_MOST_DP), heightPx * PICTURE_SHARE_PERCENT / 100));
+        summary.addView(picture, new LinearLayout.LayoutParams(Parts.MATCH, pictureHeight));
         summary.addView(name, parts.wide(14));
         summary.addView(description, parts.wide(6));
         summary.addView(times, parts.wide(8));
-        summary.addView(servings, parts.wide(12));
         list.addView(ingredientsTitle, parts.wide(wide ? 4 : 16));
         list.addView(status, parts.wide(8));
         list.addView(ingredients.view(), parts.wide(6));
@@ -94,7 +94,8 @@ final class RecipeScreen implements Screen {
             both.setBaselineAligned(false);
             LinearLayout left = parts.column();
             left.addView(scroller(summary), new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
-            left.addView(start, parts.wide(12));
+            left.addView(servings, parts.wide(8));
+            left.addView(start, parts.wide(8));
             LinearLayout.LayoutParams leftAt = new LinearLayout.LayoutParams(0, Parts.MATCH, 5);
             leftAt.setMarginEnd(parts.px(28));
             both.addView(left, leftAt);
@@ -105,7 +106,8 @@ final class RecipeScreen implements Screen {
             both.addView(summary, parts.wide());
             both.addView(list, parts.wide());
             page.addView(scroller(both), new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
-            page.addView(start, parts.wide(12));
+            page.addView(servings, parts.wide(8));
+            page.addView(start, parts.wide(8));
         }
     }
 

@@ -111,6 +111,11 @@ final class Parts {
         return pill;
     }
 
+    /** Moves a pill's icon after its label, for a button that leads onward. */
+    void iconAfter(TextView pill) {
+        pill.setCompoundDrawablesRelative(null, null, pill.getCompoundDrawablesRelative()[0], null);
+    }
+
     /** A round icon button with a touch target of size dp. */
     ImageView iconButton(String icon, String description, String role, int size, Runnable action) {
         ImageView button = new ImageView(context);

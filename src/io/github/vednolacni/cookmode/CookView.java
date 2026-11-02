@@ -151,7 +151,7 @@ final class CookView extends FrameLayout {
         boolean wide = width >= parts.px(WIDE_FROM_DP);
         switch (current.page) {
             case RECIPE:
-                return new RecipeScreen(parts, actions, images, current.strings, wide);
+                return new RecipeScreen(parts, actions, images, current.strings, wide, height);
             case STEP:
                 return new StepScreen(parts, actions, images, current.strings, wide, height, ingredientsOpen, timerViews::openSheet);
             case FINISH:

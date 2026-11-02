@@ -15,17 +15,19 @@ import java.util.List;
  * or ticking a line changes the row in place, so a held plus button keeps working.
  */
 final class IngredientList {
+    private static final int MEASURE_WIDTH_DP = 84;
+
     private static final class Row {
         final Recipe.Ingredient ingredient;
         final ImageView circle;
-        final TextView amount;
-        final TextView rest;
+        final TextView measure;
+        final TextView name;
 
-        Row(Recipe.Ingredient ingredient, ImageView circle, TextView amount, TextView rest) {
+        Row(Recipe.Ingredient ingredient, ImageView circle, TextView measure, TextView name) {
             this.ingredient = ingredient;
             this.circle = circle;
-            this.amount = amount;
-            this.rest = rest;
+            this.measure = measure;
+            this.name = name;
         }
     }
 
@@ -77,15 +79,16 @@ final class IngredientList {
         int inner = parts.px(4);
         circle.setPadding(inner, inner, inner, inner);
         line.addView(circle, new LinearLayout.LayoutParams(parts.px(26), parts.px(26)));
-        TextView amount = parts.text("", 17, 700, "onSurface", 1);
-        amount.setMinWidth(parts.px(68));
-        LinearLayout.LayoutParams amountAt = parts.after(10);
-        line.addView(amount, amountAt);
-        TextView rest = parts.text("", 17, 400, "onSurface", 0);
-        LinearLayout.LayoutParams restAt = parts.fill(1);
-        restAt.setMarginStart(parts.px(8));
-        line.addView(rest, restAt);
-        Row row = new Row(ingredient, circle, amount, rest);
+        // The measures make a column, so the names line up, with or without one.
+        TextView measure = parts.text("", 17, 700, "onSurface", 2);
+        measure.setMinWidth(parts.px(MEASURE_WIDTH_DP));
+        measure.setMaxWidth(parts.px(MEASURE_WIDTH_DP * 2));
+        line.addView(measure, parts.after(10));
+        TextView name = parts.text("", 17, 400, "onSurface", 0);
+        LinearLayout.LayoutParams nameAt = parts.fill(1);
+        nameAt.setMarginStart(parts.px(8));
+        line.addView(name, nameAt);
+        Row row = new Row(ingredient, circle, measure, name);
         rows.add(row);
         Parts.onTap(line, () -> actions.toggle(ingredient));
         return line;
@@ -93,18 +96,16 @@ final class IngredientList {
 
     private void update(Row row, Model model) {
         boolean checked = model.checked.contains(row.ingredient);
-        String amount = row.ingredient.amountText(model.factor, model.strings.decimalComma);
-        row.amount.setText(amount);
-        row.amount.setVisibility(amount.isEmpty() ? View.GONE : View.VISIBLE);
-        row.rest.setText(row.ingredient.rest(model.factor));
+        row.measure.setText(row.ingredient.measure(model.factor, model.strings.decimalComma));
+        row.name.setText(row.ingredient.name(model.factor));
         // A color rather than alpha: a change of alpha alone may not reach an overlay's screen.
         int color = parts.theme().color(checked ? "onSurfaceVariant" : "onSurface");
-        row.amount.setTextColor(color);
-        row.rest.setTextColor(color);
-        int flags = row.rest.getPaintFlags();
+        row.measure.setTextColor(color);
+        row.name.setTextColor(color);
+        int flags = row.name.getPaintFlags();
         int struck = checked ? flags | Paint.STRIKE_THRU_TEXT_FLAG : flags & ~Paint.STRIKE_THRU_TEXT_FLAG;
-        row.rest.setPaintFlags(struck);
-        row.amount.setPaintFlags(struck);
+        row.name.setPaintFlags(struck);
+        row.measure.setPaintFlags(struck);
         GradientDrawable ring = new GradientDrawable();
         ring.setShape(GradientDrawable.OVAL);
         if (checked) {

@@ -259,7 +259,10 @@ public final class ViewsTest {
         // Today's meal, from the plan: the recipe with its photo.
         tap(find("Goveji golaž"));
         assertNotNull(find(s.startCooking));
-        assertNotNull(find("800"));
+        assertNotNull(find("800 g"));
+        assertNotNull(find("goveje meso, za golaž"));
+        assertOnScreen(described("+"));
+        assertOnScreen(find(s.startCooking));
         assertTrue(kitchen.viewed.contains("1"));
         shot("2-recipe");
 
@@ -267,7 +270,7 @@ public final class ViewsTest {
         View plus = described("+");
         tap(plus);
         assertSame(plus, described("+"));
-        assertNotNull(find("1000"));
+        assertNotNull(find("1000 g"));
         assertNotNull(find(s.servings(5, "")));
         press(plus);
         later(1200);
@@ -275,13 +278,13 @@ public final class ViewsTest {
         assertNull("a held plus should have gone on", find(s.servings(5, "")));
         for (int i = 0; i < 40 && find(s.servings(4, "")) == null; i++) tap(described("-"));
         assertNotNull(find(s.servings(4, "")));
-        assertNotNull(find("800"));
+        assertNotNull(find("800 g"));
 
         // Ticking off an ingredient strikes it through in place.
-        TextView fat = find("g mast");
+        TextView fat = find("mast");
         assertNotNull(fat);
         tap(fat);
-        assertSame(fat, find("g mast"));
+        assertSame(fat, find("mast"));
         assertTrue((fat.getPaintFlags() & Paint.STRIKE_THRU_TEXT_FLAG) != 0);
         shot("2-recipe-ticked");
 
@@ -313,27 +316,37 @@ public final class ViewsTest {
         assertNotNull(find("500 g čebula"));
         assertNotNull(find(s.forThisStep));
 
-        // The big button, and swipes every way. A second press right after the first is one press.
+        // The big button stays put, and one press that lands twice moves one step.
         View next = find(s.nextStep);
         tap(next);
         assertNotNull(containing("Dodaj meso"));
         assertNotNull(find("2 / 7"));
-        tap(find(s.nextStep));
-        assertNotNull("the second press came too soon", find("2 / 7"));
         assertSame(next, find(s.nextStep));
         later(400);
-        swipe(0.8f, 0.5f, 0.2f, 0.5f);
-        assertNotNull(find("3 / 7"));
+        doubleTap(next);
+        assertNotNull("one press that landed twice", find("3 / 7"));
         assertNotNull(containing("Dolij vodo"));
+
+        // Swipes every way. A text that does not fit keeps its vertical drags.
         later(400);
         swipe(0.2f, 0.5f, 0.8f, 0.5f);
         assertNotNull(find("2 / 7"));
         later(400);
-        swipe(0.5f, 0.7f, 0.5f, 0.3f);
-        assertNotNull("a swipe up moves on when the text fits", find("3 / 7"));
+        swipe(0.8f, 0.5f, 0.2f, 0.5f);
+        assertNotNull(find("3 / 7"));
         later(400);
-        swipe(0.5f, 0.3f, 0.5f, 0.7f);
+        swipe(0.2f, 0.5f, 0.8f, 0.5f);
         assertNotNull(find("2 / 7"));
+        ScrollView stepScroll = enclosingScroll(containing("Dodaj meso"));
+        boolean fits = !stepScroll.canScrollVertically(1) && !stepScroll.canScrollVertically(-1);
+        later(400);
+        swipe(0.5f, 0.7f, 0.5f, 0.3f);
+        assertNotNull("a swipe up moves on when the text fits", find(fits ? "3 / 7" : "2 / 7"));
+        if (fits) {
+            later(400);
+            swipe(0.5f, 0.3f, 0.5f, 0.7f);
+            assertNotNull(find("2 / 7"));
+        }
         later(400);
         swipe(0.5f, 0.5f, 0.52f, 0.52f);
         assertNotNull("a small movement is no swipe", find("2 / 7"));
@@ -348,11 +361,13 @@ public final class ViewsTest {
         // All the ingredients beside the step, and back.
         View list = described(s.ingredients);
         tap(list);
-        assertNotNull(find("g goveje meso, za golaž"));
+        assertNotNull(find("goveje meso, za golaž"));
         assertNotNull(find("Za konec"));
+        assertNull("the list beside the step has the step's own ingredients", find(s.forThisStep));
         shot("4-step-ingredients");
         tap(described(s.ingredients));
-        assertNull(find("g goveje meso, za golaž"));
+        assertNull(find("goveje meso, za golaž"));
+        assertNotNull(find(s.forThisStep));
 
         // The timers sheet: a preset, pause, more time, cancel.
         tap(described(s.timers));
@@ -363,7 +378,7 @@ public final class ViewsTest {
         assertEquals(2, cook.timers().size());
         tap(described(s.timers));
         tap(described(s.pause));
-        assertEquals(Timers.State.PAUSED, cook.timers().get(1).state);
+        assertEquals(Timers.State.PAUSED, cook.timers().get(0).state);
         shot("5-timers-paused");
         tap(described(s.resume));
         int left = cook.timers().get(0).left;
@@ -458,6 +473,7 @@ public final class ViewsTest {
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
     public void aFailureShowsABannerAndRetrying() {
         begin("failure", false, settings("English"));
+        net.runAll();
         kitchen.failNext = new RecipeSource.SourceException(RecipeSource.SourceException.Kind.NETWORK, "Could not reach it");
         open();
         assertNotNull(find(s.problemNetwork));
@@ -473,7 +489,7 @@ public final class ViewsTest {
         begin("recreate", true, settings("English"));
         open();
         tap(find("Palačinke"));
-        assertNotNull(find("4 kosov"));
+        assertNotNull("the servings planned, in the recipe's own word", find("2 kosov"));
         assertNull("this recipe has no page in its app", find(s.openInApp));
         tap(find(s.startCooking));
         later(400);
@@ -840,6 +856,18 @@ public final class ViewsTest {
         settle();
     }
 
+    /** Two presses with no time between them, the way a wet finger can land twice. */
+    private void doubleTap(View view) {
+        float[] at = center(view);
+        for (int i = 0; i < 2; i++) {
+            long down = SystemClock.uptimeMillis();
+            send(MotionEvent.ACTION_DOWN, at[0], at[1], down, down);
+            send(MotionEvent.ACTION_UP, at[0], at[1], down, down);
+            idle();
+        }
+        settle();
+    }
+
     private void press(View view) {
         reveal(view);
         float[] at = center(view);
@@ -966,6 +994,15 @@ public final class ViewsTest {
             }
         }
         return null;
+    }
+
+    /** In full view without scrolling: inside the screen and in no scrolling list. */
+    private void assertOnScreen(View view) {
+        assertNotNull(view);
+        assertNull("this must not need scrolling", enclosingScroll(view));
+        float[] at = center(view);
+        assertTrue(at[1] - view.getHeight() / 2f >= 0 && at[1] + view.getHeight() / 2f <= content.getHeight());
+        assertTrue(at[0] - view.getWidth() / 2f >= 0 && at[0] + view.getWidth() / 2f <= content.getWidth());
     }
 
     private int count(String command) {

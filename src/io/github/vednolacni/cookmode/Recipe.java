@@ -50,24 +50,32 @@ final class Recipe {
             return hasAmount() ? Amounts.format(amount * factor, decimalComma) : "";
         }
 
-        /** Everything after the amount: "g flour, sifted". Plural names are used unless the amount is one, as Tandoor does. */
-        String rest(double factor) {
+        /** The amount and its unit for these servings, such as 200 g, or an empty string. */
+        String measure(double factor, boolean decimalComma) {
+            String amount = amountText(factor, decimalComma);
+            if (amount.isEmpty()) return "";
+            String unitName = plural(factor) && !unitPlural.isEmpty() ? unitPlural : unit;
+            return unitName.isEmpty() ? amount : amount + " " + unitName;
+        }
+
+        /** What the line is about: "flour, sifted". */
+        String name(double factor) {
             if (header) return food;
-            boolean plural = hasAmount() && Math.abs(amount * factor - 1) >= 0.0001;
-            String unitName = plural && !unitPlural.isEmpty() ? unitPlural : unit;
-            String foodName = plural && !foodPlural.isEmpty() ? foodPlural : food;
-            StringBuilder rest = new StringBuilder();
-            if (!unitName.isEmpty() && hasAmount()) rest.append(unitName).append(' ');
-            rest.append(foodName.isEmpty() ? raw : foodName);
-            if (!note.isEmpty()) rest.append(", ").append(note);
-            return rest.toString().trim();
+            String foodName = plural(factor) && !foodPlural.isEmpty() ? foodPlural : food;
+            String name = foodName.isEmpty() ? raw : foodName;
+            return (note.isEmpty() ? name : name + ", " + note).trim();
         }
 
         /** The whole line: "200 g flour, sifted". */
         String line(double factor, boolean decimalComma) {
-            String amount = amountText(factor, decimalComma);
-            String rest = rest(factor);
-            return amount.isEmpty() ? rest : amount + " " + rest;
+            String measure = measure(factor, decimalComma);
+            String name = name(factor);
+            return measure.isEmpty() ? name : measure + " " + name;
+        }
+
+        /** Plural names are used unless the amount is one, as Tandoor does. */
+        private boolean plural(double factor) {
+            return hasAmount() && Math.abs(amount * factor - 1) >= 0.0001;
         }
     }
 

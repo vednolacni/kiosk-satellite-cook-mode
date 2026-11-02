@@ -162,6 +162,7 @@ final class StepScreen implements Screen {
         readButton = parts.iconButton("mdi:volume-high", strings.read, "onSurface", 56, actions::read);
         panelButton = parts.iconButton("mdi:format-list-checks", strings.ingredients, "onSurface", 56, this::togglePanel);
         next = parts.pill(strings.nextStep, "mdi:arrow-right", true, forward);
+        parts.iconAfter(next);
         parts.theme().styleText(next, 19, 700, "onPrimary");
         next.setMinHeight(parts.px(64));
         next.setMinWidth(parts.px(wide ? 240 : 170));
@@ -254,9 +255,16 @@ final class StepScreen implements Screen {
             chips.addView(view);
             stepChips.add(new StepChip(ingredient, view));
         }
-        int count = chips.getChildCount();
-        chipsTitle.setVisibility(stepChips.isEmpty() ? View.GONE : View.VISIBLE);
-        chips.setVisibility(count == 0 ? View.GONE : View.VISIBLE);
+        showStepChips();
+    }
+
+    /** With the whole list open beside the step, its own ingredients would only take the step's room. */
+    private void showStepChips() {
+        for (StepChip chip : stepChips) chip.view.setVisibility(panelOpen ? View.GONE : View.VISIBLE);
+        chipsTitle.setVisibility(stepChips.isEmpty() || panelOpen ? View.GONE : View.VISIBLE);
+        boolean any = false;
+        for (int i = 0; i < chips.getChildCount(); i++) any |= chips.getChildAt(i).getVisibility() == View.VISIBLE;
+        chips.setVisibility(any ? View.VISIBLE : View.GONE);
     }
 
     /** The step's words with each duration drawn as a timer chip that starts when tapped. */
@@ -346,6 +354,7 @@ final class StepScreen implements Screen {
 
     private void showPanel() {
         panel.setVisibility(panelOpen ? View.VISIBLE : View.GONE);
+        showStepChips();
         panelButton.setBackground(parts.ripple(parts.theme().color(panelOpen ? "primaryContainer" : "surfaceContainerHigh"), 100));
     }
 
