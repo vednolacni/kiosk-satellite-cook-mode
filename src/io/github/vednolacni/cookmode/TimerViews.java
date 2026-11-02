@@ -21,29 +21,18 @@ final class TimerViews {
     private static final int[] PRESET_MINUTES = {1, 2, 3, 5, 8, 10, 15, 20, 30, 45, 60, 90};
     private static final int SHEET_WIDTH_DP = 560;
 
-    private static final class Shown {
-        final Timers.Timer timer;
-        final TextView time;
-
-        Shown(Timers.Timer timer, TextView time) {
-            this.timer = timer;
-            this.time = time;
-        }
-    }
-
     private final Parts parts;
     private final Ui.Actions actions;
     private Strings strings;
 
     private final HorizontalScrollView strip;
     private final LinearLayout stripRow;
-    private final List<Shown> stripShown = new ArrayList<>();
+    private final List<TextView> stripTimes = new ArrayList<>();
     private String stripKey = "";
 
     private final FrameLayout sheet;
     private final LinearLayout sheetRows;
-    private final TextView sheetEmpty;
-    private final List<Shown> sheetShown = new ArrayList<>();
+    private final List<TextView> sheetTimes = new ArrayList<>();
     private String sheetKey = "";
 
     private final FrameLayout alarm;
@@ -77,8 +66,7 @@ final class TimerViews {
         card.addView(header, parts.wide());
         sheetRows = parts.column();
         card.addView(sheetRows, parts.wide());
-        sheetEmpty = parts.text(strings.newTimer, 16, 700, "onSurface", 1);
-        card.addView(sheetEmpty, parts.wide(18));
+        card.addView(parts.text(strings.newTimer, 16, 700, "onSurface", 1), parts.wide(18));
         FlowLayout presets = new FlowLayout(parts.context(), parts.px(8));
         for (int minutes : PRESET_MINUTES) presets.addView(preset(minutes));
         card.addView(presets, parts.wide(10));
@@ -162,7 +150,7 @@ final class TimerViews {
         if (!key.equals(stripKey)) {
             stripKey = key;
             stripRow.removeAllViews();
-            stripShown.clear();
+            stripTimes.clear();
             for (int i = 0; i < timers.size(); i++) {
                 Timers.Timer timer = timers.get(i);
                 LinearLayout pill = parts.row();
@@ -178,10 +166,10 @@ final class TimerViews {
                 pill.addView(time, parts.after(10));
                 Parts.onTap(pill, this::openSheet);
                 stripRow.addView(pill, i == 0 ? parts.wrap() : parts.after(8));
-                stripShown.add(new Shown(timer, time));
+                stripTimes.add(time);
             }
         }
-        tick(stripShown, timers);
+        tick(stripTimes, timers);
     }
 
     // The sheet.
@@ -191,10 +179,10 @@ final class TimerViews {
         if (!key.equals(sheetKey)) {
             sheetKey = key;
             sheetRows.removeAllViews();
-            sheetShown.clear();
+            sheetTimes.clear();
             for (Timers.Timer timer : timers) sheetRows.addView(sheetRow(timer), parts.wide(10));
         }
-        tick(sheetShown, timers);
+        tick(sheetTimes, timers);
     }
 
     private View sheetRow(Timers.Timer timer) {
@@ -215,7 +203,7 @@ final class TimerViews {
             }), gapped(48));
         }
         row.addView(parts.iconButton("mdi:close", strings.cancel, "error", 48, () -> actions.cancelTimer(timer.id)), gapped(48));
-        sheetShown.add(new Shown(timer, time));
+        sheetTimes.add(time);
         return row;
     }
 
@@ -269,9 +257,9 @@ final class TimerViews {
         return key.toString();
     }
 
-    private static void tick(List<Shown> shown, List<Timers.Timer> timers) {
-        for (int i = 0; i < shown.size() && i < timers.size(); i++) {
-            shown.get(i).time.setText(timers.get(i).state == Timers.State.RINGING ? "0:00" : Durations.clock(timers.get(i).left));
+    private static void tick(List<TextView> times, List<Timers.Timer> timers) {
+        for (int i = 0; i < times.size() && i < timers.size(); i++) {
+            times.get(i).setText(timers.get(i).state == Timers.State.RINGING ? "0:00" : Durations.clock(timers.get(i).left));
         }
     }
 

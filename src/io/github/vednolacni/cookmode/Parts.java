@@ -128,6 +128,8 @@ final class Parts {
         final Handler handler = new Handler(Looper.getMainLooper());
         final Runnable[] again = new Runnable[1];
         again[0] = () -> {
+            // A view taken away under the finger may never hear that the finger left.
+            if (!view.isPressed() || !view.isAttachedToWindow()) return;
             guard(action);
             handler.postDelayed(again[0], REPEAT_EVERY_MS);
         };

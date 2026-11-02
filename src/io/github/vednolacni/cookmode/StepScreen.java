@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 package io.github.vednolacni.cookmode;
 
-import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
+import android.os.SystemClock;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
-import android.text.TextPaint;
-import android.text.method.LinkMovementMethod;
-import android.text.style.ClickableSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -28,6 +26,10 @@ import java.util.List;
 final class StepScreen implements Screen {
     /** Below this height the steps around the current one take room the current one needs. */
     private static final int PEEKS_FROM_DP = 520;
+    /** A wet finger can land twice. Steps change at most this often by touch, so one press cannot skip a step. */
+    private static final long MOVE_GAP_MS = 350L;
+    /** How far outside a timer chip a touch still counts as on it. */
+    private static final int CHIP_MARGIN_DP = 8;
 
     private final Parts parts;
     private final Ui.Actions actions;
@@ -56,6 +58,8 @@ final class StepScreen implements Screen {
     private String shownImage;
     private String shownStep;
     private boolean panelOpen;
+    private ChipSpan pressedChip;
+    private long lastMove;
 
     private static final class StepChip {
         final Recipe.Ingredient ingredient;
@@ -73,6 +77,8 @@ final class StepScreen implements Screen {
         this.images = images;
         this.panelOpen = panelOpen;
         peeks = heightPx >= parts.px(PEEKS_FROM_DP);
+        Runnable forward = () -> move(actions::next);
+        Runnable backward = () -> move(actions::previous);
 
         LinearLayout page = parts.column();
         root = page;
@@ -101,12 +107,11 @@ final class StepScreen implements Screen {
         middle.setBaselineAligned(false);
         LinearLayout column = parts.column();
         column.setPadding(parts.px(wide ? 56 : 24), 0, parts.px(wide ? 56 : 24), 0);
-        previousPeek = peek(actions::previous);
+        previousPeek = peek(backward);
         column.addView(previousPeek, parts.wide(4));
         text = parts.text("", 30, 500, "onSurface", 0);
         text.setLineSpacing(0, 1.28f);
-        text.setHighlightColor(Color.TRANSPARENT);
-        text.setMovementMethod(LinkMovementMethod.getInstance());
+        text.setOnTouchListener((view, event) -> touchedText(event));
         chipsTitle = parts.text(strings.forThisStep, 13, 600, "onSurfaceVariant", 1);
         chips = new FlowLayout(parts.context(), parts.px(8));
         LinearLayout story = parts.column();
@@ -119,9 +124,9 @@ final class StepScreen implements Screen {
         scroll.setFillViewport(true);
         scroll.addView(story, new ScrollView.LayoutParams(Parts.MATCH, Parts.WRAP));
         column.addView(scroll, new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
-        nextPeek = peek(actions::next);
+        nextPeek = peek(forward);
         column.addView(nextPeek, parts.wide());
-        Swipes swipes = new Swipes(parts.context(), parts, actions::next, actions::previous);
+        Swipes swipes = new Swipes(parts.context(), parts, scroll, forward, backward);
         swipes.addView(column, new FrameLayout.LayoutParams(Parts.MATCH, Parts.MATCH));
         middle.addView(swipes, new LinearLayout.LayoutParams(0, Parts.MATCH, 1));
 
@@ -156,13 +161,13 @@ final class StepScreen implements Screen {
 
         readButton = parts.iconButton("mdi:volume-high", strings.read, "onSurface", 56, actions::read);
         panelButton = parts.iconButton("mdi:format-list-checks", strings.ingredients, "onSurface", 56, this::togglePanel);
-        next = parts.pill(strings.nextStep, "mdi:arrow-right", true, actions::next);
+        next = parts.pill(strings.nextStep, "mdi:arrow-right", true, forward);
         parts.theme().styleText(next, 19, 700, "onPrimary");
         next.setMinHeight(parts.px(64));
         next.setMinWidth(parts.px(wide ? 240 : 170));
 
         LinearLayout tools = parts.row();
-        tools.addView(parts.iconButton("mdi:arrow-left", strings.back, "onSurface", 56, actions::previous));
+        tools.addView(parts.iconButton("mdi:arrow-left", strings.back, "onSurface", 56, backward));
         tools.addView(parts.iconButton("mdi:timer-outline", strings.timers, "onSurface", 56, openTimers), gapped(56));
         tools.addView(readButton, gapped(56));
         tools.addView(panelButton, gapped(56));
@@ -264,18 +269,37 @@ final class StepScreen implements Screen {
             words.append(run.text);
             if (!run.timer()) continue;
             int end = words.length();
-            words.setSpan(new ChipSpan(background, foreground, parts.theme().iconPath("mdi:timer-outline"), parts.px(8)), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            words.setSpan(new ClickableSpan() {
-                @Override public void onClick(View view) {
-                    Parts.guard(() -> actions.startTimer(run.text, run.seconds));
-                }
-
-                @Override public void updateDrawState(TextPaint paint) {
-                    // The chip draws itself.
-                }
-            }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            Runnable tap = () -> actions.startTimer(run.text, run.seconds);
+            words.setSpan(new ChipSpan(background, foreground, parts.theme().iconPath("mdi:timer-outline"), parts.px(8), tap), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         return words;
+    }
+
+    /** A tap on a timer chip starts it. Every other touch goes on to the swipes and the scrolling. */
+    private boolean touchedText(MotionEvent event) {
+        float margin = parts.px(CHIP_MARGIN_DP);
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                pressedChip = ChipSpan.at(text, event.getX(), event.getY(), margin);
+                return pressedChip != null;
+            case MotionEvent.ACTION_UP:
+                ChipSpan chip = pressedChip;
+                pressedChip = null;
+                if (chip != null && chip == ChipSpan.at(text, event.getX(), event.getY(), margin)) Parts.guard(chip.tap);
+                return chip != null;
+            case MotionEvent.ACTION_CANCEL:
+                pressedChip = null;
+                return false;
+            default:
+                return pressedChip != null;
+        }
+    }
+
+    private void move(Runnable action) {
+        long now = SystemClock.uptimeMillis();
+        if (now - lastMove < MOVE_GAP_MS) return;
+        lastMove = now;
+        action.run();
     }
 
     private TextView timerChip(StepText.Run timer) {

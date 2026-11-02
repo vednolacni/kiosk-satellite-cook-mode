@@ -395,6 +395,8 @@ public final class CookTest {
         long version = ui.model.pageVersion;
         cook.startTimer("5 min", 300);
         assert ui.posted(300_000L) && ui.renders > renders && ui.model.pageVersion == version : "A timer must not rebuild the page under a finger";
+        // One press that landed twice is one timer.
+        cook.startTimer("5 min", 300);
         List<Timers.Timer> list = cook.timers();
         assert list.size() == 1 && "Step 1 · 5 min".equals(list.get(0).label) && "7".equals(list.get(0).recipe) && list.get(0).step == 0;
         assert Double.valueOf(1).equals(host.entities.get("timers"));
@@ -447,9 +449,9 @@ public final class CookTest {
         assert !host.overlays.containsKey(Cook.DOCK) && host.overlays.containsKey(Cook.MAIN) && ui.model.page == Model.Page.STEP;
 
         // At most six timers, and the seventh says so.
-        for (int i = 0; i < Timers.MAX; i++) cook.startTimer("t", 1000 + i);
+        for (int i = 0; i < Timers.MAX; i++) cook.startTimer("t" + i, 1000 + i);
         assert cook.timers().size() == Timers.MAX && ui.model.banner == null;
-        cook.startTimer("t", 2000);
+        cook.startTimer("one too many", 2000);
         assert Strings.ENGLISH.tooManyTimers.equals(ui.model.banner);
         // A timer keeps going after cooking ends, in the dock.
         cook.endCooking();

@@ -106,10 +106,11 @@ Norish has rate limits, so its adapter should cache more. Grocy's `consume` chan
 Roughly in order of how much they would help.
 
 1. **Try it on the tablets.** The views have only been compiled. The keyboard in an overlay, the tablet voice on Android 11 or newer (KS's manifest has no `TTS_SERVICE` query, so it may fail there), the alarm volume and the swipes all need a real device.
-2. **Mealie**, as the second source.
-3. **A shopping list** from a recipe or the week's plan, to Tandoor's list and Home Assistant's `todo`.
-4. **An offline copy** of the recipe being cooked and today's meals, so Wi-Fi dropping does not end dinner.
-5. **Pictures in steps.** Tandoor steps can carry their own file.
-6. **Sub-recipes** as their own section, instead of only their ingredients.
-7. **Timers through Kiosk Satellite**, if it ever exposes them, so voice timers and these share one list.
-8. **Requests upstream:** a session-scoped screensaver hold for plugins, an event when a link page closes, and a sound and speech API, so the plugin need not bring its own.
+2. **Two recipes at once.** Opening another recipe forgets the first one's place, though its timers run on. A main and a side dish deserve a list of recipes in progress.
+3. **Mealie**, as the second source.
+4. **A shopping list** from a recipe or the week's plan, to Tandoor's list and Home Assistant's `todo`.
+5. **An offline copy** of the recipe being cooked and today's meals, so Wi-Fi dropping does not end dinner.
+6. **Pictures in steps.** Tandoor steps can carry their own file.
+7. **Sub-recipes** as their own section, instead of only their ingredients.
+8. **Timers through Kiosk Satellite**, if it ever exposes them, so voice timers and these share one list.
+9. **Requests upstream:** a session-scoped screensaver hold for plugins, an event when a link page closes, and a sound and speech API, so the plugin need not bring its own.

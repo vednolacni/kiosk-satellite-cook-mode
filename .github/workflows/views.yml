@@ -1,0 +1,40 @@
+name: Views
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  views:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+      - name: Install the Android platform
+        run: sdkmanager 'platforms;android-35'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14'
+      # Kiosk Satellite brings these on a tablet. The tests look the icons up by the names the views use.
+      - name: Fetch the icons and the font
+        run: |
+          mkdir -p tests-views/build/fixtures
+          cd tests-views/build/fixtures
+          npm pack @mdi/svg@7.4.47 --silent
+          tar xzf mdi-svg-7.4.47.tgz
+          curl -fsSL -o Rubik.ttf 'https://github.com/google/fonts/raw/main/ofl/rubik/Rubik%5Bwght%5D.ttf'
+      - name: Run the views
+        run: gradle -p tests-views test --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: view-screenshots
+          path: |
+            tests-views/build/screenshots
+            tests-views/build/reports/tests/test

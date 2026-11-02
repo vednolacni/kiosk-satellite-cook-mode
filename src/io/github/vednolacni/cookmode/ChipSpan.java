@@ -5,13 +5,19 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
+import android.text.Layout;
+import android.text.Spanned;
 import android.text.style.ReplacementSpan;
+import android.widget.TextView;
 
 /**
  * Draws a run of text as a rounded chip with an icon, in place inside a paragraph, the way the cooking view shows
- * "4 to 5 minutes" as a timer a cook can tap. A ClickableSpan on the same range handles the tap.
+ * "4 to 5 minutes" as a timer a cook can tap. A ClickableSpan would also answer a tap on the empty space after a chip
+ * that ends its line, and start a timer nobody asked for, so taps are matched to the chip itself with {@link #at}.
  */
 final class ChipSpan extends ReplacementSpan {
+    /** What a tap on the chip does. */
+    final Runnable tap;
     private final int background;
     private final int foreground;
     /** An icon outline on a 24 by 24 grid, or null. */
@@ -20,12 +26,31 @@ final class ChipSpan extends ReplacementSpan {
     private final float radius;
     private final RectF rect = new RectF();
 
-    ChipSpan(int background, int foreground, Path icon, float padding) {
+    ChipSpan(int background, int foreground, Path icon, float padding, Runnable tap) {
         this.background = background;
         this.foreground = foreground;
         this.icon = icon;
         this.padding = padding;
         this.radius = padding * 2;
+        this.tap = tap;
+    }
+
+    /** The chip at this touch in the view, or null. margin widens each chip for a thick finger. */
+    static ChipSpan at(TextView view, float touchX, float touchY, float margin) {
+        Layout layout = view.getLayout();
+        CharSequence shown = view.getText();
+        if (layout == null || !(shown instanceof Spanned)) return null;
+        Spanned text = (Spanned) shown;
+        float x = touchX - view.getTotalPaddingLeft() + view.getScrollX();
+        float y = touchY - view.getTotalPaddingTop() + view.getScrollY();
+        for (ChipSpan chip : text.getSpans(0, text.length(), ChipSpan.class)) {
+            int start = text.getSpanStart(chip);
+            int line = layout.getLineForOffset(start);
+            float left = layout.getPrimaryHorizontal(start);
+            float right = left + chip.width(view.getPaint(), text, start, text.getSpanEnd(chip));
+            if (x >= left - margin && x <= right + margin && y >= layout.getLineTop(line) && y <= layout.getLineBottom(line)) return chip;
+        }
+        return null;
     }
 
     @Override

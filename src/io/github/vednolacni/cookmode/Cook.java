@@ -39,6 +39,8 @@ final class Cook implements Ui.Actions {
     static final long PLAN_STALE_MS = 5 * 60_000L;
     /** A gesture or a clap can fire twice. Steps change at most this often by command. */
     static final long COMMAND_GAP_MS = 700L;
+    /** The same timer started again this soon is one press that landed twice. */
+    static final long SAME_TIMER_GAP_MS = 1_500L;
     /** The dock keeps one size: a wrapped overlay that resizes shows stale frames on slow tablets. */
     static final int DOCK_WIDTH = 320;
     static final int DOCK_HEIGHT = 68;
@@ -100,6 +102,8 @@ final class Cook implements Ui.Actions {
     private boolean idleExpired;
     private long lastCommand;
     private boolean alarmOn;
+    private String lastTimer = "";
+    private long lastTimerAt;
     private final Map<String, String> published = new LinkedHashMap<>();
 
     Cook(Ui ui, Clock clock, Executor net, Sources sources) {
@@ -746,7 +750,11 @@ final class Cook implements Ui.Actions {
         if (host == null) return;
         String name = label;
         if (recipe != null && page == Model.Page.STEP && !pages.isEmpty()) name = strings.stepWord + " " + (pageIndex + 1) + " · " + label;
-        int id = timers.start(name, seconds, recipeId, page == Model.Page.STEP ? pageIndex : -1, clock.millis());
+        long now = clock.millis();
+        if (name.equals(lastTimer) && now - lastTimerAt < SAME_TIMER_GAP_MS) return;
+        lastTimer = name;
+        lastTimerAt = now;
+        int id = timers.start(name, seconds, recipeId, page == Model.Page.STEP ? pageIndex : -1, now);
         if (id == 0) banner = strings.tooManyTimers;
         timersChanged();
     }
