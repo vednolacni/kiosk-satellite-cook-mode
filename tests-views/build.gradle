@@ -37,6 +37,18 @@ test {
     outputs.upToDateWhen { false }
     systemProperty 'screenshots', layout.buildDirectory.dir('screenshots').get().asFile.path
     systemProperty 'fixtures', layout.buildDirectory.dir('fixtures').get().asFile.path
+    // Robolectric needs androidx.test, which comes as an AAR. A plain Java project only reads the classes inside.
+    doFirst {
+        def unpacked = layout.buildDirectory.dir('aars').get().asFile
+        configurations.testRuntimeClasspath.files.findAll { it.name.endsWith('.aar') }.each { aar ->
+            copy {
+                from(zipTree(aar)) { include 'classes.jar' }
+                into unpacked
+                rename { aar.name.replace('.aar', '.jar') }
+            }
+        }
+        classpath += files(fileTree(unpacked))
+    }
     testLogging {
         events 'passed', 'failed', 'skipped'
         exceptionFormat 'full'
