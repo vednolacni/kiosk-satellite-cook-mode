@@ -1,0 +1,257 @@
+{
+  "schemaVersion": 1,
+  "id": "cook-mode",
+  "name": "Cook Mode",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "minAndroidSdk": 26,
+  "minAppVersion": "2026.10.42",
+  "entryClass": "io.github.vednolacni.cookmode.CookModePlugin",
+  "description": "A real cook mode for the kitchen tablet. Connects straight to your Tandoor server: today's meal one tap away, every recipe to browse and search, pictures, one big step at a time, servings that rescale, timers from the recipe's own words, read-aloud, and a screen that stays on while you cook. No Home Assistant integration needed.",
+  "author": "vednolacni",
+  "license": "Apache-2.0",
+  "capabilities": [
+    "overlay",
+    "entities",
+    "host.read",
+    "host.control",
+    "ha"
+  ],
+  "settings": [
+    {
+      "key": "serverUrl",
+      "type": "string",
+      "title": "Tandoor address",
+      "default": "",
+      "group": "Recipe server",
+      "description": "The address you open Tandoor with in a browser, such as http://192.168.1.20:8080."
+    },
+    {
+      "key": "apiToken",
+      "type": "secret",
+      "title": "API token",
+      "default": "",
+      "group": "Recipe server",
+      "description": "In Tandoor, open Settings > API and create a token with the scope \"read write\". Copy it right after saving: Tandoor shows it only briefly. It stays on this tablet and goes only to the address above."
+    },
+    {
+      "key": "planDays",
+      "type": "number",
+      "title": "Days of the meal plan",
+      "default": 7,
+      "min": 1,
+      "max": 14,
+      "step": 1,
+      "unit": "days",
+      "group": "Meal plan",
+      "description": "Today and the days after it. Meals planned today come first, one tap from cooking."
+    },
+    {
+      "key": "textSize",
+      "type": "select",
+      "title": "Size of a step's text",
+      "default": "Large",
+      "options": [
+        "Normal",
+        "Large",
+        "Extra large"
+      ],
+      "group": "Cooking",
+      "description": "Large reads well from about two metres on an 8 inch tablet."
+    },
+    {
+      "key": "splitSteps",
+      "type": "boolean",
+      "title": "Split long steps",
+      "default": true,
+      "group": "Cooking",
+      "description": "Recipes imported from the web often hold the whole method in one step. This shows each of its paragraphs as a step of its own."
+    },
+    {
+      "key": "timerSound",
+      "type": "boolean",
+      "title": "Timer sound",
+      "default": true,
+      "group": "Cooking",
+      "description": "Plays the tablet's alarm tone when a timer ends, at the tablet's alarm volume, for up to three minutes."
+    },
+    {
+      "key": "markCooked",
+      "type": "select",
+      "title": "Record the meal in Tandoor",
+      "default": "Ask",
+      "options": [
+        "Ask",
+        "Always",
+        "Never"
+      ],
+      "group": "Cooking",
+      "description": "After the last step, add it to Tandoor's cook log. Never also keeps opened recipes out of Tandoor's recently viewed list."
+    },
+    {
+      "key": "language",
+      "type": "select",
+      "title": "Language",
+      "default": "Auto",
+      "options": [
+        "Auto",
+        "English",
+        "Slovenščina"
+      ],
+      "group": "Cooking",
+      "description": "Auto follows the device language."
+    },
+    {
+      "key": "readAloud",
+      "type": "select",
+      "title": "Voice",
+      "default": "Off",
+      "options": [
+        "Off",
+        "Tablet voice",
+        "Home Assistant"
+      ],
+      "group": "Read aloud",
+      "description": "Tablet voice uses Android's text-to-speech, which needs no connection but not every tablet has, and few speak Slovenian. Home Assistant speaks through the kiosk's own voice satellite."
+    },
+    {
+      "key": "satellite",
+      "type": "entity",
+      "title": "Voice satellite",
+      "default": "",
+      "group": "Read aloud",
+      "visibleWhen": {
+        "key": "readAloud",
+        "equals": "Home Assistant"
+      },
+      "description": "The assist_satellite entity of this kiosk."
+    },
+    {
+      "key": "autoRead",
+      "type": "boolean",
+      "title": "Read each step by itself",
+      "default": false,
+      "group": "Read aloud",
+      "visibleWhen": {
+        "key": "readAloud",
+        "notEquals": "Off"
+      },
+      "description": "Otherwise a step is read when you press the speaker button or run Read step."
+    },
+    {
+      "key": "keepAwake",
+      "type": "boolean",
+      "title": "Keep the screen on while cooking",
+      "default": true,
+      "group": "Screen",
+      "description": "Holds the screensaver back while a recipe is up. A screensaver started by a schedule or a gesture is left alone."
+    },
+    {
+      "key": "awakeMinutes",
+      "type": "number",
+      "title": "Let the screen rest after",
+      "default": 90,
+      "min": 15,
+      "max": 240,
+      "step": 15,
+      "unit": "min",
+      "group": "Screen",
+      "visibleWhen": {
+        "key": "keepAwake",
+        "equals": true
+      },
+      "description": "With nobody touching the tablet for this long, a forgotten recipe stops holding the screen. Any touch or action starts it again."
+    },
+    {
+      "key": "closeOnScreensaver",
+      "type": "boolean",
+      "title": "Close the list when the screensaver starts",
+      "default": true,
+      "group": "Panel",
+      "description": "Only the first page, the way the built-in views go away. A recipe being cooked stays."
+    },
+    {
+      "key": "dockCorner",
+      "type": "select",
+      "title": "Corner of the timer card",
+      "default": "Top right",
+      "options": [
+        "Top right",
+        "Top left",
+        "Bottom right",
+        "Bottom left"
+      ],
+      "group": "Panel",
+      "description": "While the panel is closed, a small card shows what is cooking and how long the timers have left."
+    }
+  ],
+  "buttons": [
+    {
+      "id": "testConnection",
+      "title": "Test connection",
+      "label": "Test",
+      "group": "Recipe server",
+      "description": "Checks the address and the token, and tells which Tandoor answered.",
+      "visibleWhen": {
+        "key": "serverUrl",
+        "notEmpty": true
+      }
+    }
+  ],
+  "commands": [
+    {
+      "id": "openCookMode",
+      "title": "Open Cook Mode"
+    },
+    {
+      "id": "closeCookMode",
+      "title": "Close Cook Mode"
+    },
+    {
+      "id": "toggleCookMode",
+      "title": "Toggle Cook Mode"
+    },
+    {
+      "id": "cookToday",
+      "title": "Cook today's meal"
+    },
+    {
+      "id": "nextStep",
+      "title": "Next step"
+    },
+    {
+      "id": "previousStep",
+      "title": "Previous step"
+    },
+    {
+      "id": "readStep",
+      "title": "Read step"
+    },
+    {
+      "id": "startStepTimer",
+      "title": "Start the step's timer"
+    },
+    {
+      "id": "stopAlarm",
+      "title": "Stop the alarm"
+    },
+    {
+      "id": "endCooking",
+      "title": "End cooking"
+    }
+  ],
+  "triggers": [
+    {
+      "id": "timerDone",
+      "title": "A timer ended"
+    },
+    {
+      "id": "cookingStarted",
+      "title": "Cooking started"
+    },
+    {
+      "id": "cookingFinished",
+      "title": "Cooking finished"
+    }
+  ]
+}

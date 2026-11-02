@@ -1,0 +1,147 @@
+// SPDX-License-Identifier: Apache-2.0
+package io.github.vednolacni.cookmode;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * A recipe as the cooking view needs it, whichever app it came from. Sources fill it in, and the views never see an
+ * app's own JSON. Amounts are stored for the recipe's own servings and scaled when shown. Immutable.
+ */
+final class Recipe {
+    /** How a step's text is written. Tandoor sends HTML whose amounts are tags the client scales. */
+    enum Format { PLAIN, MARKDOWN, TANDOOR_HTML }
+
+    /** One ingredient line. A header groups the lines after it, such as "For the sauce". */
+    static final class Ingredient {
+        final boolean header;
+        /** The amount for the recipe's own servings, or NaN when the line has none, as with "salt to taste". */
+        final double amount;
+        final String unit;
+        final String unitPlural;
+        final String food;
+        final String foodPlural;
+        final String note;
+        /** The line as the recipe first had it, shown when there is no food name. */
+        final String raw;
+
+        Ingredient(boolean header, double amount, String unit, String unitPlural, String food, String foodPlural, String note, String raw) {
+            this.header = header;
+            this.amount = amount;
+            this.unit = unit;
+            this.unitPlural = unitPlural;
+            this.food = food;
+            this.foodPlural = foodPlural;
+            this.note = note;
+            this.raw = raw;
+        }
+
+        static Ingredient header(String title) {
+            return new Ingredient(true, Double.NaN, "", "", title, "", "", title);
+        }
+
+        boolean hasAmount() {
+            return !header && !Double.isNaN(amount) && amount > 0;
+        }
+
+        /** The amount for these servings as text, such as 1½, or an empty string. */
+        String amountText(double factor, boolean decimalComma) {
+            return hasAmount() ? Amounts.format(amount * factor, decimalComma) : "";
+        }
+
+        /** Everything after the amount: "g flour, sifted". Plural names are used unless the amount is one, as Tandoor does. */
+        String rest(double factor) {
+            if (header) return food;
+            boolean plural = hasAmount() && Math.abs(amount * factor - 1) >= 0.0001;
+            String unitName = plural && !unitPlural.isEmpty() ? unitPlural : unit;
+            String foodName = plural && !foodPlural.isEmpty() ? foodPlural : food;
+            StringBuilder rest = new StringBuilder();
+            if (!unitName.isEmpty() && hasAmount()) rest.append(unitName).append(' ');
+            rest.append(foodName.isEmpty() ? raw : foodName);
+            if (!note.isEmpty()) rest.append(", ").append(note);
+            return rest.toString().trim();
+        }
+
+        /** The whole line: "200 g flour, sifted". */
+        String line(double factor, boolean decimalComma) {
+            String amount = amountText(factor, decimalComma);
+            String rest = rest(factor);
+            return amount.isEmpty() ? rest : amount + " " + rest;
+        }
+    }
+
+    /** One step of the method. */
+    static final class Step {
+        /** The step's own name, or an empty string. */
+        final String title;
+        /** The text as the source wrote it, rendered for the chosen servings by Instructions. */
+        final String text;
+        final Format format;
+        final List<Ingredient> ingredients;
+        /** How long the step takes, in seconds, when the source says. 0 otherwise. */
+        final int seconds;
+
+        Step(String title, String text, Format format, List<Ingredient> ingredients, int seconds) {
+            this.title = title;
+            this.text = text;
+            this.format = format;
+            this.ingredients = Collections.unmodifiableList(new ArrayList<>(ingredients));
+            this.seconds = seconds;
+        }
+    }
+
+    final String id;
+    final String name;
+    final String description;
+    /** An absolute address, or an empty string. */
+    final String image;
+    /** The servings the amounts are written for, or 0 when unknown. */
+    final double servings;
+    /** What a serving is called, such as "pieces". Empty means servings. */
+    final String servingsText;
+    final int workingMinutes;
+    final int waitingMinutes;
+    /** The recipe's page in its app. */
+    final String webUrl;
+    /** Where the recipe came from, such as a blog, or an empty string. */
+    final String sourceUrl;
+    final List<Step> steps;
+
+    Recipe(String id, String name, String description, String image, double servings, String servingsText, int workingMinutes, int waitingMinutes, String webUrl, String sourceUrl, List<Step> steps) {
+        this.id = id;
+        this.name = name;
+        this.description = description;
+        this.image = image;
+        this.servings = servings;
+        this.servingsText = servingsText;
+        this.workingMinutes = workingMinutes;
+        this.waitingMinutes = waitingMinutes;
+        this.webUrl = webUrl;
+        this.sourceUrl = sourceUrl;
+        this.steps = Collections.unmodifiableList(new ArrayList<>(steps));
+    }
+
+    /** Every ingredient in order, with a header before each step's lines when several steps have their own. */
+    List<Ingredient> ingredients() {
+        List<Ingredient> all = new ArrayList<>();
+        int stepsWithIngredients = 0;
+        for (Step step : steps) if (!step.ingredients.isEmpty()) stepsWithIngredients++;
+        for (Step step : steps) {
+            if (step.ingredients.isEmpty()) continue;
+            boolean ownHeader = !step.ingredients.get(0).header;
+            if (stepsWithIngredients > 1 && ownHeader && !step.title.isEmpty()) all.add(Ingredient.header(step.title));
+            all.addAll(step.ingredients);
+        }
+        return all;
+    }
+
+    /** How much to scale amounts for the chosen servings. */
+    double factor(double chosenServings) {
+        return servings > 0 && chosenServings > 0 ? chosenServings / servings : 1;
+    }
+
+    int totalMinutes() {
+        return workingMinutes + waitingMinutes;
+    }
+}

@@ -1,0 +1,30 @@
+name: Build
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+      - name: Install Android build tools
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Test
+        run: python3 tools/test.py
+      - name: Build
+        run: python3 tools/build.py --android-platform 35
+      # A development build to install with Plugin Manager > Developer Tools > Install from ZIP.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cook-mode
+          path: dist/*.zip

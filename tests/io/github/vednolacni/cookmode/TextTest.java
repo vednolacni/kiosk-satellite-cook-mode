@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: Apache-2.0
+package io.github.vednolacni.cookmode;
+
+import java.util.*;
+
+/** Json, Amounts, Durations and PlainText: the pure helpers every other part relies on. */
+public final class TextTest {
+    public static void main(String[] args) {
+        json();
+        amounts();
+        durations();
+        plainText();
+        stepText();
+        System.out.println("TextTest passed");
+    }
+
+    static void stepText() {
+        List<StepText.Run> runs = StepText.runs("Brown the chicken for about 4 to 5 minutes per side. Rest 10 min.");
+        assert runs.size() == 5 : runs.size();
+        assert "Brown the chicken for about ".equals(runs.get(0).text) && !runs.get(0).timer();
+        assert "4 to 5 minutes".equals(runs.get(1).text) && runs.get(1).seconds == 240;
+        assert " per side. Rest ".equals(runs.get(2).text);
+        // The full stop after the last duration stays with the sentence, not the chip.
+        assert "10 min".equals(runs.get(3).text) && runs.get(3).seconds == 600 && ".".equals(runs.get(4).text);
+        assert StepText.runs("Mix well.").size() == 1 && StepText.runs("").isEmpty() && StepText.runs(null).isEmpty();
+        // The runs always add up to the text.
+        StringBuilder joined = new StringBuilder();
+        for (StepText.Run run : StepText.runs("Kuhaj 10–15 min. Nato 5 minut počivaj.")) joined.append(run.text);
+        assert "Kuhaj 10–15 min. Nato 5 minut počivaj.".equals(joined.toString()) : joined;
+
+        // A step's own time comes first. The same duration in its text is not offered twice.
+        Recipe.Step step = new Recipe.Step("", "Bake 25 minutes, then rest 5 min.", Recipe.Format.PLAIN, Collections.<Recipe.Ingredient>emptyList(), 25 * 60);
+        List<StepText.Run> timers = StepText.timers(step, step.text, "min");
+        assert timers.size() == 2 && timers.get(0).seconds == 1500 && "25 min".equals(timers.get(0).text) && timers.get(1).seconds == 300;
+        Recipe recipe = new Recipe("1", "Pasta", "", "", 4, "", 20, 10, "", "", Collections.singletonList(step));
+        assert StepText.readyAt(1000, recipe) == 1000 + 30 * 60_000L;
+        Recipe quick = new Recipe("2", "Salad", "", "", 2, "", 0, 0, "", "", Collections.<Recipe.Step>emptyList());
+        assert StepText.readyAt(1000, quick) == -1;
+    }
+
+    static void json() {
+        Object value = Json.parse(" {\"a\": [1, 2.5, -3e2, true, false, null], \"b\": {\"c\": \"x\\ny \\u017e \\\"q\\\"\"}, \"d\": \"\"} ");
+        Map<String, Object> object = Json.object(value);
+        List<Object> list = Json.list(object.get("a"));
+        assert list.size() == 6 && list.get(0).equals(1.0) && list.get(1).equals(2.5) && list.get(2).equals(-300.0);
+        assert Boolean.TRUE.equals(list.get(3)) && Boolean.FALSE.equals(list.get(4)) && list.get(5) == null;
+        assert "x\ny ž \"q\"".equals(Json.path(value, "b", "c"));
+        assert Json.path(value, "b", "missing") == null && Json.path(value, "a", "x") == null;
+        assert Json.object("not an object").isEmpty() && Json.list(null).isEmpty();
+        assert "12".equals(Json.text(12.0)) && "1.5".equals(Json.text(1.5)) && "".equals(Json.text(null));
+        assert Json.integer(7.0, -1) == 7 && Json.integer("x", -1) == -1 && Json.number("2,5", 0) == 2.5;
+        // Order is kept, and writing reads back to the same value.
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("recipe", 12);
+        out.put("servings", 2.5);
+        out.put("note", "Tab\tand \"quote\"\n");
+        out.put("list", Arrays.asList(1, null, true));
+        String written = Json.write(out);
+        assert "{\"recipe\":12,\"servings\":2.5,\"note\":\"Tab\\tand \\\"quote\\\"\\n\",\"list\":[1,null,true]}".equals(written) : written;
+        assert Json.object(Json.parse(written)).get("note").equals("Tab\tand \"quote\"\n");
+        assert Json.list(Json.parse("[]")).isEmpty() && Json.object(Json.parse("{}")).isEmpty();
+        for (String bad : new String[] {"", "{", "[1,]", "{\"a\" 1}", "tru", "01x", "\"open", "[1] 2", "{\"a\":1,}"}) {
+            boolean refused = false;
+            try {
+                Json.parse(bad);
+            } catch (IllegalArgumentException expected) {
+                refused = true;
+            }
+            assert refused : bad;
+        }
+        // Deep nesting is refused instead of overflowing the stack.
+        StringBuilder deep = new StringBuilder();
+        for (int i = 0; i < 100; i++) deep.append('[');
+        boolean refused = false;
+        try {
+            Json.parse(deep.toString());
+        } catch (IllegalArgumentException expected) {
+            refused = true;
+        }
+        assert refused;
+    }
+
+    static void amounts() {
+        assert "½".equals(Amounts.format(0.5)) && "1½".equals(Amounts.format(1.5)) && "⅓".equals(Amounts.format(1.0 / 3));
+        assert "2¾".equals(Amounts.format(2.75)) && "2".equals(Amounts.format(2)) && "1".equals(Amounts.format(0.99));
+        assert "0.1".equals(Amounts.format(0.1)) && "12.3".equals(Amounts.format(12.25)) && "438".equals(Amounts.format(437.5));
+        assert "".equals(Amounts.format(0)) && "".equals(Amounts.format(-1)) && "".equals(Amounts.format(Double.NaN));
+        assert "2½".equals(Amounts.format(2.5, true)) && "12,3".equals(Amounts.format(12.25, true)) && "0,1".equals(Amounts.format(0.1, true));
+        assert Amounts.scale(200, 4, 2) == 100 && Amounts.scale(1, 0, 3) == 1;
+        assert "4".equals(Amounts.servings(4)) && "1½".equals(Amounts.servings(1.5));
+    }
+
+    static void durations() {
+        assert seconds("Bake for 25 minutes.").equals(Collections.singletonList(1500));
+        assert seconds("Kuhaj 10–15 min, nato pusti stati 5 minut.").equals(Arrays.asList(600, 300));
+        assert seconds("Peci 1 uro in 30 minut na 180 stopinjah.").equals(Collections.singletonList(5400));
+        assert seconds("1 Std. 30 Min. ruhen lassen").equals(Collections.singletonList(5400));
+        assert seconds("Simmer 1 h 15 min").equals(Collections.singletonList(4500));
+        assert seconds("Počivaj ½ ure").equals(Collections.singletonList(1800));
+        assert seconds("Pusti 1,5 ure").equals(Collections.singletonList(5400));
+        assert seconds("Stir for 30 sec").equals(Collections.singletonList(30));
+        // Not durations: temperatures, sizes, minced meat, words ending in units.
+        assert seconds("350 °F, 2 cm slices, 500 g minced meat, 3 sl spoons").isEmpty();
+        assert seconds("Add 2 eggs and 10 m").equals(Collections.singletonList(600));
+        assert seconds("Rest for 2 days").isEmpty() && seconds(null).isEmpty();
+        Durations.Found found = Durations.find("Kuhaj 10–15 min.").get(0);
+        assert "10–15 min.".equals(found.text) : found.text;
+        assert "0:45".equals(Durations.clock(45)) && "12:00".equals(Durations.clock(720)) && "1:05:00".equals(Durations.clock(3900));
+    }
+
+    static List<Integer> seconds(String text) {
+        List<Integer> seconds = new ArrayList<>();
+        for (Durations.Found found : Durations.find(text)) seconds.add(found.seconds);
+        return seconds;
+    }
+
+    static void plainText() {
+        String markdown = "# Testo\r\n\r\nZmešaj **moko** in _sol_ v [skledi](https://x.y/z).\n\n\n- jajca\n* mleko\n\n![slika](https://x.y/a.jpg)<br>Pusti `10 min` počivati.\n\n---\nsnake_case_word ostane.";
+        String plain = PlainText.fromMarkdown(markdown);
+        assert plain.equals("Testo\n\nZmešaj moko in sol v skledi.\n\n• jajca\n• mleko\n\nPusti 10 min počivati.\n\nsnake_case_word ostane.") : plain;
+        assert "Testo. Zmešaj moko in sol v skledi. jajca. mleko. Pusti 10 min počivati. snake_case_word ostane.".equals(PlainText.forSpeech(plain)) : PlainText.forSpeech(plain);
+        assert "".equals(PlainText.fromMarkdown(null)) && "a < b & c".equals(PlainText.fromMarkdown("a &lt; b &amp; c"));
+    }
+}
