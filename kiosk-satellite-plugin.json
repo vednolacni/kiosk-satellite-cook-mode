@@ -10,6 +10,7 @@
   "description": "A real cook mode for the kitchen tablet. Connects straight to your Tandoor server: today's meal one tap away, every recipe to browse and search, pictures, one big step at a time, servings that rescale, timers from the recipe's own words, read-aloud, and a screen that stays on while you cook. No Home Assistant integration needed.",
   "author": "vednolacni",
   "license": "Apache-2.0",
+  "icon": "icon.png",
   "capabilities": [
     "overlay",
     "entities",
