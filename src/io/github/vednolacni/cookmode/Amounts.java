@@ -2,6 +2,7 @@
 package io.github.vednolacni.cookmode;
 
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.math.RoundingMode;
 
 /** Ingredient amounts the way a cook reads them: ½ rather than 0.5, 438 rather than 437.5. */
@@ -35,6 +36,8 @@ final class Amounts {
         for (int i = 0; i < PARTS.length; i++) {
             if (Math.abs(rest - PARTS[i]) <= TOLERANCE) {
                 if (i == PARTS.length - 1) return Long.toString(whole + 1);
+                // A little yeast is still some: 0.02 kg must not read as 0 kg.
+                if (i == 0 && whole == 0) return new BigDecimal(amount).round(new MathContext(2)).stripTrailingZeros().toPlainString();
                 if (i == 0) return Long.toString(whole);
                 return (whole == 0 ? "" : Long.toString(whole)) + GLYPHS[i];
             }

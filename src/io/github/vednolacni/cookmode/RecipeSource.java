@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * A recipe app the plugin can cook from. Tandoor ships first. Mealie, Norish, KitchenOwl and Grocy fit the same
@@ -17,7 +18,7 @@ interface RecipeSource {
     final class SourceException extends Exception {
         private static final long serialVersionUID = 1L;
 
-        enum Kind { AUTH, READ_ONLY, HOST, NOT_API, NOT_FOUND, NETWORK, LOCAL_NAME, TLS, SERVER, PARSE, UNSUPPORTED }
+        enum Kind { AUTH, READ_ONLY, HOST, NOT_API, NOT_FOUND, PRIVATE, NETWORK, LOCAL_NAME, TLS, SERVER, PARSE, UNSUPPORTED }
 
         final Kind kind;
 
@@ -64,6 +65,19 @@ interface RecipeSource {
             this.image = image;
             this.minutes = minutes;
         }
+
+        /** By value, so a list read again with nothing new in it leaves the view alone. */
+        @Override public boolean equals(Object other) {
+            if (!(other instanceof Planned)) return false;
+            Planned meal = (Planned) other;
+            return slotOrder == meal.slotOrder && color == meal.color && servings == meal.servings && minutes == meal.minutes && Objects.equals(id, meal.id)
+                && Objects.equals(date, meal.date) && Objects.equals(slot, meal.slot) && Objects.equals(recipeId, meal.recipeId) && Objects.equals(title, meal.title)
+                && Objects.equals(note, meal.note) && Objects.equals(image, meal.image);
+        }
+
+        @Override public int hashCode() {
+            return Objects.hash(id, date, title);
+        }
     }
 
     /** A recipe in a list: search results, all recipes, recently viewed. */
@@ -78,6 +92,17 @@ interface RecipeSource {
             this.name = name;
             this.image = image;
             this.minutes = minutes;
+        }
+
+        /** By value, like Planned. */
+        @Override public boolean equals(Object other) {
+            if (!(other instanceof Summary)) return false;
+            Summary recipe = (Summary) other;
+            return minutes == recipe.minutes && Objects.equals(id, recipe.id) && Objects.equals(name, recipe.name) && Objects.equals(image, recipe.image);
+        }
+
+        @Override public int hashCode() {
+            return Objects.hash(id, name);
         }
     }
 

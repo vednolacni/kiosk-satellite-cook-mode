@@ -30,6 +30,8 @@ final class TandoorSource implements RecipeSource {
     private static final int PAGE_SIZE = 24;
     /** Meal plans arrive 200 to a page. A household plans far fewer in a fortnight. */
     private static final int MAX_PAGES = 5;
+    /** More than any recipe has in one step. Text is read through patterns under the plugin's lock, so it has a limit. */
+    private static final int STEP_TEXT_MOST = 64 * 1024;
 
     private final String base;
     private final String token;
@@ -144,11 +146,16 @@ final class TandoorSource implements RecipeSource {
         List<Recipe.Step> steps = new ArrayList<>();
         for (Object item : Json.list(recipe.get("steps"))) {
             Map<String, Object> step = Json.object(item);
-            steps.add(step(step, ""));
+            Recipe.Step own = step(step, "");
             // A step can pull in another recipe. Tandoor shows its steps right after, at the same servings.
             Map<String, Object> sub = Json.object(step.get("step_recipe_data"));
             String subName = Json.text(sub.get("name"));
-            for (Object subItem : Json.list(sub.get("steps"))) steps.add(step(Json.object(subItem), subName));
+            List<Object> subSteps = Json.list(sub.get("steps"));
+            // One that does nothing else would be an empty page. Its name goes on to the steps it stands for.
+            boolean only = !subSteps.isEmpty() && own.ingredients.isEmpty() && own.seconds == 0 && Instructions.render(own, 1, false).isEmpty();
+            if (only && subName.isEmpty()) subName = own.title;
+            if (!only) steps.add(own);
+            for (Object subItem : subSteps) steps.add(step(Json.object(subItem), subName));
         }
         return new Recipe(Json.text(recipe.get("id")), Json.text(recipe.get("name")), Json.text(recipe.get("description")), image(recipe.get("image")),
             Json.number(recipe.get("servings"), 0), Json.text(recipe.get("servings_text")), (int) Json.integer(recipe.get("working_time"), 0),
@@ -174,8 +181,8 @@ final class TandoorSource implements RecipeSource {
             ingredients.add(new Recipe.Ingredient(false, amount, Json.text(unit.get("name")), Json.text(unit.get("plural_name")),
                 Json.text(food.get("name")), Json.text(food.get("plural_name")), note, Json.text(ingredient.get("original_text"))));
         }
-        String html = Json.text(step.get("instructions_markdown"));
-        String instruction = Json.text(step.get("instruction"));
+        String html = capped(Json.text(step.get("instructions_markdown")));
+        String instruction = capped(Json.text(step.get("instruction")));
         String text;
         Recipe.Format format;
         if (!html.trim().isEmpty() && !html.contains(Instructions.TEMPLATE_ERROR)) {
@@ -187,6 +194,10 @@ final class TandoorSource implements RecipeSource {
         }
         int minutes = (int) Json.integer(step.get("time"), 0);
         return new Recipe.Step(title, text, format, ingredients, Math.max(0, minutes) * 60);
+    }
+
+    private static String capped(String text) {
+        return text.length() > STEP_TEXT_MOST ? text.substring(0, STEP_TEXT_MOST) : text;
     }
 
     @Override
@@ -255,6 +266,8 @@ final class TandoorSource implements RecipeSource {
             URL next = new URL(link);
             URL server = new URL(base);
             String file = next.getFile();
+            // Anything else would turn the server's address into a user name at some other host.
+            if (!file.startsWith("/")) return null;
             String origin = server.getProtocol() + "://" + server.getAuthority();
             return origin + file;
         } catch (MalformedURLException relative) {
@@ -294,11 +307,19 @@ final class TandoorSource implements RecipeSource {
         }
         int status = response.status;
         if (status == 400) {
-            throw new SourceException(SourceException.Kind.HOST, "Tandoor answered 400 Bad Request. Its ALLOWED_HOSTS setting must include " + host()
-                + ". Use the address you open Tandoor with in a browser.");
+            // Django's own page for a host it does not know. Tandoor's API answers its refusals in JSON.
+            String answer = response.text().trim();
+            if (!answer.startsWith("{") && !answer.startsWith("[")) {
+                throw new SourceException(SourceException.Kind.HOST, "Tandoor answered 400 Bad Request. Its ALLOWED_HOSTS setting must include " + host()
+                    + ". Use the address you open Tandoor with in a browser.");
+            }
+            throw new SourceException(SourceException.Kind.SERVER, "Tandoor refused this: " + (answer.length() > 300 ? answer.substring(0, 300) : answer));
         }
         if (status == 403 && body != null) {
             throw new SourceException(SourceException.Kind.READ_ONLY, "Tandoor refused to record this. The API token needs the scope \"read write\"." + detail(response));
+        }
+        if (status == 403 && path.matches("/api/recipe/[0-9]+/")) {
+            throw new SourceException(SourceException.Kind.PRIVATE, "Tandoor does not let the token's user open this recipe. It is private and not shared with them." + detail(response));
         }
         if (status == 401 || status == 403) {
             throw new SourceException(SourceException.Kind.AUTH, "Tandoor refused the API token. Create one under Settings > API with the scope \"read write\" and copy it right after saving." + detail(response));

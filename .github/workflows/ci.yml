@@ -16,7 +16,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
       - name: Install Android build tools
         run: sdkmanager 'platforms;android-35' 'platforms;android-26' 'build-tools;35.0.0'
       # The manifest allows Android 8.0, and a call to anything newer would crash there, not fail here.
@@ -29,7 +29,8 @@ jobs:
       - name: Build
         run: python3 tools/build.py --android-platform 35
       # A development build to install with Plugin Manager > Developer Tools > Install from ZIP.
-      - uses: actions/upload-artifact@v4
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
         with:
           name: cook-mode
           path: dist/*.zip

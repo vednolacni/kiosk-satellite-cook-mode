@@ -33,13 +33,9 @@ final class StepText {
         List<Run> runs = new ArrayList<>();
         int at = 0;
         for (Durations.Found found : Durations.find(text)) {
-            if (found.start < at) continue;
             if (found.start > at) runs.add(new Run(text.substring(at, found.start), 0));
-            // The chip shows the duration without a full stop that ended the sentence.
-            int end = found.end;
-            if (text.charAt(end - 1) == '.' && (end == text.length() || Character.isWhitespace(text.charAt(end)))) end--;
-            runs.add(new Run(text.substring(found.start, end), found.seconds));
-            at = end;
+            runs.add(new Run(text.substring(found.start, found.end), found.seconds));
+            at = found.end;
         }
         if (at < text.length()) runs.add(new Run(text.substring(at), 0));
         return runs;

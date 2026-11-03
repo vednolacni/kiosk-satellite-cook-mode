@@ -74,6 +74,7 @@ final class Strings {
     final String problemTls;
     final String space;
     final String search;
+    final String problemPrivate;
     private final DateTimeFormatter longDate;
     private final DateTimeFormatter shortDate;
 
@@ -84,7 +85,7 @@ final class Strings {
         "Load more", "No recipes found.", "Try again", "Set the server address and the API token in the plugin settings.",
         "Ingredients", "Prep", "Waiting", "Start cooking", "Continue at step %d", "Open in Tandoor",
         "This recipe has no steps.", "Back", "Close", "Ready around %s", "Next step", "Finish", "Read", "For this step",
-        "Enjoy your meal!", "Log in Tandoor as cooked", "Logged in Tandoor.", "Back to the meal plan", "End cooking",
+        "Enjoy your meal!", "Record in Tandoor as cooked", "Recorded in Tandoor.", "Back to the meal plan", "End cooking",
         "Timers", "New timer", "Timer", "Stop", "Pause", "Resume", "Cancel", "At most 6 timers can run.", "Time is up", "Cooking",
         "Tandoor refused the API token. Create a new one under Settings > API.",
         "Tandoor refused this address. Use the address you open it with in a browser.",
@@ -95,6 +96,7 @@ final class Strings {
         "This tablet cannot find the server by that name. Android before version 12 cannot resolve .local names, so use the IP address.",
         "The secure connection failed. The tablet may not trust the certificate or know its TLS version.",
         "Space", "Search",
+        "This recipe is private and not shared with the token's user.",
     });
 
     static final Strings SLOVENIAN = new Strings(new Locale("sl"), true, "EEEE, d. MMMM", "EEEE, d. M.", new String[] {
@@ -104,7 +106,7 @@ final class Strings {
         "Ta recept nima korakov.", "Nazaj", "Zapri", "Pripravljeno okoli %s", "Naslednji korak", "Končaj", "Preberi", "Za ta korak",
         "Dober tek!", "Zabeleži v Tandoorju kot skuhano", "Zabeleženo v Tandoorju.", "Nazaj na jedilnik", "Končaj kuhanje",
         "Časovniki", "Nov časovnik", "Časovnik", "Ustavi", "Premor", "Nadaljuj", "Prekliči", "Teče lahko največ 6 časovnikov.", "Čas je potekel", "Kuhanje",
-        "Tandoor je zavrnil API žeton. Ustvari novega v Nastavitve > API.",
+        "Tandoor je zavrnil API žeton. Ustvari novega v Nastavitvah > API.",
         "Tandoor je zavrnil ta naslov. Uporabi naslov, s katerim ga odpreš v brskalniku.",
         "Strežnik z recepti ni dosegljiv.", "Strežnik z recepti ima težavo.", "Ta recept ni več na voljo.", "Korak", "Nalagam …",
         "Čez noč", "Količine v besedilu veljajo za %s.", "%s je pri koraku %d. Zamenjam recept?", "Zamenjaj", "%s je pri koraku %d. Končam kuhanje?",
@@ -113,6 +115,7 @@ final class Strings {
         "Tablica strežnika s tem imenom ne najde. Android pred različico 12 ne razume imen .local, zato uporabi naslov IP.",
         "Varna povezava ni uspela. Tablica morda ne zaupa certifikatu ali ne pozna njegove različice TLS.",
         "Presledek", "Išči",
+        "Ta recept je zaseben in ni deljen z uporabnikom tega žetona.",
     });
 
     private Strings(Locale locale, boolean decimalComma, String longDate, String shortDate, String[] words) {
@@ -180,6 +183,7 @@ final class Strings {
         problemTls = words[i++];
         space = words[i++];
         search = words[i++];
+        problemPrivate = words[i++];
     }
 
     /** The Language setting's choice. Auto follows the device. */
@@ -235,6 +239,12 @@ final class Strings {
             return number + " " + word;
         }
         return number + (whole && n == 1 ? " serving" : " servings");
+    }
+
+    /** The same after "for": in Slovenian, 1 porcijo. */
+    String servingsFor(double count, String own) {
+        String text = servings(count, own);
+        return text.endsWith(" porcija") ? text.substring(0, text.length() - 1) + "o" : text;
     }
 
     private String capitalized(String text) {

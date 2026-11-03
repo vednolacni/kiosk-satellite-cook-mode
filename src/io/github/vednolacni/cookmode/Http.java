@@ -49,6 +49,8 @@ final class Http {
 
     static final int CONNECT_MS = 6_000;
     static final int READ_MS = 20_000;
+    /** The read timeout is per read, so an answer that trickles needs a limit of its own. */
+    static final long ANSWER_MS = 60_000L;
     private static final int MAX_REDIRECTS = 3;
 
     private final Set<HttpURLConnection> open = Collections.newSetFromMap(new ConcurrentHashMap<HttpURLConnection, Boolean>());
@@ -117,9 +119,11 @@ final class Http {
         try (InputStream stream = in) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             byte[] buffer = new byte[8192];
+            long started = System.nanoTime();
             int total = 0;
             int count;
             while ((count = stream.read(buffer)) != -1) {
+                if (System.nanoTime() - started > ANSWER_MS * 1_000_000L) throw new IOException("The answer took longer than " + ANSWER_MS / 1000 + " seconds");
                 total += count;
                 if (total > limit) throw new IOException("The answer is larger than " + limit / 1024 + " KB");
                 out.write(buffer, 0, count);

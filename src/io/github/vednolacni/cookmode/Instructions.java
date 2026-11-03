@@ -13,13 +13,13 @@ final class Instructions {
     /** What Tandoor puts in the rendered text when a template in the instruction is broken. */
     static final String TEMPLATE_ERROR = "Could not parse template code";
 
-    private static final Pattern SCALABLE = Pattern.compile("<scalable-number\\b([^>]*)>\\s*</scalable-number>", Pattern.CASE_INSENSITIVE);
-    private static final Pattern PLURAL = Pattern.compile("<plural-name\\b([^>]*)>\\s*</plural-name>", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SCALABLE = Pattern.compile("<scalable-number\\b([^>]{0,2000})>\\s*</scalable-number>", Pattern.CASE_INSENSITIVE);
+    private static final Pattern PLURAL = Pattern.compile("<plural-name\\b([^>]{0,2000})>\\s*</plural-name>", Pattern.CASE_INSENSITIVE);
     /** Tandoor 2.6.7 and 2.6.8 escape the plural tag, so it arrives as visible text. */
-    private static final Pattern ESCAPED_PLURAL = Pattern.compile("&lt;plural-name\\b.*?&lt;/plural-name&gt;", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    private static final Pattern ESCAPED_PLURAL = Pattern.compile("&lt;plural-name\\b.{0,2000}?&lt;/plural-name&gt;", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
     /** A tag that shows the text went through Tandoor's Markdown. 2.6.7 skips that and sends the raw source. */
     private static final Pattern BLOCK_TAG = Pattern.compile("<(p|br|ul|ol|li|h[1-6]|div|table|blockquote|pre)\\b", Pattern.CASE_INSENSITIVE);
-    private static final Pattern TEMPLATE = Pattern.compile("\\{\\{.*?\\}\\}|\\{%.*?%\\}", Pattern.DOTALL);
+    private static final Pattern TEMPLATE = Pattern.compile("\\{\\{.{0,2000}?\\}\\}|\\{%.{0,2000}?%\\}", Pattern.DOTALL);
     private static final Pattern NUMBER = Pattern.compile("[0-9½¼¾⅓⅔]");
     private static final Pattern ENTITY = Pattern.compile("&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);");
 
@@ -44,7 +44,6 @@ final class Instructions {
         StringBuilder rest = new StringBuilder();
         int at = 0;
         for (Durations.Found found : Durations.find(text)) {
-            if (found.start < at) continue;
             rest.append(text, at, found.start).append(' ');
             at = found.end;
         }
@@ -97,10 +96,10 @@ final class Instructions {
         text = text.replaceAll("(?i)<br\\s*/?>", "\n");
         text = text.replaceAll("(?i)</p\\s*>", "\n\n");
         // Each item starts its own line, so a closing li adds nothing.
-        text = text.replaceAll("(?i)<li\\b[^>]*>", "\n• ");
+        text = text.replaceAll("(?i)<li\\b[^>]{0,2000}>", "\n• ");
         text = text.replaceAll("(?i)</(ul|ol|h[1-6]|div|tr|table|blockquote|pre)\\s*>", "\n");
-        text = text.replaceAll("(?i)<(h[1-6]|div|tr|table|blockquote|pre)\\b[^>]*>", "\n");
-        text = text.replaceAll("<[^>]*>", "");
+        text = text.replaceAll("(?i)<(h[1-6]|div|tr|table|blockquote|pre)\\b[^>]{0,2000}>", "\n");
+        text = text.replaceAll("<[^>]{0,2000}>", "");
         text = unescape(text);
         text = text.replaceAll("[ \\t\\x0B\\f\\u00A0]+", " ");
         text = text.replaceAll(" *\\n *", "\n");

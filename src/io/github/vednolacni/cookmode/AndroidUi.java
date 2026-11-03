@@ -48,7 +48,8 @@ final class AndroidUi implements Ui {
     private TabletVoice voice;
     private Locale voiceLocale;
     private boolean ticking;
-    private boolean alarmOn;
+    /** The sound is the settings page's test, which ends by itself. */
+    private boolean demo;
     private boolean closed;
 
     @Override public OverlayFactory main(Actions actions) {
@@ -150,7 +151,11 @@ final class AndroidUi implements Ui {
     @Override public void alarm(boolean on) {
         main.post(() -> Parts.guard(() -> {
             if (closed) return;
-            alarmOn = on;
+            if (demo) {
+                demo = false;
+                main.removeCallbacks(endTest);
+                sound.stop();
+            }
             if (!on) {
                 sound.stop();
                 return;
@@ -165,9 +170,14 @@ final class AndroidUi implements Ui {
     @Override public void testAlarm(Report report) {
         main.post(() -> Parts.guard(() -> {
             if (closed) return;
-            sound.stop();
-            sound.start(context, tone != Settings.Tone.ALARM, mediaStream, ringMinutes);
-            main.postDelayed(endTest, TEST_MS);
+            // A timer ringing right now keeps its sound, which shows just as well how loud it is.
+            if (demo || !sound.playing()) {
+                sound.stop();
+                demo = true;
+                main.removeCallbacks(endTest);
+                sound.start(context, tone != Settings.Tone.ALARM, mediaStream, ringMinutes);
+                main.postDelayed(endTest, TEST_MS);
+            }
             String stream = mediaStream ? "media" : "alarm";
             if (context == null) {
                 report.result(true, "Beeping for a few seconds. Open Cook Mode once to try the alarm tone and read the volume.");
@@ -179,9 +189,10 @@ final class AndroidUi implements Ui {
         }));
     }
 
-    /** A test ends by itself unless a real timer has started ringing meanwhile. */
     private void endTest() {
-        if (!alarmOn) sound.stop();
+        if (!demo) return;
+        demo = false;
+        sound.stop();
     }
 
     @Override public void speak(String text, Locale locale) {

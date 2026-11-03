@@ -2,14 +2,14 @@
 package io.github.vednolacni.cookmode;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 /**
  * The cooking view's pages: one per step, except that a long step becomes one page per paragraph. Recipes imported
- * from the web often hold the whole method in a single step, which is useless at two metres. Splitting looks only at
- * paragraph and line breaks, which do not depend on the servings, so the page count stays the same when they change.
+ * from the web often hold the whole method in a single step, which is useless at two metres. The decision to split is
+ * made once at the recipe's own servings, and splitting itself looks only at paragraph and line breaks, which do not
+ * depend on the servings, so the pages stay the same when they change.
  */
 final class Pages {
     /** Shorter steps stay whole, whatever their paragraphs. */
@@ -43,13 +43,16 @@ final class Pages {
     static String text(Recipe recipe, Page page, double factor, boolean decimalComma) {
         String whole = Instructions.render(recipe.steps.get(page.step), factor, decimalComma);
         if (page.parts <= 1) return whole;
-        List<String> parts = parts(whole);
+        List<String> parts = cut(whole);
         return page.part < parts.size() ? parts.get(page.part) : whole;
     }
 
     /** A step's text cut at paragraphs, or at lines when it has none, or whole when it is short. */
     static List<String> parts(String text) {
-        if (text.length() < LONG_STEP) return Collections.singletonList(text);
+        return text.length() < LONG_STEP ? Collections.singletonList(text) : cut(text);
+    }
+
+    private static List<String> cut(String text) {
         List<String> parts = pieces(text.split("\\n\\s*\\n"));
         if (parts.size() < 2) parts = pieces(text.split("\\n"));
         return parts.size() < 2 ? Collections.singletonList(text) : parts;
@@ -57,7 +60,7 @@ final class Pages {
 
     private static List<String> pieces(String[] raw) {
         List<String> pieces = new ArrayList<>();
-        for (String piece : Arrays.asList(raw)) {
+        for (String piece : raw) {
             String trimmed = piece.trim();
             if (!trimmed.isEmpty()) pieces.add(trimmed);
         }

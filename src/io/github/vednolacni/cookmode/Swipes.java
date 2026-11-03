@@ -73,7 +73,10 @@ final class Swipes extends FrameLayout {
             default:
                 break;
         }
-        return swiping || super.dispatchTouchEvent(event);
+        if (swiping) return true;
+        boolean taken = super.dispatchTouchEvent(event);
+        // Beside the column's content nothing takes the touch, and without this the rest of the swipe would not come here.
+        return taken || (on && event.getActionMasked() == MotionEvent.ACTION_DOWN);
     }
 
     private boolean isSwipe(MotionEvent event) {

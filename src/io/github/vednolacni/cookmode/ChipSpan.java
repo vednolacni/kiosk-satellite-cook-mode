@@ -53,6 +53,13 @@ final class ChipSpan extends ReplacementSpan {
         return null;
     }
 
+    /** The widest chip in this text at this paint. A chip does not wrap, so a line narrower than this cuts it off. */
+    static float widest(Spanned text, Paint paint) {
+        float most = 0;
+        for (ChipSpan chip : text.getSpans(0, text.length(), ChipSpan.class)) most = Math.max(most, chip.width(paint, text, text.getSpanStart(chip), text.getSpanEnd(chip)));
+        return most;
+    }
+
     @Override
     public int getSize(Paint paint, CharSequence text, int start, int end, Paint.FontMetricsInt metrics) {
         if (metrics != null) {

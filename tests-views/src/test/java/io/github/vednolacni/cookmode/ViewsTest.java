@@ -762,6 +762,173 @@ public final class ViewsTest {
         idle();
     }
 
+    @Test @Config(qualifiers = "w600dp-h960dp-port-tvdpi")
+    public void aPressThatLandsTwiceOnStartCookingStaysOnTheFirstStep() {
+        begin("double-start", true, settings("English"));
+        open();
+        tap(find("Goveji golaž"));
+        later(400);
+        doubleTap(find(s.startCooking));
+        assertNotNull("whatever is under the finger on the new page, at " + counter(), find("1 / 7"));
+        assertNull(find(s.newTimer));
+        // A moment later that same button is pressed on purpose.
+        tap(find(s.nextStep));
+        assertNotNull(find("2 / 7"));
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aSwipeCanStartBesideTheWords() {
+        begin("gutter", true, settings("English"));
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        // The first fingers' width of the column has nothing in it to touch.
+        swipe(0.97f, 0.5f, 0.5f, 0.5f);
+        assertNotNull(find("2 / 7"));
+        swipe(0.03f, 0.5f, 0.5f, 0.5f);
+        assertNotNull(find("1 / 7"));
+        // Nothing else there takes the touch for itself, and a tap beside the words does nothing.
+        tapAt(0.03f * content.getWidth(), 0.5f * content.getHeight());
+        assertNotNull(find("1 / 7"));
+        assertTrue(cook.timers().isEmpty());
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aDragFromAPlusOrMinusChangesNothing() {
+        begin("drag", true, settings("English"));
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        cook.startTimer("Test", 600);
+        settle();
+        tap(described(s.timers));
+        View plus = find("+1");
+        int left = cook.timers().get(0).left;
+        // A list took the touch over: a scroll, not a press.
+        press(plus);
+        float[] at = center(plus);
+        long time = SystemClock.uptimeMillis();
+        send(MotionEvent.ACTION_CANCEL, at[0], at[1], time, time);
+        settle();
+        assertEquals(left, cook.timers().get(0).left);
+        // A finger that slid away has changed its mind, and it does not go on while it stays down.
+        press(plus);
+        time = SystemClock.uptimeMillis();
+        send(MotionEvent.ACTION_MOVE, at[0] + theme.px(120), at[1], time, time);
+        later(1200);
+        send(MotionEvent.ACTION_UP, at[0] + theme.px(120), at[1], time, SystemClock.uptimeMillis());
+        settle();
+        assertEquals(left, cook.timers().get(0).left);
+        // A press is a press.
+        tap(plus);
+        assertEquals(left + 60, cook.timers().get(0).left);
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void theListsStayPutUnlessAskedSomethingNew() {
+        begin("lists", true, settings("English"));
+        open();
+        TextView card = find("Ričet");
+        View meal = find("Goveji golaž");
+        ScrollView scroll = enclosingScroll(card);
+        reveal(card);
+        scroll.scrollTo(0, theme.px(120));
+        layout();
+        int at = scroll.getScrollY();
+        assertTrue("this list is meant to scroll", at > 0);
+
+        // The same answer again changes nothing under a finger.
+        cook.refresh();
+        settle();
+        assertSame(card, find("Ričet"));
+        assertSame(meal, find("Goveji golaž"));
+        assertEquals(at, scroll.getScrollY());
+
+        // More of the same only adds to it.
+        cook.loadMore();
+        settle();
+        assertSame(card, find("Ričet"));
+        assertNotNull(find("Kremšnita"));
+        assertEquals(at, scroll.getScrollY());
+
+        // A recipe and back: the same page, at the same place.
+        tap(card);
+        tap(described(s.back));
+        assertSame(card, find("Ričet"));
+        assertTrue(scroll.getScrollY() > 0);
+
+        // A new question starts at the top of its answer.
+        cook.showOrder(RecipeSource.Order.RECENT);
+        settle();
+        assertEquals(0, scroll.getScrollY());
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aRestartWithTheServerAwayHoldsThePlace() {
+        begin("waiting", true, settings("English"));
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        tap(find(s.nextStep));
+        later(Cook.SAVE_AFTER_MS + 100);
+        String saved = (String) host.saved.get("resumeState");
+        host.overlays.clear();
+        content.removeAllViews();
+        cook.stop();
+        idle();
+        Map<String, Object> values = settings("English");
+        values.put("resumeState", saved);
+        Host again = new Host();
+        host = again;
+        net = new Net();
+        cook = new Cook(new AndroidUi(), clock, net, settings -> kitchen);
+        cook.start(again, values);
+        RecipeSource.SourceException away = new RecipeSource.SourceException(RecipeSource.SourceException.Kind.NETWORK, "Could not reach it");
+
+        // The plan is read, and then the server goes. Its recipe does not come, and the card says what is waiting.
+        net.tasks.remove(0).run();
+        kitchen.failNext = away;
+        settle();
+        assertNotNull(again.overlays.get(Cook.DOCK));
+        assertNotNull(containing("Goveji golaž"));
+        assertEquals(Boolean.TRUE, again.entities.get("cooking"));
+        shot("dock");
+
+        // Opened, it says why. On the first page it can be found again.
+        cook.execute("openCookMode");
+        net.tasks.remove(0).run();
+        kitchen.failNext = away;
+        settle();
+        assertNotNull(find(s.problemNetwork));
+        tap(described(s.back));
+        View card = find(String.format(s.continueAt, 2));
+        assertNotNull(card);
+        shot("home");
+
+        // With the server back, one tap and it is where it was.
+        tap(card);
+        assertNotNull(find("2 / 7"));
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aNewRingGetsItsFullTimeOfSound() {
+        AlarmSound sound = new AlarmSound();
+        sound.start(null, true, false, 1);
+        assertTrue(sound.playing());
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(50));
+        // Another timer ends while it sounds.
+        sound.start(null, true, false, 1);
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(50));
+        assertTrue("it goes on for the second one", sound.playing());
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(15));
+        assertFalse("and gives up in the end", sound.playing());
+        // One that ends long after that starts it all over.
+        sound.start(null, true, false, 1);
+        assertTrue(sound.playing());
+        sound.stop();
+        assertFalse(sound.playing());
+    }
+
     // Setting up.
 
     private void begin(String shots, boolean dark, Map<String, Object> values) {
@@ -980,7 +1147,14 @@ public final class ViewsTest {
         tapAt(at[0], at[1]);
     }
 
+    /** A page takes no touch in its first moment, against a finger landing twice. A real finger is not that fast. */
+    private void pause() {
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400));
+        layout();
+    }
+
     private void tapAt(float x, float y) {
+        pause();
         long down = SystemClock.uptimeMillis();
         send(MotionEvent.ACTION_DOWN, x, y, down, down);
         send(MotionEvent.ACTION_UP, x, y, down, down + 40);
@@ -1001,6 +1175,7 @@ public final class ViewsTest {
 
     private void press(View view) {
         reveal(view);
+        pause();
         float[] at = center(view);
         long down = SystemClock.uptimeMillis();
         send(MotionEvent.ACTION_DOWN, at[0], at[1], down, down);
@@ -1015,6 +1190,7 @@ public final class ViewsTest {
 
     /** A finger across the screen, in fractions of its size. */
     private void swipe(float fromX, float fromY, float toX, float toY) {
+        pause();
         float width = content.getWidth();
         float height = content.getHeight();
         long down = SystemClock.uptimeMillis();

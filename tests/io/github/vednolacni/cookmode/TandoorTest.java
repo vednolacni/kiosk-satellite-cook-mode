@@ -148,6 +148,63 @@ public final class TandoorTest {
         assert kind(new TandoorSource("", "t", new Http())) == RecipeSource.SourceException.Kind.HOST;
         assert kind(new TandoorSource(base + "/v2", "", new Http())) == RecipeSource.SourceException.Kind.AUTH;
 
+        // What one server can answer about one thing, none of which means the token or the address is wrong.
+        HttpServer odd = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        odd.createContext("/", exchange -> {
+            String path = exchange.getRequestURI().getRawPath();
+            int status = 200;
+            String answer = "{}";
+            if (path.equals("/api/recipe/7/")) {
+                status = 403;
+                answer = "{\"detail\":\"You do not have the required permissions to view this page!\"}";
+            } else if (path.equals("/api/recipe/8/")) {
+                answer = "{\"id\":8,\"name\":\"Pizza\",\"servings\":2,\"steps\":["
+                    + "{\"id\":1,\"name\":\"\",\"instruction\":\"\",\"instructions_markdown\":\"\",\"time\":0,\"ingredients\":[],\"step_recipe_data\":{\"id\":9,\"name\":\"Testo\",\"steps\":[{\"id\":2,\"name\":\"\",\"instruction\":\"Zmešaj.\",\"time\":0,\"ingredients\":[]}]}},"
+                    + "{\"id\":3,\"name\":\"Omaka\",\"instruction\":\"\",\"instructions_markdown\":\"\",\"time\":0,\"ingredients\":[],\"step_recipe_data\":{\"id\":10,\"name\":\"\",\"steps\":[{\"id\":4,\"name\":\"\",\"instruction\":\"Kuhaj.\",\"time\":0,\"ingredients\":[]}]}},"
+                    + "{\"id\":5,\"name\":\"\",\"instruction\":\"\",\"instructions_markdown\":\"\",\"time\":20,\"ingredients\":[],\"step_recipe_data\":{\"id\":11,\"name\":\"Sir\",\"steps\":[{\"id\":6,\"name\":\"\",\"instruction\":\"Nariban.\",\"time\":0,\"ingredients\":[]}]}},"
+                    + "{\"id\":7,\"name\":\"\",\"instruction\":\"Peci.\",\"time\":0,\"ingredients\":[]}]}";
+            } else if (path.equals("/api/server-settings/current/")) {
+                answer = "{\"version\":\"2.7.2\"}";
+            } else if (path.equals("/api/cook-log/")) {
+                status = 400;
+                answer = "{\"recipe\":[\"Invalid pk \\\"99\\\" - object does not exist.\"]}";
+            } else if (path.equals("/api/meal-plan/")) {
+                // A next link that a plain join would turn into a user name at another host.
+                answer = "{\"count\":0,\"next\":\"http:@" + base.substring("http://".length()) + "/steal\",\"results\":[]}";
+            }
+            byte[] bytes = answer.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(status, bytes.length);
+            try (java.io.OutputStream out = exchange.getResponseBody()) {
+                out.write(bytes);
+            }
+        });
+        odd.start();
+        try {
+            TandoorSource source = new TandoorSource("http://127.0.0.1:" + odd.getAddress().getPort(), "tda_secret", new Http());
+            try {
+                source.recipe("7");
+                assert false : "A private recipe must fail";
+            } catch (RecipeSource.SourceException refused) {
+                assert refused.kind == RecipeSource.SourceException.Kind.PRIVATE && refused.getMessage().contains("required permissions") : refused.kind;
+            }
+            try {
+                source.cooked("99", 2);
+                assert false : "A recipe gone from the server cannot be recorded";
+            } catch (RecipeSource.SourceException refused) {
+                assert refused.kind == RecipeSource.SourceException.Kind.SERVER && refused.getMessage().contains("Invalid pk") : refused.kind + " " + refused.getMessage();
+            }
+            source.mealPlan(TODAY, TODAY);
+            for (String request : new ArrayList<>(requests)) assert !request.contains("/steal") : request;
+            // A step that only pulls in another recipe is no page of its own. Its name goes on, and a time keeps it.
+            Recipe pizza = source.recipe("8");
+            List<String> titles = new ArrayList<>();
+            for (Recipe.Step step : pizza.steps) titles.add(step.title);
+            assert titles.equals(Arrays.asList("Testo", "Omaka", "", "Sir", "")) : titles;
+            assert pizza.steps.get(2).seconds == 1200 && "Peci.".equals(Instructions.render(pizza.steps.get(4), 1, false));
+        } finally {
+            odd.stop(0);
+        }
+
         // A token that can only read: reading works, and recording says why it cannot.
         HttpServer readOnly = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         readOnly.createContext("/", exchange -> {

@@ -7,25 +7,42 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.LruCache;
 import android.widget.ImageView;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
- * Recipe pictures for the views: fetched on two threads of the plugin's own, decoded no larger than their view needs,
- * which matters on a 2 GB tablet, and kept in a small memory cache. A view gets its picture only if it still shows the
- * same address, so fast scrolling never puts the wrong picture in a row.
+ * Recipe pictures for the views: fetched on two low-priority threads of the plugin's own, decoded no larger than their
+ * view needs, which matters on a 2 GB tablet, and kept in a small memory cache. The picture asked for last comes first,
+ * so the one a cook just opened does not wait behind a whole list, and the same picture is only fetched once at a time.
+ * A view gets its picture only if it still shows the same address, so fast scrolling never puts the wrong picture in a row.
  */
 final class Images {
     /** Recipe pictures are a few hundred KB. Anything larger is not a picture we want to decode. */
     private static final int MAX_BYTES = 8 * 1024 * 1024;
+    /**
+     * What one picture may take once decoded, at four bytes a pixel since a picture with alpha ignores the smaller format.
+     * Android refuses to draw a bitmap over 100 MB with an exception in the draw pass, which would end the app.
+     */
+    private static final long MAX_DECODED_BYTES = 16 * 1024 * 1024;
 
     private final Http http = new Http();
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final ExecutorService pool = Executors.newFixedThreadPool(2, task -> {
+    private final ThreadPoolExecutor pool = new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS, new LinkedBlockingDeque<Runnable>() {
+        private static final long serialVersionUID = 1L;
+
+        @Override public boolean offer(Runnable task) {
+            return offerFirst(task);
+        }
+    }, task -> {
         Thread thread = new Thread(task, "cook-mode-images");
         thread.setDaemon(true);
+        thread.setPriority(Thread.NORM_PRIORITY - 2);
         return thread;
     });
     /** About a sixteenth of the app's memory, in KB. */
@@ -34,6 +51,8 @@ final class Images {
             return Math.max(1, bitmap.getByteCount() / 1024);
         }
     };
+    /** The views waiting for each picture being fetched. Main thread only. */
+    private final Map<String, List<ImageView>> waiting = new HashMap<>();
     private volatile boolean closed;
 
     /**
@@ -53,18 +72,31 @@ final class Images {
             return;
         }
         view.setImageDrawable(null);
+        List<ImageView> others = waiting.get(key);
+        if (others != null) {
+            others.add(view);
+            return;
+        }
+        List<ImageView> views = new ArrayList<>();
+        views.add(view);
+        waiting.put(key, views);
         try {
             pool.execute(() -> {
                 Bitmap bitmap = fetch(url, headers, width);
-                if (bitmap == null || closed) return;
-                cache.put(key, bitmap);
-                main.post(() -> {
-                    if (url.equals(view.getTag())) view.setImageBitmap(bitmap);
-                });
+                if (closed) return;
+                if (bitmap != null) cache.put(key, bitmap);
+                main.post(() -> Parts.guard(() -> finished(key, url, bitmap)));
             });
         } catch (RejectedExecutionException shutDown) {
             // The plugin is stopping.
+            waiting.remove(key);
         }
+    }
+
+    private void finished(String key, String url, Bitmap bitmap) {
+        List<ImageView> views = waiting.remove(key);
+        if (views == null || bitmap == null) return;
+        for (ImageView view : views) if (url.equals(view.getTag())) view.setImageBitmap(bitmap);
     }
 
     /** Stop fetching and drop the cache. */
@@ -73,6 +105,7 @@ final class Images {
         pool.shutdownNow();
         http.cancelAll();
         cache.evictAll();
+        waiting.clear();
     }
 
     private Bitmap fetch(String url, Map<String, String> headers, int width) {
@@ -84,7 +117,7 @@ final class Images {
             BitmapFactory.decodeByteArray(response.body, 0, response.body.length, bounds);
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
             BitmapFactory.Options options = new BitmapFactory.Options();
-            options.inSampleSize = sample(bounds.outWidth, Math.max(1, width));
+            options.inSampleSize = sample(bounds.outWidth, bounds.outHeight, Math.max(1, width));
             options.inPreferredConfig = Bitmap.Config.RGB_565;
             return BitmapFactory.decodeByteArray(response.body, 0, response.body.length, options);
         } catch (Exception | OutOfMemoryError unavailable) {
@@ -93,10 +126,11 @@ final class Images {
         }
     }
 
-    /** The largest power of two that keeps the picture at least width wide. */
-    static int sample(int pictureWidth, int width) {
+    /** The largest power of two that keeps the picture at least width wide, or more when it would still be too large. */
+    static int sample(int pictureWidth, int pictureHeight, int width) {
         int sample = 1;
         while (pictureWidth / (sample * 2) >= width) sample *= 2;
+        while ((long) (pictureWidth / sample) * (pictureHeight / sample) * 4 > MAX_DECODED_BYTES) sample *= 2;
         return sample;
     }
 }

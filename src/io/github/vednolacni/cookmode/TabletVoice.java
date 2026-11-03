@@ -70,6 +70,9 @@ final class TabletVoice {
     }
 
     void silence() {
+        synchronized (this) {
+            pending = null;
+        }
         try {
             engine.stop();
         } catch (RuntimeException failed) {

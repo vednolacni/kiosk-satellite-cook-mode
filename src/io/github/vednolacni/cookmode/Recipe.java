@@ -53,7 +53,7 @@ final class Recipe {
         /** The amount and its unit for these servings, such as 200 g, or an empty string. */
         String measure(double factor, boolean decimalComma) {
             String amount = amountText(factor, decimalComma);
-            if (amount.isEmpty()) return "";
+            if (amount.isEmpty() || rawOnly()) return "";
             String unitName = plural(factor) && !unitPlural.isEmpty() ? unitPlural : unit;
             return unitName.isEmpty() ? amount : amount + " " + unitName;
         }
@@ -62,8 +62,13 @@ final class Recipe {
         String name(double factor) {
             if (header) return food;
             String foodName = plural(factor) && !foodPlural.isEmpty() ? foodPlural : food;
-            String name = foodName.isEmpty() ? raw : foodName;
-            return (note.isEmpty() ? name : name + ", " + note).trim();
+            if (foodName.isEmpty()) return (note.isEmpty() ? raw : note).trim();
+            return (note.isEmpty() ? foodName : foodName + ", " + note).trim();
+        }
+
+        /** With nothing else to go on, the line as first written stands alone: it holds its own amount, if any. */
+        private boolean rawOnly() {
+            return food.isEmpty() && note.isEmpty() && !raw.isEmpty();
         }
 
         /** The whole line: "200 g flour, sifted". */

@@ -48,7 +48,8 @@ English and Slovenian, including Slovenian's four plural forms and decimal comma
 | Screen | Keep the screen on while cooking | Holds the screensaver back while a recipe is up. |
 | | Let the screen rest after | How long without a touch before a forgotten recipe lets go, 15 to 240 minutes. |
 | | Close the list when the screensaver starts | Only the first page. A recipe being cooked stays. |
-| Advanced | Saved session | Written by the plugin, for a restart. Empty it to forget the session. |
+| Advanced | Show advanced settings | Shows the row below. |
+| | Saved session | Written by the plugin, for a restart. Emptied, it is forgotten at the next restart. End cooking and stopping the timers forget it at once. |
 
 ### Creating the token
 
@@ -69,6 +70,8 @@ A token with the scope `read` is enough to cook, but Tandoor then refuses the co
 | The secure connection failed | Install a private CA in Android, which Kiosk Satellite trusts, or use plain http on the home network. Android 8.1 cannot use a server that only offers TLS 1.3. |
 | The recipe server cannot be reached | Check the address from the tablet's own network. |
 
+Opening one recipe can also say it is private and not shared with the token's user. That is about the recipe, not the token.
+
 ### Reading aloud
 
 **Tablet voice** uses Android's text-to-speech. Not every tablet has one, few speak Slovenian, and Kiosk Satellite's permissions may keep it from working on Android 11 or newer. The plugin's page says when it cannot speak.
@@ -81,7 +84,7 @@ A token with the scope `read` is enough to cook, but Tandoor then refuses the co
 | --- | --- |
 | Open Cook Mode, Close Cook Mode, Toggle Cook Mode | The panel. Opening wakes the screen and closes the screensaver. |
 | Cook today's meal | Goes straight to the next meal planned today. |
-| Next step, Previous step | Move through the recipe. On the first page Next opens today's meal. With the panel closed, the first one only brings it back. |
+| Next step, Previous step | Move through the recipe. On the first page Next opens today's meal. With the panel closed or under a screensaver, the first one only brings it back. |
 | Read step | Reads the current step aloud. |
 | Start the step's timer | Starts the first of the step's timers that does not run yet. |
 | One more minute | Starts a ringing timer again for a minute, or else adds a minute to the next one to ring. |
@@ -109,11 +112,11 @@ Kiosk Mode's exit gesture of several fast taps counts taps anywhere, also on the
 
 ## Where data goes
 
-- **Your Tandoor server.** The plugin calls the address in **Tandoor address** with your token, to read the meal plan and recipes and, unless **Record the meal in Tandoor** is **Never**, to record what you opened and cooked. The token never goes to any other host: a redirect to another host or port, or from https back to http, is not followed, and a next-page link from another host is rewritten to your server.
+- **Your Tandoor server.** The plugin calls the address in **Tandoor address** with your token, to read the meal plan and recipes and, unless **Record the meal in Tandoor** is **Never**, to record what you opened and cooked. The token never goes to any other host: a redirect to another host is not followed, nor to another port unless it goes from http up to https on the same host, nor from https back to http, and a next-page link from another host is rewritten to your server. With Fleet Management, Kiosk Satellite copies the token to other kiosks only if a profile includes **Plugin secrets**, and an export of the configuration holds it.
 - **Pictures.** They load from wherever Tandoor says they are, which can be S3 storage if you set that up. Tandoor's media is public, so the token is not sent with them.
-- **Home Assistant.** Only with the Home Assistant voice: the text of a step goes through Kiosk Satellite's own connection to the kiosk's announce action, and on to whichever text-to-speech engine you chose, which may be a cloud service. The plugin never sees your Home Assistant token.
+- **Home Assistant.** Only with the Home Assistant voice: the text of a step or the ingredient list goes through Kiosk Satellite's own connection to the kiosk's announce action, and on to whichever text-to-speech engine you chose, which may be a cloud service. The plugin never sees your Home Assistant token.
 - **ESPHome entities.** With them on, the recipe, the step, the timers and today's meals go to Home Assistant.
-- **The tablet.** With the tablet voice, Android's text-to-speech engine reads the step. Which engine that is, and what it does with the text, is up to the tablet. The **Saved session** setting holds the recipe's id, the servings, the step and the timers, in Kiosk Satellite's settings. It never holds the token. With Fleet Management it can reach other kiosks, which ignore it because it names its device.
+- **The tablet.** With the tablet voice, Android's text-to-speech engine reads the step. Which engine that is, and what it does with the text, is up to the tablet. The **Saved session** setting holds the recipe's id, the servings, the step and the timers, in Kiosk Satellite's settings. It never holds the token. It is stored as a secret, so Fleet Management leaves it out unless a profile includes **Plugin secrets**, and other kiosks ignore it then because it names its device.
 - Nothing is sent anywhere else, and there is no telemetry.
 
 ## Installation
@@ -126,7 +129,7 @@ Kiosk Mode's exit gesture of several fast taps counts taps anywhere, also on the
 
 Once the plugin is listed in [Community Plugins](https://kiosksatellite.com/plugins/), this section gets the **Install in Kiosk Satellite** button.
 
-Until there is a public release, take the ZIP from the latest run of the **Build** workflow and install it with **Plugin Manager > Developer Tools > Install from ZIP**.
+Until there is a public release, take the ZIP from the latest [**Build** run on `main`](https://github.com/vednolacni/kiosk-satellite-cook-mode/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush), never from a run for a pull request, and install it with **Plugin Manager > Developer Tools > Install from ZIP**.
 
 ## Development
 
@@ -141,7 +144,7 @@ The plugin is built from the [Kiosk Satellite plugin template](https://github.co
 
 ### Build
 
-With Python 3, JDK 17 or newer and an Android SDK with `platforms;android-35` and `build-tools;35.0.0`:
+With Python 3, JDK 18 or newer and an Android SDK with `platforms;android-35` and `build-tools;35.0.0`:
 
 ```sh
 python3 tools/test.py

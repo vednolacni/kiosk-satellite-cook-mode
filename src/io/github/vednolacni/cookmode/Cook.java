@@ -47,10 +47,50 @@ final class Cook implements Ui.Actions {
     static final long LATE_RING_MS = 30 * 60_000L;
     /** A recipe left this long ago, by a restart, is not picked up again. */
     static final long SESSION_KEPT_MS = 12 * 60 * 60_000L;
+    /** How often to ask KS again which kiosk this is, and how many times. Until it says, nothing saved is touched. */
+    static final long DEVICE_AGAIN_MS = 10_000L;
+    static final int DEVICE_TRIES = 6;
+    /** How often a session from before a restart asks for its recipe again. The server may be starting up too. */
+    static final long RESUME_AGAIN_MS = 60_000L;
+    /** A kiosk before 2026.11.1 refuses to read while it is reading. How often to try the newest text, and how many times. */
+    static final long SPEECH_AGAIN_MS = 1_500L;
+    static final int SPEECH_TRIES = 20;
+    /** Home Assistant turns a longer state into unknown. */
+    static final int STATE_MOST = 255;
     /** The dock keeps one size: a wrapped overlay that resizes shows stale frames on slow tablets. */
     static final int DOCK_WIDTH = 320;
     static final int DOCK_HEIGHT = 68;
     private static final Map<String, Object> NONE = Collections.emptyMap();
+
+    /** What raised the banner, which is what may clear it. */
+    private enum Trouble { PLAN, LIST, RECIPE, LOG, TIMERS }
+
+    /** A session set aside while the recipe replacing it loads. If that recipe does not come, this one comes back. */
+    private static final class Stash {
+        final Recipe recipe;
+        final String id;
+        final String image;
+        final double servings;
+        final List<Pages.Page> pages;
+        final int pageIndex;
+        final long started;
+        final Set<Recipe.Ingredient> checked;
+        final boolean logged;
+        final boolean logFailed;
+
+        Stash(Recipe recipe, String id, String image, double servings, List<Pages.Page> pages, int pageIndex, long started, Set<Recipe.Ingredient> checked, boolean logged, boolean logFailed) {
+            this.recipe = recipe;
+            this.id = id;
+            this.image = image;
+            this.servings = servings;
+            this.pages = pages;
+            this.pageIndex = pageIndex;
+            this.started = started;
+            this.checked = checked;
+            this.logged = logged;
+            this.logFailed = logFailed;
+        }
+    }
 
     private final Ui ui;
     private final Clock clock;
@@ -62,6 +102,9 @@ final class Cook implements Ui.Actions {
     private final Runnable planTask = this::planTick;
     private final Runnable idleTask = this::idleCheck;
     private final Runnable saveTask = this::save;
+    private final Runnable deviceTask = this::askDevice;
+    private final Runnable resumeTask = this::resumeAgain;
+    private final Runnable speechTask = this::speechAgain;
 
     private PluginHost host;
     private Settings settings;
@@ -72,6 +115,7 @@ final class Cook implements Ui.Actions {
     private Model.Page page = Model.Page.HOME;
     private long version;
     private String banner;
+    private Trouble bannerOwner;
 
     private List<RecipeSource.Planned> plan = Collections.emptyList();
     private int planGeneration;
@@ -102,16 +146,21 @@ final class Cook implements Ui.Actions {
     private long sessionStart;
     private boolean logged;
     private boolean logging;
+    /** The last try to record the meal failed, so it is offered again whatever the setting. */
+    private boolean logFailed;
     /** A KS page was opened from here. KS does not say when it closes, so the hold on it ends with the idle limit. */
     private boolean linkOpen;
 
     private long lastTouch;
     private boolean idleExpired;
+    private boolean idlePosted;
     private long lastCommand;
     private String lastCommandName = "";
     private boolean alarmOn;
     /** A gesture or the stop word silenced the alarm, and the ringing timer is still on show. */
     private boolean alarmMuted;
+    /** A timer has just started ringing. It gets its full time of sound, even if an earlier one's has given up. */
+    private boolean restartSound;
     /** What a yes to the question on show would do, or null when nothing is asked. */
     private Runnable confirmed;
     private String confirmText;
@@ -122,12 +171,24 @@ final class Cook implements Ui.Actions {
     private String assistantNode = "";
     private boolean spoke;
     private boolean noStopAction;
+    /** The text that should be read now, and where it was refused because the kiosk still reads the last one. */
+    private String speech;
+    private List<String> speechNodes = Collections.emptyList();
+    private int speechNode;
+    private int speechTries;
     /** False until KS has said which kiosk this is. Until then the saved state must stay as it is. */
     private boolean deviceKnown;
+    private int deviceTries;
+    /** What was saved before this start, until KS has said whether it is this kiosk's. */
+    private Snapshot savedAtStart;
     /** The state last saved, without its time, to save only when it changes. */
     private String savedKey = "";
     /** The session to pick up when its recipe has loaded after a restart, or null. */
     private Snapshot resume;
+    /** The session a loading recipe is about to replace, or null. */
+    private Stash stash;
+    /** What Test connection is using, so Cancel and stop can reach it. */
+    private RecipeSource probe;
     private final Map<String, String> published = new LinkedHashMap<>();
 
     Cook(Ui ui, Clock clock, Executor net, Sources sources) {
@@ -144,8 +205,8 @@ final class Cook implements Ui.Actions {
         this.host = host;
         awake.start(host);
         lastTouch = clock.millis();
-        configure(values);
         publishCatalog();
+        configure(values);
         host.subscribe("screensaver.state");
         host.subscribe("screensaver.countdown");
         // The word KS listens for to stop its own timers silences ours too.
@@ -155,16 +216,35 @@ final class Cook implements Ui.Actions {
         boolean anySaved = saved instanceof String && !((String) saved).isEmpty();
         // What is stored must be replaced the first time, whatever it holds.
         savedKey = anySaved ? "?" : "";
-        final Snapshot snapshot = anySaved ? Snapshot.decode((String) saved) : null;
-        host.executeCommand("getDeviceInfo", NONE, (ok, data, error) -> deviceInfo(ok ? data : null, snapshot));
+        savedAtStart = anySaved ? Snapshot.decode((String) saved) : null;
+        askDevice();
+    }
+
+    /** Which kiosk is this? A busy KS can fail to say while it starts, so it is asked again a few times. */
+    private void askDevice() {
+        synchronized (this) {
+            if (host == null || deviceKnown) return;
+            try {
+                host.executeCommand("getDeviceInfo", NONE, (ok, data, error) -> deviceInfo(ok, data));
+            } catch (RuntimeException refused) {
+                deviceInfo(false, null);
+            }
+        }
     }
 
     /** KS says which kiosk this is: for Home Assistant's voice, and whether the saved state is this kiosk's. */
-    private synchronized void deviceInfo(Object info, Snapshot saved) {
+    private synchronized void deviceInfo(boolean ok, Object info) {
         if (host == null || deviceKnown) return;
         try {
+            if (!ok) {
+                // After the last try saving stays off for this session: what is stored may be all there is.
+                if (++deviceTries < DEVICE_TRIES) ui.post(deviceTask, DEVICE_AGAIN_MS);
+                return;
+            }
             deviceKnown = true;
             deviceName = Json.text(Json.object(info).get("name"));
+            Snapshot saved = savedAtStart;
+            savedAtStart = null;
             if (saved != null && saved.device.equals(deviceName)) restore(saved);
         } catch (RuntimeException sessionEnded) {
             // KS revokes the host before stop, and this may be its last answer.
@@ -179,11 +259,14 @@ final class Cook implements Ui.Actions {
             if (!timer.paused && now - timer.value > LATE_RING_MS) missed++;
             else timers.restore(timer.label, timer.total, timer.paused, timer.value, timer.recipe, timer.step);
         }
-        if (!saved.recipe.isEmpty() && now - saved.savedAt < SESSION_KEPT_MS && source != null) {
+        // KS may have answered late. A recipe opened in the meantime is the one that counts now.
+        boolean taken = recipe != null || recipeLoading || !recipeId.isEmpty();
+        if (!saved.recipe.isEmpty() && now - saved.savedAt < SESSION_KEPT_MS && source != null && !taken) {
             resume = saved;
             recipeId = saved.recipe;
+            recipeName = saved.name;
             plannedServings = saved.servings;
-            page = Model.Page.RECIPE;
+            if (!shown) page = Model.Page.RECIPE;
             loadRecipe();
         }
         timersChanged();
@@ -194,13 +277,28 @@ final class Cook implements Ui.Actions {
     private void pickUp() {
         Snapshot session = resume;
         resume = null;
+        ui.cancel(resumeTask);
         if (pages.isEmpty()) return;
         cooking = true;
         sessionStart = session.started;
-        pageIndex = Math.min(session.page, pages.size() - 1);
-        page = Model.Page.STEP;
+        pageIndex = Math.max(0, Math.min(session.page, pages.size() - 1));
+        // Not if the cook has moved on while it loaded: the card on the home page leads back.
+        if (page == Model.Page.RECIPE) page = Model.Page.STEP;
+        updateAwake();
         updateDock();
         publishState();
+    }
+
+    /** A session from before a restart still has no recipe: ask again, unless an answer is on its way. */
+    private void retryResume() {
+        if (resume != null && !recipeLoading) loadRecipe();
+    }
+
+    /** Runs on the main thread while a session from before a restart waits for its recipe. */
+    private void resumeAgain() {
+        synchronized (this) {
+            if (host != null) retryResume();
+        }
     }
 
     private void saveSoon() {
@@ -226,10 +324,13 @@ final class Cook implements Ui.Actions {
     private String snapshot(long at) {
         List<Timers.Timer> list = timers.list(clock.millis());
         boolean session = cooking && recipe != null;
-        if (list.isEmpty() && !session) return "";
+        if (list.isEmpty() && !session && resume == null && stash == null) return "";
         List<Snapshot.SavedTimer> saved = new ArrayList<>();
         for (Timers.Timer timer : list) saved.add(new Snapshot.SavedTimer(timer.label, timer.total, timer.state == Timers.State.PAUSED, timer.value, timer.recipe, timer.step));
-        return new Snapshot(deviceName, at, session ? recipeId : "", servings, pageIndex, sessionStart, saved).encode();
+        // A session waiting for its recipe, or set aside for another, has not ended.
+        if (resume != null) return new Snapshot(deviceName, at, resume.recipe, resume.name, resume.servings, resume.page, resume.started, saved).encode();
+        if (stash != null) return new Snapshot(deviceName, at, stash.id, stash.recipe.name, stash.servings, stash.pageIndex, stash.started, saved).encode();
+        return new Snapshot(deviceName, at, session ? recipeId : "", session ? recipeName : "", servings, pageIndex, sessionStart, saved).encode();
     }
 
     synchronized void configure(Map<String, Object> values) {
@@ -254,10 +355,24 @@ final class Cook implements Ui.Actions {
             listGeneration++;
             planLoading = false;
             recipesLoading = false;
-            if (source != null) loadPlan();
+            // What is on its way came through the connection just closed, which is no failure of anything.
+            recipeGeneration++;
+            recipeLoading = false;
+            if (previous != null && !settings.serverUrl.equals(previous.serverUrl)) {
+                // The recipe in hand means nothing on another server.
+                endSession();
+                page = Model.Page.HOME;
+            } else if (recipe == null && !recipeId.isEmpty()) {
+                loadRecipe();
+            }
+            if (source != null) {
+                loadPlan();
+                if (shown) loadRecipes(1);
+            }
         } else if (previous != null && previous.planDays != settings.planDays) {
             loadPlan();
         }
+        if (dockShown && previous != null && (!settings.dockCorner.equals(previous.dockCorner) || settings.dockOnTop != previous.dockOnTop)) showDock(OverlaySpec.NONE);
         if (recipe != null && previous != null && previous.splitSteps != settings.splitSteps) {
             pages = Pages.of(recipe, settings.splitSteps);
             pageIndex = Math.min(pageIndex, Math.max(0, pages.size() - 1));
@@ -273,8 +388,12 @@ final class Cook implements Ui.Actions {
         ui.cancel(planTask);
         ui.cancel(idleTask);
         ui.cancel(saveTask);
+        ui.cancel(deviceTask);
+        ui.cancel(resumeTask);
+        ui.cancel(speechTask);
         awake.stop();
         if (source != null) source.cancel();
+        if (probe != null) probe.cancel();
         ui.shutdown();
         host = null;
         settings = null;
@@ -294,8 +413,8 @@ final class Cook implements Ui.Actions {
         switch (command) {
             case "openCookMode": open(); break;
             case "closeCookMode": close(); break;
-            case "toggleCookMode": if (shown) close(); else open(); break;
-            case "cookToday": cookToday(); break;
+            case "toggleCookMode": if (firstTime(command)) toggleView(); break;
+            case "cookToday": if (firstTime(command)) cookToday(); break;
             case "nextStep": if (handsFree(command)) stepCommand(true); break;
             case "previousStep": if (handsFree(command)) stepCommand(false); break;
             case "readStep": if (handsFree(command)) read(); break;
@@ -329,22 +448,29 @@ final class Cook implements Ui.Actions {
         } else if ("settings.button".equals(event)) {
             if ("testConnection".equals(payload.get("id"))) testConnection(String.valueOf(payload.get("run")));
             else if ("testAlarm".equals(payload.get("id"))) testAlarm(String.valueOf(payload.get("run")));
+        } else if ("settings.cancel".equals(event)) {
+            if (probe != null) probe.cancel();
         }
     }
 
     // Opening and closing.
 
     private void open() {
-        if (!shown) {
-            shown = true;
+        if (shown) {
+            // It may be up under a screensaver, where nobody can see it.
+            awake.reveal();
+        } else {
             lastTouch = clock.millis();
             idleExpired = false;
-            hideDockNow();
             guardCommand("stopScreensaver");
             render();
+            // First, because KS can refuse it, and then the card stays and the next try can still open.
             host.showOverlay(MAIN, OverlaySpec.fullScreen().enter(OverlaySpec.FADE).exit(OverlaySpec.FADE).transitionDuration(150), ui.main(this));
+            shown = true;
+            hideDockNow();
             if (planReadAt < 0 || clock.millis() - planReadAt > PLAN_STALE_MS) loadPlan();
             if (recipesPage == 0 && !recipesLoading) loadRecipes(1);
+            retryResume();
             // The panel shows what it is loading as soon as it opens.
             changed();
         }
@@ -352,10 +478,22 @@ final class Cook implements Ui.Actions {
         publishState();
     }
 
-    /** The main view went away, by the close button or by back. The session stays until End cooking. */
+    /** Under a screensaver the view cannot be seen, so toggling shows it rather than closing what nobody sees. */
+    private void toggleView() {
+        if (shown && !awake.covered()) close();
+        else open();
+    }
+
+    /** The main view went away, by the close button or by back. The session stays until End cooking, or the meal is ready. */
     private void closed() {
         shown = false;
         quiet();
+        if (page == Model.Page.FINISH) {
+            endSession();
+            page = Model.Page.HOME;
+            clearBanner();
+            changed();
+        }
         updateAwake();
         updateDock();
         publishState();
@@ -368,13 +506,18 @@ final class Cook implements Ui.Actions {
 
     /** The dock shows while the main view is closed and something is going on. */
     private void updateDock() {
-        boolean want = !shown && (timers.any() || cooking);
-        ui.renderDock(cooking && recipe != null ? recipe.name + cookingProgress() : "", strings);
-        if (want && !dockShown) {
+        boolean want = !shown && (timers.any() || cooking || resume != null);
+        ui.renderDock(cooking && recipe != null ? recipe.name + cookingProgress() : resume != null ? recipeName : "", strings);
+        if (want && !dockShown) showDock(OverlaySpec.SLIDE);
+        else if (!want && dockShown) hideDockNow();
+    }
+
+    private void showDock(String enter) {
+        try {
+            host.showOverlay(DOCK, OverlaySpec.at(settings.dockCorner).size(DOCK_WIDTH, DOCK_HEIGHT).inset(16).closeOnBack(false).onTop(settings.dockOnTop).enter(enter).exit(OverlaySpec.FADE), ui.dock(this));
             dockShown = true;
-            host.showOverlay(DOCK, OverlaySpec.at(settings.dockCorner).size(DOCK_WIDTH, DOCK_HEIGHT).inset(16).closeOnBack(false).onTop(settings.dockOnTop).enter(OverlaySpec.SLIDE).exit(OverlaySpec.FADE), ui.dock(this));
-        } else if (!want && dockShown) {
-            hideDockNow();
+        } catch (RuntimeException refused) {
+            // KS limits how often overlays show. The next change tries again.
         }
     }
 
@@ -398,7 +541,7 @@ final class Cook implements Ui.Actions {
                 read = current.mealPlan(first, last);
             } catch (RecipeSource.SourceException failed) {
                 problem = failed;
-            } catch (RuntimeException bug) {
+            } catch (RuntimeException | Error bug) {
                 problem = unexpected(bug);
             }
             synchronized (this) {
@@ -407,10 +550,10 @@ final class Cook implements Ui.Actions {
                 if (read != null) {
                     plan = read;
                     planReadAt = clock.millis();
-                    if (page == Model.Page.HOME) banner = null;
+                    cleared(Trouble.PLAN);
                     report();
                 } else {
-                    failed(problem);
+                    failed(problem, Trouble.PLAN);
                 }
                 publishState();
                 if (page == Model.Page.HOME) changed();
@@ -433,7 +576,7 @@ final class Cook implements Ui.Actions {
                 read = current.recipes(text, sort, number);
             } catch (RecipeSource.SourceException failed) {
                 problem = failed;
-            } catch (RuntimeException bug) {
+            } catch (RuntimeException | Error bug) {
                 problem = unexpected(bug);
             }
             synchronized (this) {
@@ -449,8 +592,9 @@ final class Cook implements Ui.Actions {
                     }
                     recipesPage = number;
                     recipesMore = read.more;
+                    cleared(Trouble.LIST);
                 } else {
-                    failed(problem);
+                    failed(problem, Trouble.LIST);
                 }
                 if (page == Model.Page.HOME) changed();
             }
@@ -458,24 +602,40 @@ final class Cook implements Ui.Actions {
         if (page == Model.Page.HOME) version++;
     }
 
-    /** A call failed: the panel says it in its language, the plugin's page says exactly why. */
-    private void failed(RecipeSource.SourceException problem) {
+    /**
+     * A call failed: the panel says it in its language, the plugin's page says exactly why. The plan and the list are read
+     * in the background too, and a blip in those has no place over a recipe that is already here.
+     */
+    private void failed(RecipeSource.SourceException problem, Trouble from) {
         if (problem == null) return;
+        status(problem.getMessage(), true);
+        if ((from == Trouble.PLAN || from == Trouble.LIST) && page != Model.Page.HOME) return;
+        bannerOwner = from;
         switch (problem.kind) {
             case AUTH: banner = strings.problemAuth; break;
             case HOST: banner = strings.problemHost; break;
             case NETWORK: banner = strings.problemNetwork; break;
             case NOT_FOUND: banner = strings.recipeMissing; break;
+            case PRIVATE: banner = strings.problemPrivate; break;
             case READ_ONLY: banner = strings.problemReadOnly; break;
             case NOT_API: banner = strings.problemNotApi; break;
             case LOCAL_NAME: banner = strings.problemLocalName; break;
             case TLS: banner = strings.problemTls; break;
             default: banner = strings.problemOther;
         }
-        status(problem.getMessage(), true);
     }
 
-    private static RecipeSource.SourceException unexpected(RuntimeException bug) {
+    /** What raised the banner works again. */
+    private void cleared(Trouble from) {
+        if (bannerOwner == from) clearBanner();
+    }
+
+    private void clearBanner() {
+        banner = null;
+        bannerOwner = null;
+    }
+
+    private static RecipeSource.SourceException unexpected(Throwable bug) {
         return new RecipeSource.SourceException(RecipeSource.SourceException.Kind.PARSE, "Cook Mode could not read the answer: " + bug, bug);
     }
 
@@ -511,12 +671,17 @@ final class Cook implements Ui.Actions {
     private void testConnection(String run) {
         final Settings current = settings;
         background(() -> {
-            RecipeSource probe = sources.create(current);
+            RecipeSource trying = sources.create(current);
+            synchronized (this) {
+                probe = trying;
+            }
             try {
                 if (!host().setupResult(run, "running", "Connecting to " + current.serverUrl)) return;
-                host().setupResult(run, "success", probe.probe());
+                host().setupResult(run, "success", trying.probe());
             } catch (RecipeSource.SourceException failed) {
                 host().setupResult(run, "error", failed.getMessage());
+            } catch (RuntimeException bug) {
+                host().setupResult(run, "error", "Cook Mode could not test this: " + bug.getClass().getSimpleName());
             }
         });
     }
@@ -561,7 +726,7 @@ final class Cook implements Ui.Actions {
     @Override public synchronized void home() {
         if (host == null) return;
         page = Model.Page.HOME;
-        banner = null;
+        clearBanner();
         quiet();
         updateAwake();
         changed();
@@ -570,7 +735,7 @@ final class Cook implements Ui.Actions {
     @Override public synchronized void search(String text) {
         if (host == null) return;
         query = text == null ? "" : text.trim();
-        banner = null;
+        clearBanner();
         loadRecipes(1);
         changed();
     }
@@ -591,12 +756,14 @@ final class Cook implements Ui.Actions {
 
     @Override public synchronized void refresh() {
         if (host == null) return;
-        banner = null;
+        clearBanner();
         if (page == Model.Page.RECIPE && recipe == null && !recipeId.isEmpty()) loadRecipe();
         else {
             loadPlan();
             loadRecipes(1);
+            retryResume();
         }
+        if (page == Model.Page.FINISH && logFailed) logCooked();
         changed();
     }
 
@@ -615,23 +782,34 @@ final class Cook implements Ui.Actions {
     }
 
     @Override public synchronized void resumeCooking() {
-        if (host == null || recipe == null) return;
-        page = cooking ? Model.Page.STEP : Model.Page.RECIPE;
+        if (host == null) return;
+        if (resume != null) {
+            // It comes back at its step as soon as its recipe is here.
+            page = Model.Page.RECIPE;
+            retryResume();
+        } else if (recipe != null) {
+            page = cooking ? Model.Page.STEP : Model.Page.RECIPE;
+        } else {
+            return;
+        }
         updateAwake();
         changed();
     }
 
     private void openById(String id, String name, String image, double planned) {
         // Cooking another recipe forgets this one's place, so it must be meant.
-        if (cooking && recipe != null && !id.equals(recipeId) && pageIndex > 0) {
+        boolean other = !id.equals(recipeId);
+        if (other && cooking && recipe != null && pageIndex > 0) {
             ask(String.format(strings.replaceRecipe, recipe.name, pageIndex + 1), strings.replace, () -> openNow(id, name, image, planned));
-            return;
+        } else if (other && resume != null && resume.page > 0) {
+            ask(String.format(strings.replaceRecipe, recipeName, resume.page + 1), strings.replace, () -> openNow(id, name, image, planned));
+        } else {
+            openNow(id, name, image, planned);
         }
-        openNow(id, name, image, planned);
     }
 
     private void openNow(String id, String name, String image, double planned) {
-        banner = null;
+        clearBanner();
         page = Model.Page.RECIPE;
         // The recipe being cooked comes back as it was left.
         if (id.equals(recipeId) && recipe != null) {
@@ -640,7 +818,16 @@ final class Cook implements Ui.Actions {
             changed();
             return;
         }
-        endSession();
+        // So does one from before a restart, as soon as its recipe is here.
+        if (id.equals(recipeId) && resume != null) {
+            retryResume();
+            updateAwake();
+            changed();
+            return;
+        }
+        // Set aside, not ended: this recipe may not come, and the recipe in hand cannot be read again while the server is away.
+        if (cooking && recipe != null) stash = new Stash(recipe, recipeId, recipeImage, servings, pages, pageIndex, sessionStart, copyChecked(), logged, logFailed);
+        forget();
         recipeId = id;
         recipeName = name;
         recipeImage = image;
@@ -664,13 +851,15 @@ final class Cook implements Ui.Actions {
                 read = current.recipe(id);
             } catch (RecipeSource.SourceException failed) {
                 problem = failed;
-            } catch (RuntimeException bug) {
+            } catch (RuntimeException | Error bug) {
                 problem = unexpected(bug);
             }
             synchronized (this) {
                 if (host == null || generation != recipeGeneration) return;
                 recipeLoading = false;
                 if (read != null) {
+                    boolean replaced = stash != null;
+                    stash = null;
                     recipe = read;
                     recipeName = read.name;
                     if (!read.image.isEmpty()) recipeImage = read.image;
@@ -678,10 +867,11 @@ final class Cook implements Ui.Actions {
                     pages = Pages.of(read, settings.splitSteps);
                     pageIndex = 0;
                     checked.clear();
-                    banner = null;
+                    cleared(Trouble.RECIPE);
+                    if (replaced) fire("cookingFinished");
                     if (resume != null) pickUp();
                 } else {
-                    failed(problem);
+                    recipeFailed(problem);
                 }
                 changed();
             }
@@ -696,9 +886,53 @@ final class Cook implements Ui.Actions {
         });
     }
 
+    /** The recipe did not come. A session from before a restart tries again later, and one set aside comes back. */
+    private void recipeFailed(RecipeSource.SourceException problem) {
+        if (resume != null && problem != null && problem.kind == RecipeSource.SourceException.Kind.NOT_FOUND) {
+            // Gone from the server, so there is nothing to come back to.
+            forget();
+            if (page == Model.Page.RECIPE) page = Model.Page.HOME;
+            updateAwake();
+            updateDock();
+        } else if (resume != null) {
+            ui.cancel(resumeTask);
+            ui.post(resumeTask, RESUME_AGAIN_MS);
+        } else if (stash != null) {
+            comeBack();
+        }
+        failed(problem, Trouble.RECIPE);
+    }
+
+    private void comeBack() {
+        Stash left = stash;
+        stash = null;
+        recipe = left.recipe;
+        recipeId = left.id;
+        recipeName = left.recipe.name;
+        recipeImage = left.image;
+        servings = left.servings;
+        pages = left.pages;
+        pageIndex = left.pageIndex;
+        sessionStart = left.started;
+        checked.clear();
+        checked.addAll(left.checked);
+        logged = left.logged;
+        logFailed = left.logFailed;
+        cooking = true;
+        if (page == Model.Page.RECIPE) page = Model.Page.STEP;
+        updateAwake();
+        updateDock();
+    }
+
     /** Forget the recipe being cooked. Timers keep running: they name their own recipe. */
     private void endSession() {
-        boolean was = cooking;
+        boolean was = cooking || stash != null;
+        forget();
+        stash = null;
+        if (was) fire("cookingFinished");
+    }
+
+    private void forget() {
         cooking = false;
         recipe = null;
         recipeId = "";
@@ -712,12 +946,13 @@ final class Cook implements Ui.Actions {
         checked.clear();
         logged = false;
         logging = false;
+        logFailed = false;
         linkOpen = false;
         resume = null;
+        ui.cancel(resumeTask);
         confirmed = null;
         confirmText = null;
         confirmLabel = null;
-        if (was) fire("cookingFinished");
     }
 
     @Override public synchronized void changeServings(int direction) {
@@ -746,18 +981,17 @@ final class Cook implements Ui.Actions {
         lastTouch = clock.millis();
         updateAwake();
         changed();
-        publishState();
         autoRead();
     }
 
     @Override public synchronized void openInApp() {
         if (host == null || recipe == null || recipe.webUrl.isEmpty()) return;
+        final String address = recipe.webUrl;
         // Plugin overlays cover KS pages, so the view goes first.
         close();
         linkOpen = true;
         updateAwake();
         updateDock();
-        final String address = recipe.webUrl;
         host.executeCommand("showLinkPage", Collections.<String, Object>singletonMap("url", address), (ok, data, error) -> {
             if (!ok) status("Could not open " + address + ": " + error, true);
         });
@@ -772,7 +1006,6 @@ final class Cook implements Ui.Actions {
                 pageIndex++;
                 quiet();
                 changed();
-                publishState();
                 autoRead();
             } else {
                 page = Model.Page.FINISH;
@@ -793,7 +1026,6 @@ final class Cook implements Ui.Actions {
                 pageIndex--;
                 quiet();
                 changed();
-                publishState();
                 autoRead();
             } else {
                 page = Model.Page.RECIPE;
@@ -822,14 +1054,14 @@ final class Cook implements Ui.Actions {
         return false;
     }
 
-    /** nextStep and previousStep. With the view closed the first one only brings it back, so nothing moves unseen. */
+    /** nextStep and previousStep. With the view closed or under a screensaver the first one only brings it back, so nothing moves unseen. */
     private void stepCommand(boolean forward) {
-        if (!shown) {
+        if (!shown || awake.covered()) {
             open();
             return;
         }
         if (page == Model.Page.HOME) {
-            if (recipe != null) resumeCooking();
+            if (recipe != null || resume != null) resumeCooking();
             else if (forward) cookToday();
             return;
         }
@@ -851,7 +1083,7 @@ final class Cook implements Ui.Actions {
                 break;
             }
         }
-        if (!shown) open();
+        open();
         if (chosen != null) openPlanned(chosen);
         else home();
     }
@@ -906,6 +1138,9 @@ final class Cook implements Ui.Actions {
             return;
         }
         spoke = true;
+        speech = text;
+        speechTries = 0;
+        ui.cancel(speechTask);
         announce(text, nodes, 0);
     }
 
@@ -922,7 +1157,11 @@ final class Cook implements Ui.Actions {
         data.put("tts_language", "");
         data.put("tts_voice", "");
         data.put("audio_only", true);
-        host.haCall(espHomeCall(nodes.get(index) + "_announce", data), (ok, result, error) -> announced(ok, error, text, nodes, index));
+        try {
+            host.haCall(espHomeCall(nodes.get(index) + "_announce", data), (ok, result, error) -> announced(ok, error, text, nodes, index));
+        } catch (RuntimeException refused) {
+            // KS limits calls to Home Assistant. The step is still on the screen.
+        }
     }
 
     private synchronized void announced(boolean ok, String error, String text, List<String> nodes, int index) {
@@ -930,11 +1169,33 @@ final class Cook implements Ui.Actions {
         try {
             String answer = error == null ? "" : error;
             if (ok) assistantNode = nodes.get(index);
-            else if (answer.startsWith("service_not_found") && index + 1 < nodes.size()) announce(text, nodes, index + 1);
+            else if (noSuchAction(answer) && index + 1 < nodes.size()) announce(text, nodes, index + 1);
+            else if (answer.contains("in a call")) readLater(text, nodes, index);
             // The answer can come later than the limit while it still speaks, so it must not be read twice.
             else if (!answer.startsWith("timeout")) status("Home Assistant could not read it aloud through " + nodes.get(index) + ": " + answer, true);
         } catch (RuntimeException sessionEnded) {
             // KS revokes the host before stop.
+        }
+    }
+
+    /** Home Assistant's answer when an action does not exist, as code: message. */
+    private static boolean noSuchAction(String answer) {
+        return answer.startsWith("not_found") || answer.startsWith("service_not_found");
+    }
+
+    /** A kiosk before 2026.11.1 refuses while it still reads the last text. The newest text waits for it to finish. */
+    private void readLater(String text, List<String> nodes, int index) {
+        if (text != speech || ++speechTries > SPEECH_TRIES) return;
+        speechNodes = nodes;
+        speechNode = index;
+        ui.cancel(speechTask);
+        ui.post(speechTask, SPEECH_AGAIN_MS);
+    }
+
+    /** Runs on the main thread: the kiosk may have finished reading by now. */
+    private void speechAgain() {
+        synchronized (this) {
+            if (host != null && speech != null) announce(speech, speechNodes, speechNode);
         }
     }
 
@@ -958,12 +1219,18 @@ final class Cook implements Ui.Actions {
     /** Stop anything being read, by the tablet or by Home Assistant. */
     private void quiet() {
         ui.silence();
+        speech = null;
+        ui.cancel(speechTask);
         if (!spoke || noStopAction || assistantNode.isEmpty() || host == null) return;
         spoke = false;
-        host.haCall(espHomeCall(assistantNode + "_announce_stop", Collections.<String, Object>emptyMap()), (ok, result, error) -> {
-            // Kiosk Satellite 2026.10.45 and older have no such action. Then the next announcement replaces the last.
-            if (!ok) stopActionMissing();
-        });
+        try {
+            host.haCall(espHomeCall(assistantNode + "_announce_stop", Collections.<String, Object>emptyMap()), (ok, result, error) -> {
+                // Kiosks before 2026.11.1 have no such action. Then the reading goes on to its end, and the next one waits for it.
+                if (!ok && error != null && noSuchAction(error)) stopActionMissing();
+            });
+        } catch (RuntimeException refused) {
+            // KS limits calls to Home Assistant. The reading goes on to its end.
+        }
     }
 
     private synchronized void stopActionMissing() {
@@ -975,14 +1242,19 @@ final class Cook implements Ui.Actions {
     @Override public synchronized void startTimer(String label, int seconds) {
         if (host == null) return;
         int id = timers.start(timerName(label), seconds, recipeId, page == Model.Page.STEP ? pageIndex : -1, clock.millis());
-        if (id == 0) banner = strings.tooManyTimers;
+        if (id == 0) {
+            banner = strings.tooManyTimers;
+            bannerOwner = Trouble.TIMERS;
+        }
         timersChanged();
     }
 
     @Override public synchronized boolean stepTimer(String label, int seconds) {
         if (host == null) return true;
-        String name = timerName(label);
-        for (Timers.Timer timer : timers.list(clock.millis())) if (timer.label.equals(name)) return false;
+        int step = page == Model.Page.STEP ? pageIndex : -1;
+        for (Timers.Timer timer : timers.list(clock.millis())) {
+            if (timer.total == seconds && timer.step == step && timer.recipe.equals(recipeId)) return false;
+        }
         startTimer(label, seconds);
         return true;
     }
@@ -995,8 +1267,10 @@ final class Cook implements Ui.Actions {
     private void startStepTimer() {
         if (recipe == null || page != Model.Page.STEP || pages.isEmpty()) return;
         Pages.Page current = pages.get(pageIndex);
-        for (StepText.Run run : StepText.timers(recipe.steps.get(current.step), currentText(), "min")) {
-            if (stepTimer(run.text, run.seconds)) return;
+        // The step's own time belongs to its first page. A later page has only the words on it.
+        List<StepText.Run> runs = current.part == 0 ? StepText.timers(recipe.steps.get(current.step), currentText(), "min") : StepText.runs(currentText());
+        for (StepText.Run run : runs) {
+            if (run.timer() && stepTimer(run.text, run.seconds)) return;
         }
     }
 
@@ -1060,6 +1334,7 @@ final class Cook implements Ui.Actions {
         ui.cancel(dueTask);
         long next = timers.nextDue();
         if (next >= 0) ui.post(dueTask, Math.max(1, next - clock.millis()));
+        if (bannerOwner == Trouble.TIMERS && timers.list(clock.millis()).size() < Timers.MAX) clearBanner();
         updateSound();
         updateAwake();
         updateDock();
@@ -1072,10 +1347,11 @@ final class Cook implements Ui.Actions {
         boolean ringing = timers.ringing();
         if (!ringing) alarmMuted = false;
         boolean sound = ringing && !alarmMuted && settings.tone != Settings.Tone.SILENT;
-        if (sound != alarmOn) {
+        if (sound != alarmOn || (sound && restartSound)) {
             alarmOn = sound;
             ui.alarm(sound);
         }
+        restartSound = false;
     }
 
     /** Runs on the main thread when the next timer is due. */
@@ -1086,6 +1362,10 @@ final class Cook implements Ui.Actions {
                 List<Timers.Timer> rang = timers.due(clock.millis());
                 if (!rang.isEmpty()) {
                     alarmMuted = false;
+                    restartSound = true;
+                    // A new reason to look, so the wait before the screen may sleep starts over.
+                    lastTouch = clock.millis();
+                    idleExpired = false;
                     // The screen must show it. Holding also wakes a sleeping screen.
                     guardCommand("stopScreensaver");
                     fire("timerDone");
@@ -1112,15 +1392,14 @@ final class Cook implements Ui.Actions {
     private void updateAwake() {
         if (settings == null) return;
         boolean onRecipe = shown && page != Model.Page.HOME;
-        boolean want = settings.keepAwake && !idleExpired && (onRecipe || linkOpen);
-        if (timers.ringing()) want = true;
-        boolean was = awake.held();
+        boolean want = !idleExpired && ((settings.keepAwake && (onRecipe || linkOpen)) || timers.ringing());
         awake.hold(want);
         ui.keepScreenOn(want);
-        if (want && !was) {
-            ui.cancel(idleTask);
-            ui.post(idleTask, settings.awakeMinutes * 60_000L);
-        } else if (!want) {
+        if (want && !idlePosted) {
+            idlePosted = true;
+            ui.post(idleTask, Math.max(1, lastTouch + settings.awakeMinutes * 60_000L - clock.millis()));
+        } else if (!want && idlePosted) {
+            idlePosted = false;
             ui.cancel(idleTask);
         }
     }
@@ -1128,11 +1407,13 @@ final class Cook implements Ui.Actions {
     /** Runs on the main thread: a forgotten recipe must not keep the screen on all night. */
     private void idleCheck() {
         synchronized (this) {
+            idlePosted = false;
             if (host == null || settings == null) return;
             try {
                 long limit = settings.awakeMinutes * 60_000L;
                 long left = lastTouch + limit - clock.millis();
                 if (left > 0) {
+                    idlePosted = true;
                     ui.post(idleTask, left);
                 } else {
                     idleExpired = true;
@@ -1151,6 +1432,7 @@ final class Cook implements Ui.Actions {
             if (host == null) return;
             try {
                 loadPlan();
+                retryResume();
                 ui.post(planTask, PLAN_REFRESH_MS);
             } catch (RuntimeException sessionEnded) {
                 // As above.
@@ -1184,25 +1466,34 @@ final class Cook implements Ui.Actions {
     @Override public synchronized void logCooked() {
         final RecipeSource current = source;
         if (host == null || current == null || recipe == null || logged || logging) return;
+        final Recipe meal = recipe;
         final String id = recipe.id;
         final double amount = servings;
         logging = true;
+        logFailed = false;
         background(() -> {
             RecipeSource.SourceException problem = null;
             try {
                 current.cooked(id, amount);
             } catch (RecipeSource.SourceException failed) {
                 problem = failed;
-            } catch (RuntimeException bug) {
+            } catch (RuntimeException | Error bug) {
                 problem = unexpected(bug);
             }
             synchronized (this) {
                 if (host == null) return;
+                // The meal may have gone by now, and this answer says nothing about the next one.
+                if (recipe != meal) {
+                    if (problem != null) status(problem.getMessage(), true);
+                    return;
+                }
                 logging = false;
                 if (problem == null) {
                     logged = true;
+                    cleared(Trouble.LOG);
                 } else {
-                    failed(problem);
+                    logFailed = true;
+                    failed(problem, Trouble.LOG);
                 }
                 if (page == Model.Page.FINISH) changed();
             }
@@ -1214,12 +1505,11 @@ final class Cook implements Ui.Actions {
         boolean wasLink = linkOpen;
         endSession();
         page = Model.Page.HOME;
-        banner = null;
+        clearBanner();
         if (wasLink) guardCommand("hideOverlayPage");
         if (shown) close();
         else updateDock();
         updateAwake();
-        publishState();
         changed();
     }
 
@@ -1227,17 +1517,17 @@ final class Cook implements Ui.Actions {
         if (host == null) return;
         endSession();
         page = Model.Page.HOME;
-        banner = null;
+        clearBanner();
         quiet();
         updateDock();
         updateAwake();
-        publishState();
         changed();
     }
 
     @Override public synchronized void askEnd() {
         if (host == null) return;
         if (recipe != null && (pageIndex > 0 || timers.any())) ask(String.format(strings.endAsk, recipe.name, pageIndex + 1), strings.endCooking, this::backToPlan);
+        else if (resume != null) ask(String.format(strings.endAsk, recipeName, resume.page + 1), strings.endCooking, this::backToPlan);
         else backToPlan();
     }
 
@@ -1261,8 +1551,13 @@ final class Cook implements Ui.Actions {
 
     // Commands and triggers.
 
+    /** A command nothing waits for. KS refuses one when too many are pending, which must not stop what comes after it. */
     private void guardCommand(String command) {
-        host.executeCommand(command, NONE, (ok, data, error) -> {});
+        try {
+            host.executeCommand(command, NONE, (ok, data, error) -> {});
+        } catch (RuntimeException refused) {
+            // The sound and the page do not depend on it.
+        }
     }
 
     private void fire(String trigger) {
@@ -1279,6 +1574,7 @@ final class Cook implements Ui.Actions {
         version++;
         render();
         saveSoon();
+        publishState();
     }
 
     private void render() {
@@ -1323,7 +1619,7 @@ final class Cook implements Ui.Actions {
             Recipe.Step step = recipe.steps.get(current.step);
             pageNumber = pageIndex + 1;
             stepTitle = step.title;
-            if (Math.abs(factor - 1) > 0.001 && Instructions.hasFixedNumbers(step)) fixedNote = String.format(strings.fixedNumbers, strings.servings(recipe.servings, recipe.servingsText));
+            if (Math.abs(factor - 1) > 0.001 && Instructions.hasFixedNumbers(step)) fixedNote = String.format(strings.fixedNumbers, strings.servingsFor(recipe.servings, recipe.servingsText));
             String text = currentText();
             runs = StepText.runs(text);
             if (current.part == 0) {
@@ -1340,11 +1636,12 @@ final class Cook implements Ui.Actions {
                 readyAround = String.format(strings.readyAround, strings.time(time));
             }
         }
-        boolean canLog = settings.markCooked == Settings.MarkCooked.ASK && recipe != null && !logged;
+        boolean canLog = (settings.markCooked == Settings.MarkCooked.ASK || logFailed) && recipe != null && !logged;
+        int resumeAt = cooking ? pageIndex + 1 : resume != null ? Math.max(0, resume.page) + 1 : 0;
         return new Model(page, version, strings, settings.textSize, settings.textMost, banner, confirmText, confirmLabel, strings.date(today), settings.configured(), days, planLoading,
             query, order, Collections.unmodifiableList(new ArrayList<>(recipes)), recipesLoading, recipesMore,
             recipe, recipeName, recipeImage, recipeLoading, servings, factor, copyChecked(),
-            recipe == null ? Collections.<Recipe.Ingredient>emptyList() : recipe.ingredients(), cooking ? pageIndex + 1 : 0, pageNumber, pages.size(), stepTitle, runs, ownTimer,
+            recipe == null ? Collections.<Recipe.Ingredient>emptyList() : recipe.ingredients(), resumeAt, pageNumber, pages.size(), stepTitle, runs, ownTimer,
             stepIngredients, peek(pageIndex - 1), peek(pageIndex + 1), readyAround, settings.voice != Settings.Voice.OFF, settings.swipeSteps, fixedNote, canLog, logged);
     }
 
@@ -1358,6 +1655,12 @@ final class Cook implements Ui.Actions {
 
     private void publishCatalog() {
         published.clear();
+        // What these calls publish need not go out again.
+        published.put("view", CLOSED);
+        published.put("cooking", "false");
+        published.put("timer_ringing", "false");
+        published.put("timers", "0");
+        for (String empty : new String[] {"recipe", "step", "next_timer", "next_timer_ends", "today_meals"}) published.put(empty, "");
         host.publishSelect(VIEW, "Cook Mode view", new String[] {CLOSED, OPEN}, CLOSED);
         host.publishBinarySensor("cooking", "Cooking", "running", false);
         host.publishBinarySensor("timer_ringing", "Timer ringing", "sound", false);
@@ -1376,7 +1679,8 @@ final class Cook implements Ui.Actions {
     private void publishState() {
         if (host == null) return;
         if (differs("view", shown ? OPEN : CLOSED)) host.publishSelect(VIEW, "Cook Mode view", new String[] {CLOSED, OPEN}, shown ? OPEN : CLOSED);
-        if (differs("cooking", String.valueOf(cooking))) host.publishBinarySensor("cooking", "Cooking", "running", cooking);
+        // A recipe on its way to replace the one being cooked may not come, so that one still counts until it does.
+        if (stash == null) publishSession();
         boolean ringing = timers.ringing();
         if (differs("timer_ringing", String.valueOf(ringing))) host.publishBinarySensor("timer_ringing", "Timer ringing", "sound", ringing);
         List<Timers.Timer> list = timers.list(clock.millis());
@@ -1386,10 +1690,6 @@ final class Cook implements Ui.Actions {
             count.put("accuracyDecimals", 0);
             host.publishSensor("timers", "Timers", count, (double) list.size());
         }
-        String name = cooking && recipe != null ? recipe.name : "";
-        if (differs("recipe", name)) host.publishTextSensor("recipe", "Recipe", clip(name));
-        String step = cooking && !pages.isEmpty() ? (pageIndex + 1) + "/" + pages.size() + ": " + PlainText.forSpeech(currentText()) : "";
-        if (differs("step", step)) host.publishTextSensor("step", "Step", clip(step));
         String next = "";
         String ends = "";
         for (Timers.Timer timer : list) {
@@ -1412,15 +1712,23 @@ final class Cook implements Ui.Actions {
         if (differs("today_meals", meals.toString())) host.publishTextSensor("today_meals", "Today's meals", clip(meals.toString()));
     }
 
+    private void publishSession() {
+        boolean on = cooking || resume != null;
+        if (differs("cooking", String.valueOf(on))) host.publishBinarySensor("cooking", "Cooking", "running", on);
+        String name = cooking && recipe != null ? recipe.name : resume != null ? recipeName : "";
+        if (differs("recipe", name)) host.publishTextSensor("recipe", "Recipe", clip(name));
+        String step = cooking && !pages.isEmpty() ? (pageIndex + 1) + "/" + pages.size() + ": " + PlainText.forSpeech(currentText()) : "";
+        if (differs("step", step)) host.publishTextSensor("step", "Step", clip(step));
+    }
+
     private boolean differs(String key, String value) {
         if (value.equals(published.get(key))) return false;
         published.put(key, value);
         return true;
     }
 
-    /** Text sensors hold at most 512 characters. */
     private static String clip(String text) {
-        return text.length() > 512 ? text.substring(0, 512) : text;
+        return text.length() > STATE_MOST ? text.substring(0, STATE_MOST) : text;
     }
 
     boolean cooking() {

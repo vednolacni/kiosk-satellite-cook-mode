@@ -93,12 +93,13 @@ public final class TimersTest {
         // What is saved fits a setting, however long the labels. Labels shorten first, then the furthest timers go.
         List<Snapshot.SavedTimer> many = new ArrayList<>();
         for (int i = 0; i < Timers.MAX; i++) many.add(new Snapshot.SavedTimer("Korak " + i + " · dolgo besedilo z žemljami in še več besedila, ki ne konča kmalu", 600, i == 2, now + i * 1000L, "1234567", i));
-        String encoded = new Snapshot("Kuhinja pri dedku in babici", now, "1234567", 4.5, 3, now, many).encode();
+        String encoded = new Snapshot("Kuhinja pri dedku in babici", now, "1234567", "Goveji golaž z njokci, kot ga kuha babica že petdeset let", 4.5, 3, now, many).encode();
         assert encoded.length() <= Snapshot.MAX_LENGTH : encoded.length();
         Snapshot decoded = Snapshot.decode(encoded);
         assert decoded != null && "Kuhinja pri dedku in babici".equals(decoded.device) && decoded.savedAt == now && "1234567".equals(decoded.recipe) && decoded.servings == 4.5 && decoded.page == 3;
+        assert decoded.name.length() == 40 && decoded.name.startsWith("Goveji golaž") : decoded.name;
         assert !decoded.timers.isEmpty() && decoded.timers.get(0).value == now && decoded.timers.get(0).label.startsWith("Korak 0") && !decoded.timers.get(0).paused;
-        Snapshot few = Snapshot.decode(new Snapshot("K", now, "", 0, 0, 0, Collections.singletonList(new Snapshot.SavedTimer("Žemlje", 60, true, 5000, "", -1))).encode());
+        Snapshot few = Snapshot.decode(new Snapshot("K", now, "", "", 0, 0, 0, Collections.singletonList(new Snapshot.SavedTimer("Žemlje", 60, true, 5000, "", -1))).encode());
         assert few.recipe.isEmpty() && few.timers.size() == 1 && "Žemlje".equals(few.timers.get(0).label) && few.timers.get(0).paused && few.timers.get(0).value == 5000 && few.timers.get(0).step == -1;
 
         // At most MAX timers, and cancel removes one.

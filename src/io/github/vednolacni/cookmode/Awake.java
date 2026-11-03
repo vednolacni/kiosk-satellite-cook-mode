@@ -68,12 +68,25 @@ final class Awake {
         return held;
     }
 
+    /** Whether a screensaver is up, over the plugin's views. */
+    boolean covered() {
+        return covered;
+    }
+
+    /** Someone asked to see the view, so a screensaver over it goes. */
+    void reveal() {
+        if (host == null || !covered) return;
+        command("stopScreensaver");
+        covered = false;
+        if (held) later(BEAT_MS);
+    }
+
     /** Hold or release. Holding dismisses a screensaver that is up and wakes the screen. */
     void hold(boolean hold) {
         if (hold == held || host == null) return;
         held = hold;
         if (hold) {
-            host.executeCommand("stopScreensaver", NONE, (ok, data, error) -> {});
+            command("stopScreensaver");
             covered = false;
             later(BEAT_MS);
         } else {
@@ -93,7 +106,7 @@ final class Awake {
         long now = clock.millis();
         if (lastDue >= 0 && now >= lastDue - LATE_MS && now - lastLate >= LATE_AGAIN_MS) {
             lastLate = now;
-            host.executeCommand("postponeScreensaver", NONE, (ok, data, error) -> {});
+            command("postponeScreensaver");
         }
     }
 
@@ -109,12 +122,17 @@ final class Awake {
     private void beat() {
         synchronized (lock) {
             if (host == null || !held || covered) return;
-            try {
-                host.executeCommand("postponeScreensaver", NONE, (ok, data, error) -> {});
-                later(BEAT_MS);
-            } catch (RuntimeException sessionEnded) {
-                // KS revokes the host just before stop, and an exception on the main thread would end the app.
-            }
+            command("postponeScreensaver");
+            later(BEAT_MS);
+        }
+    }
+
+    /** KS refuses a command when too many are pending, and revokes the host just before stop. The next beat tries again. */
+    private void command(String name) {
+        try {
+            host.executeCommand(name, NONE, (ok, data, error) -> {});
+        } catch (RuntimeException refused) {
+            // Thrown on the main thread it would end the app, and the hold must not stop for one lost beat.
         }
     }
 

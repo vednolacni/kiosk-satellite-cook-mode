@@ -23,15 +23,15 @@ final class AlarmSound {
     private static final int BEEP_MS = 800;
 
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final Runnable again = this::again;
+    private final Runnable again = () -> Parts.guard(this::again);
     private Ringtone ringtone;
     private ToneGenerator beeper;
     private long until;
 
-    /** Start sounding for at most minutes. context may be null, which means beeps. */
+    /** Start sounding for at most minutes, or go on that long if already sounding. context may be null, which means beeps. */
     void start(Context context, boolean beeps, boolean mediaStream, int minutes) {
-        if (playing()) return;
         until = SystemClock.uptimeMillis() + minutes * 60_000L;
+        if (playing()) return;
         if (context != null && !beeps) ringtone = ringtone(context, mediaStream);
         if (ringtone == null) beeper = beeper(mediaStream);
         main.post(again);

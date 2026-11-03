@@ -18,6 +18,8 @@ final class Snapshot {
     private static final int VERSION = 1;
     /** Labels shorten before any timer is given up. */
     private static final int[] LABEL_LENGTHS = {60, 30, 16};
+    /** Enough of the recipe's name to show while the recipe itself is not back yet. */
+    private static final int NAME_LENGTH = 40;
 
     static final class SavedTimer {
         final String label;
@@ -42,15 +44,17 @@ final class Snapshot {
     final long savedAt;
     /** The recipe being cooked, or an empty string. */
     final String recipe;
+    final String name;
     final double servings;
     final int page;
     final long started;
     final List<SavedTimer> timers;
 
-    Snapshot(String device, long savedAt, String recipe, double servings, int page, long started, List<SavedTimer> timers) {
+    Snapshot(String device, long savedAt, String recipe, String name, double servings, int page, long started, List<SavedTimer> timers) {
         this.device = device;
         this.savedAt = savedAt;
         this.recipe = recipe;
+        this.name = name;
         this.servings = servings;
         this.page = page;
         this.started = started;
@@ -77,6 +81,7 @@ final class Snapshot {
         values.put("t", savedAt);
         if (!recipe.isEmpty()) {
             values.put("r", recipe);
+            values.put("n", name.length() > NAME_LENGTH ? name.substring(0, NAME_LENGTH) : name);
             values.put("s", servings);
             values.put("p", page);
             values.put("b", started);
@@ -103,7 +108,7 @@ final class Snapshot {
                 timers.add(new SavedTimer(Json.text(timer.get(0)), (int) Json.integer(timer.get(1), 0), Json.integer(timer.get(2), 0) == 1,
                     Json.integer(timer.get(3), 0), Json.text(timer.get(4)), (int) Json.integer(timer.get(5), -1)));
             }
-            return new Snapshot(Json.text(values.get("d")), Json.integer(values.get("t"), 0), Json.text(values.get("r")), Json.number(values.get("s"), 0),
+            return new Snapshot(Json.text(values.get("d")), Json.integer(values.get("t"), 0), Json.text(values.get("r")), Json.text(values.get("n")), Json.number(values.get("s"), 0),
                 (int) Json.integer(values.get("p"), 0), Json.integer(values.get("b"), 0), timers);
         } catch (IllegalArgumentException unreadable) {
             return null;

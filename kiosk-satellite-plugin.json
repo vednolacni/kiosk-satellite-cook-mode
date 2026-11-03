@@ -33,7 +33,7 @@
       "title": "API token",
       "default": "",
       "group": "Recipe server",
-      "description": "In Tandoor, open Settings > API and create a token with the scope \"read write\". Copy it right after saving: Tandoor shows it only briefly. It stays on this tablet and goes only to the address above."
+      "description": "In Tandoor, open Settings > API and create a token with the scope \"read write\". Copy it right after saving: Tandoor shows it only briefly. It stays in Kiosk Satellite and goes only to the address above. Fleet Management copies it only if a profile includes Plugin secrets, and an export of the configuration holds it."
     },
     {
       "key": "planDays",
@@ -247,7 +247,7 @@
     },
     {
       "key": "resumeState",
-      "type": "string",
+      "type": "secret",
       "title": "Saved session",
       "default": "",
       "group": "Advanced",
@@ -255,7 +255,7 @@
         "key": "showAdvanced",
         "equals": true
       },
-      "description": "Written by the plugin, so the recipe being cooked and its timers survive a restart of the kiosk. Empty it to forget them."
+      "description": "Written by the plugin, so the recipe being cooked and its timers survive a restart of the kiosk. Emptied, they are forgotten at the next restart. End cooking and stopping the timers forget them at once."
     }
   ],
   "buttons": [

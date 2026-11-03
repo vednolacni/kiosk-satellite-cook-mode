@@ -11,6 +11,7 @@ import android.graphics.drawable.RippleDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.view.ContextThemeWrapper;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -27,17 +28,22 @@ final class Parts {
     /** How long a plus or minus must be held before it repeats. Fast taps would trip the Kiosk Mode exit gesture. */
     private static final long REPEAT_AFTER_MS = 450L;
     private static final long REPEAT_EVERY_MS = 180L;
+    /** How far past its edge a finger on a plus or minus may slide and still mean it. */
+    private static final int SLIDE_DP = 16;
 
-    private final Context context;
+    private final Context base;
+    private Context context;
     private KsTheme theme;
 
     Parts(Context context, KsTheme theme) {
-        this.context = context;
-        this.theme = theme;
+        base = context;
+        theme(theme);
     }
 
+    /** New views take their scroll bars and overscroll glow from their context, whose own theme KS never changes. */
     void theme(KsTheme theme) {
         this.theme = theme;
+        context = new ContextThemeWrapper(base, theme.isDark() ? android.R.style.Theme_DeviceDefault_NoActionBar : android.R.style.Theme_DeviceDefault_Light_NoActionBar);
     }
 
     KsTheme theme() {
@@ -128,24 +134,43 @@ final class Parts {
         return button;
     }
 
-    /** Runs action on each press and again while held, so nobody has to tap fast. */
+    /**
+     * Runs action when a press lets go, or from a moment on while it is held, so nobody has to tap fast. Not at the touch
+     * itself: a finger starting a drag on a plus or minus in a list only means to move the list.
+     */
     void repeating(View view, Runnable action) {
         final Handler handler = new Handler(Looper.getMainLooper());
+        final boolean[] ran = new boolean[1];
         final Runnable[] again = new Runnable[1];
         again[0] = () -> {
             // A view taken away under the finger may never hear that the finger left.
             if (!view.isPressed() || !view.isAttachedToWindow()) return;
+            ran[0] = true;
+            // Held on purpose, so the list around it no longer takes this for a scroll.
+            if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(true);
             guard(action);
             handler.postDelayed(again[0], REPEAT_EVERY_MS);
         };
         view.setOnTouchListener((touched, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
-                    guard(action);
+                    ran[0] = false;
                     touched.setPressed(true);
                     handler.postDelayed(again[0], REPEAT_AFTER_MS);
                     return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (touched.isPressed() && !near(touched, event)) {
+                        // A finger that slid off has changed its mind.
+                        touched.setPressed(false);
+                        handler.removeCallbacks(again[0]);
+                    }
+                    return true;
                 case MotionEvent.ACTION_UP:
+                    boolean tap = touched.isPressed() && !ran[0];
+                    touched.setPressed(false);
+                    handler.removeCallbacks(again[0]);
+                    if (tap) guard(action);
+                    return true;
                 case MotionEvent.ACTION_CANCEL:
                     touched.setPressed(false);
                     handler.removeCallbacks(again[0]);
@@ -154,6 +179,11 @@ final class Parts {
                     return true;
             }
         });
+    }
+
+    private boolean near(View view, MotionEvent event) {
+        int slide = px(SLIDE_DP);
+        return event.getX() >= -slide && event.getX() <= view.getWidth() + slide && event.getY() >= -slide && event.getY() <= view.getHeight() + slide;
     }
 
     /** A background that ripples on touch, filled with color unless it is transparent. */

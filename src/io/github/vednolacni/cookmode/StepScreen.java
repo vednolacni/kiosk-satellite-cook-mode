@@ -13,6 +13,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -72,6 +73,11 @@ final class StepScreen implements Screen {
     private int textLeast;
     private int textMost;
     private int textShown;
+    private boolean fitComing;
+    /** What the size was last worked out for. The same room and words need no second look. */
+    private int fitWidth;
+    private int fitRoom;
+    private CharSequence fitWords;
     private boolean panelOpen;
     private ChipSpan pressedChip;
     private long lastMove;
@@ -143,7 +149,7 @@ final class StepScreen implements Screen {
         scroll.setFillViewport(true);
         scroll.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             // The room changed, when the page first shows, a timer comes or the list opens beside it.
-            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) view.post(() -> Parts.guard(this::fitText));
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) fitBeforeDrawing();
         });
         scroll.addView(story, new ScrollView.LayoutParams(Parts.MATCH, Parts.WRAP));
         column.addView(scroll, new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
@@ -296,13 +302,17 @@ final class StepScreen implements Screen {
         if (width <= 0 || room <= 0 || textMost == 0) return;
         room -= under(fixedNote, width, NOTE_GAP_DP) + under(chipsTitle, width, TITLE_GAP_DP) + under(chips, width, CHIPS_GAP_DP);
         CharSequence words = text.getText();
+        if (width == fitWidth && room == fitRoom && words == fitWords) return;
+        fitWidth = width;
+        fitRoom = room;
+        fitWords = words;
         TextPaint paint = new TextPaint(text.getPaint());
         DisplayMetrics metrics = parts.context().getResources().getDisplayMetrics();
         int size = textLeast;
         for (int sp = textMost; sp > textLeast; sp -= TEXT_STEP_SP) {
             paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, metrics));
             StaticLayout layout = StaticLayout.Builder.obtain(words, 0, words.length(), paint, width).setLineSpacing(0, LINE_SPACING).build();
-            if (layout.getHeight() <= room) {
+            if (layout.getHeight() <= room && (!(words instanceof Spanned) || ChipSpan.widest((Spanned) words, paint) <= width)) {
                 size = sp;
                 break;
             }
@@ -311,6 +321,28 @@ final class StepScreen implements Screen {
             textShown = size;
             text.setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
         }
+    }
+
+    /**
+     * The room is only known during layout, after which the frame would be drawn at the old size and jump on the next one.
+     * So the size is worked out just before drawing, and a frame with a new size is left out for the layout it needs.
+     */
+    private void fitBeforeDrawing() {
+        // In case nothing comes to draw, when the page is not on the screen.
+        scroll.post(() -> Parts.guard(this::fitText));
+        if (fitComing) return;
+        fitComing = true;
+        final ViewTreeObserver observer = scroll.getViewTreeObserver();
+        observer.addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                fitComing = false;
+                // The window's own observer took over from this one if the view was not attached yet.
+                (observer.isAlive() ? observer : scroll.getViewTreeObserver()).removeOnPreDrawListener(this);
+                int before = textShown;
+                Parts.guard(StepScreen.this::fitText);
+                return textShown == before;
+            }
+        });
     }
 
     private int under(View view, int width, int gapDp) {

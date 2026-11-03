@@ -3,6 +3,7 @@ package io.github.vednolacni.cookmode;
 
 import android.content.Context;
 import android.graphics.Color;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -24,6 +25,8 @@ final class CookView extends FrameLayout {
     private static final int WIDE_FROM_DP = 720;
     /** The display's size is a guess at the overlay's until it is laid out. Closer than this needs no second build. */
     private static final int SAME_WIDTH_DP = 48;
+    /** A wet finger can land twice. What comes up under it after the first touch must not take the second. */
+    private static final long PAGE_GUARD_MS = 350L;
 
     private final Ui.Actions actions;
     private final Images images;
@@ -37,6 +40,8 @@ final class CookView extends FrameLayout {
     private TextView questionYes;
     private TimerViews timerViews;
     private Screen screen;
+    /** Kept between visits, so coming back is instant and finds the lists where they were. */
+    private HomeScreen home;
     private Model.Page shownPage;
     private Strings shownStrings;
     private long shownVersion = -1;
@@ -45,6 +50,9 @@ final class CookView extends FrameLayout {
     private boolean ingredientsOpen;
     private Model model;
     private List<Timers.Timer> timers = Collections.emptyList();
+    private long pageAt;
+    private boolean pageMoved;
+    private boolean ignoring;
 
     CookView(Context context, KsTheme theme, Ui.Actions actions, Images images) {
         super(context);
@@ -78,8 +86,22 @@ final class CookView extends FrameLayout {
     }
 
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
-        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) Parts.guard(actions::touched);
-        return super.dispatchTouchEvent(event);
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            Parts.guard(actions::touched);
+            // Against now, not the event's own time, which KS's window need not count the same way.
+            ignoring = SystemClock.uptimeMillis() - pageAt < PAGE_GUARD_MS;
+        }
+        // The whole gesture goes: a page must not see the rest of a touch it never saw begin.
+        return ignoring || super.dispatchTouchEvent(event);
+    }
+
+    @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        super.onLayout(changed, left, top, right, bottom);
+        // On a slow tablet building and laying out a page takes longer than the guard itself.
+        if (pageMoved) {
+            pageMoved = false;
+            pageAt = SystemClock.uptimeMillis();
+        }
     }
 
     @Override protected void onSizeChanged(int newWidth, int newHeight, int oldWidth, int oldHeight) {
@@ -93,6 +115,7 @@ final class CookView extends FrameLayout {
 
     private void rebuild() {
         leaveScreen();
+        home = null;
         removeAllViews();
         setBackgroundColor(parts.theme().color("surface"));
         Strings strings = model.strings;
@@ -167,6 +190,8 @@ final class CookView extends FrameLayout {
             shownVersion = -1;
             holder.removeAllViews();
             holder.addView(screen.view(), new LayoutParams(Parts.MATCH, Parts.MATCH));
+            pageAt = SystemClock.uptimeMillis();
+            pageMoved = true;
         }
         if (current.pageVersion != shownVersion) {
             shownVersion = current.pageVersion;
@@ -184,7 +209,8 @@ final class CookView extends FrameLayout {
             case FINISH:
                 return new FinishScreen(parts, actions, images, current.strings, height);
             default:
-                return new HomeScreen(parts, actions, images, current.strings, wide, width, height);
+                if (home == null) home = new HomeScreen(parts, actions, images, current.strings, wide, width, height);
+                return home;
         }
     }
 

@@ -44,7 +44,10 @@ final class HomeScreen implements Screen {
     private final TextView orderRecent;
     private final LinearLayout plan;
     private final View recipesTitle;
-    private final LinearLayout grid;
+    /** The rows of recipes. What is under them changes apart, so a word there does not rebuild them. */
+    private final LinearLayout rows;
+    private final LinearLayout footer;
+    private final ScrollView gridScroll;
     private final Runnable searchLater = () -> Parts.guard(this::searchNow);
 
     private String typed = "";
@@ -53,7 +56,8 @@ final class HomeScreen implements Screen {
     private final List<RecipeSource.Planned> shownMeals = new ArrayList<>();
     private List<RecipeSource.Summary> shownRecipes;
     private String shownPlanState;
-    private String shownGridState;
+    private String shownFooter;
+    private String answered;
 
     HomeScreen(Parts parts, Ui.Actions actions, Images images, Strings strings, boolean wide, int widthPx, int heightPx) {
         this.parts = parts;
@@ -103,7 +107,12 @@ final class HomeScreen implements Screen {
         orders = orderRow;
 
         plan = parts.column();
-        grid = parts.column();
+        rows = parts.column();
+        footer = parts.column();
+        LinearLayout grid = parts.column();
+        grid.addView(rows, parts.wide());
+        grid.addView(footer, parts.wide());
+        grid.addView(new View(parts.context()), new LinearLayout.LayoutParams(1, parts.px(20)));
         recipesTitle = parts.text(strings.recipes, 16, 700, "onSurface", 1);
 
         if (wide) {
@@ -116,7 +125,8 @@ final class HomeScreen implements Screen {
             LinearLayout right = parts.column();
             right.addView(searchRow, parts.wide(4));
             right.addView(orders, parts.wide(10));
-            right.addView(scroller(grid), new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
+            gridScroll = scroller(grid);
+            right.addView(gridScroll, new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
             panes.addView(right, new LinearLayout.LayoutParams(0, Parts.MATCH, 7));
             body = panes;
         } else {
@@ -127,7 +137,8 @@ final class HomeScreen implements Screen {
             both.addView(recipesTitle, parts.wide(20));
             both.addView(orders, parts.wide(8));
             both.addView(grid, parts.wide());
-            column.addView(scroller(both), new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
+            gridScroll = scroller(both);
+            column.addView(gridScroll, new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
             body = column;
         }
         page.addView(body, new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
@@ -177,9 +188,11 @@ final class HomeScreen implements Screen {
         showGrid(model);
     }
 
-    /** Stop what is waiting. The screen is going away. */
+    /** Stop what is waiting. The page is going away, and may come back. */
     void leave() {
         search.removeCallbacks(searchLater);
+        keypad.show(false);
+        showSearching();
     }
 
     // The search field.
@@ -254,13 +267,13 @@ final class HomeScreen implements Screen {
     private void showPlan(Model model) {
         List<RecipeSource.Planned> meals = new ArrayList<>();
         for (Model.Day day : model.days) meals.addAll(day.meals);
-        String state = model.planLoading + "|" + model.resumeAt + "|" + (model.recipe == null ? "" : model.recipe.id);
+        String state = model.planLoading + "|" + model.resumeAt + "|" + model.recipeName + "|" + model.recipeImage;
         if (meals.equals(shownMeals) && state.equals(shownPlanState)) return;
         shownMeals.clear();
         shownMeals.addAll(meals);
         shownPlanState = state;
         plan.removeAllViews();
-        if (model.resumeAt > 0 && model.recipe != null) plan.addView(resumeCard(model), parts.wide(4));
+        if (model.resumeAt > 0) plan.addView(resumeCard(model), parts.wide(4));
         boolean first = true;
         for (Model.Day day : model.days) {
             plan.addView(parts.text(day.label, first ? 18 : 15, 700, first ? "primary" : "onSurfaceVariant", 1), parts.wide(first ? 12 : 22));
@@ -282,11 +295,11 @@ final class HomeScreen implements Screen {
         card.setBackground(parts.ripple(parts.theme().color("primaryContainer"), parts.theme().radiusRow()));
         card.setPadding(parts.px(12), parts.px(12), parts.px(12), parts.px(12));
         ImageView picture = parts.picture(parts.theme().radiusControl());
-        images.load(picture, model.recipe.image, actions.imageHeaders(model.recipe.image), parts.px(THUMBNAIL_WIDTH_DP));
+        images.load(picture, model.recipeImage, actions.imageHeaders(model.recipeImage), parts.px(THUMBNAIL_WIDTH_DP));
         card.addView(picture, new LinearLayout.LayoutParams(parts.px(72), parts.px(72)));
         LinearLayout words = parts.column();
         words.addView(parts.text(strings.cooking, 13, 600, "onSurfaceVariant", 1), parts.wide());
-        words.addView(parts.text(model.recipe.name, 18, 700, "onSurface", 2), parts.wide());
+        words.addView(parts.text(model.recipeName, 18, 700, "onSurface", 2), parts.wide());
         words.addView(parts.text(String.format(strings.continueAt, model.resumeAt), 14, 500, "onSurface", 1), parts.wide(2));
         LinearLayout.LayoutParams wordsAt = parts.fill(1);
         wordsAt.setMarginStart(parts.px(14));
@@ -337,12 +350,24 @@ final class HomeScreen implements Screen {
     // Every recipe.
 
     private void showGrid(Model model) {
-        String state = model.recipesLoading + "|" + model.recipesMore + "|" + (model.banner == null);
-        if (model.recipes.equals(shownRecipes) && state.equals(shownGridState)) return;
-        shownRecipes = model.recipes;
-        shownGridState = state;
-        grid.removeAllViews();
-        for (int at = 0; at < model.recipes.size(); at += columns) {
+        if (!model.recipes.equals(shownRecipes)) showRows(model.recipes);
+        showFooter(model);
+        // The answer to a new question starts at its top. Loading more of the same stays where it is.
+        String question = model.query + "|" + model.order;
+        if (!model.recipesLoading && !question.equals(answered)) {
+            // On a narrow screen the plan is above the list, and the cook is not looking for that.
+            if (answered != null) gridScroll.scrollTo(0, Math.min(gridScroll.getScrollY(), wide ? 0 : orders.getTop()));
+            answered = question;
+        }
+    }
+
+    /** More of the same list only adds rows, so what is on the screen is not built again under a finger. */
+    private void showRows(List<RecipeSource.Summary> recipes) {
+        boolean more = shownRecipes != null && recipes.size() >= shownRecipes.size() && recipes.subList(0, shownRecipes.size()).equals(shownRecipes);
+        int keep = more ? shownRecipes.size() / columns : 0;
+        while (rows.getChildCount() > keep) rows.removeViewAt(rows.getChildCount() - 1);
+        shownRecipes = recipes;
+        for (int at = keep * columns; at < recipes.size(); at += columns) {
             LinearLayout row = parts.row();
             row.setGravity(Gravity.TOP);
             row.setBaselineAligned(false);
@@ -350,28 +375,34 @@ final class HomeScreen implements Screen {
                 LinearLayout.LayoutParams cellAt = parts.fill(1);
                 if (column > 0) cellAt.setMarginStart(parts.px(12));
                 int index = at + column;
-                if (index < model.recipes.size()) row.addView(cell(model.recipes.get(index)), cellAt);
+                if (index < recipes.size()) row.addView(cell(recipes.get(index)), cellAt);
                 else row.addView(new View(parts.context()), cellAt);
             }
-            grid.addView(row, parts.wide(12));
+            rows.addView(row, parts.wide(12));
         }
-        if (model.recipesLoading) {
+    }
+
+    private void showFooter(Model model) {
+        // With a problem in the banner, an empty list says nothing about the recipes.
+        String state = model.recipesLoading ? "loading" : model.recipes.isEmpty() && model.banner == null ? "none" : model.recipesMore ? "more" : "";
+        if (state.equals(shownFooter)) return;
+        shownFooter = state;
+        footer.removeAllViews();
+        if (state.equals("loading")) {
             TextView loading = parts.text(model.strings.loading, 15, 400, "onSurfaceVariant", 1);
             loading.setGravity(Gravity.CENTER);
             loading.setPadding(0, parts.px(16), 0, parts.px(16));
-            grid.addView(loading, parts.wide());
-        } else if (model.recipes.isEmpty() && model.banner == null) {
-            // With a problem in the banner, an empty list says nothing about the recipes.
+            footer.addView(loading, parts.wide());
+        } else if (state.equals("none")) {
             TextView none = parts.text(model.strings.noRecipes, 16, 400, "onSurfaceVariant", 0);
             none.setGravity(Gravity.CENTER);
             none.setPadding(0, parts.px(32), 0, parts.px(32));
-            grid.addView(none, parts.wide());
-        } else if (model.recipesMore) {
+            footer.addView(none, parts.wide());
+        } else if (state.equals("more")) {
             LinearLayout.LayoutParams at = parts.wide(16);
             at.gravity = Gravity.CENTER_HORIZONTAL;
-            grid.addView(parts.pill(model.strings.loadMore, false, actions::loadMore), at);
+            footer.addView(parts.pill(model.strings.loadMore, false, actions::loadMore), at);
         }
-        grid.addView(new View(parts.context()), new LinearLayout.LayoutParams(1, parts.px(20)));
     }
 
     private View cell(RecipeSource.Summary recipe) {

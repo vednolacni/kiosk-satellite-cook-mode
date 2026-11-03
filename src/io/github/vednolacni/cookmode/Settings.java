@@ -38,7 +38,8 @@ final class Settings {
 
     Settings(Map<String, Object> values) {
         serverUrl = TandoorSource.normalize(text(values.get("serverUrl")));
-        String token = text(values.get("apiToken"));
+        // A line break pasted along with it would fail in the request's header, with the token in the error's words.
+        String token = text(values.get("apiToken")).replaceAll("\\p{Cntrl}", "");
         apiToken = token.regionMatches(true, 0, "Bearer ", 0, 7) ? token.substring(7).trim() : token;
         planDays = clamp(number(values.get("planDays"), 7), 1, 14);
         switch (text(values.get("textSize"))) {
