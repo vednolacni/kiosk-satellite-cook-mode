@@ -30,15 +30,20 @@ public final class CookTest {
         final List<String> triggers = new ArrayList<>();
         final List<Map<String, Object>> haCalls = new ArrayList<>();
         final List<String> setup = new ArrayList<>();
+        final List<CommandCallback> haAnswers = new ArrayList<>();
+        final Map<String, Object> saved = new HashMap<>();
+        String deviceName = "Kitchen";
         String status = "";
         boolean statusError;
         public void executeCommand(String command, Map<String, Object> arguments, CommandCallback callback) {
             assert arguments.size() <= 2 && callback != null;
             commands.add(command);
             commandArguments.add(arguments);
+            if ("getDeviceInfo".equals(command)) callback.onResult(true, Collections.singletonMap("name", deviceName), null);
         }
+        public void updateSettings(Map<String, Object> values) { saved.putAll(values); }
         public void subscribe(String event) { subscriptions.add(event); }
-        public void haCall(Map<String, Object> message, CommandCallback callback) { assert !message.containsKey("id"); haCalls.add(message); }
+        public void haCall(Map<String, Object> message, CommandCallback callback) { assert !message.containsKey("id"); haCalls.add(message); haAnswers.add(callback); }
         public void showOverlay(String key, OverlaySpec spec, OverlayFactory factory) { assert key.matches("[a-z][a-z0-9_]{0,39}") && factory != null; overlays.put(key, spec); }
         public void hideOverlay(String key) { overlays.remove(key); }
         public void status(String message, boolean error) { assert message.length() <= 1000; status = message; statusError = error; }
@@ -67,13 +72,16 @@ public final class CookTest {
         int silences;
         boolean shutdown;
         boolean screenOn;
+        Settings.Tone tone;
         final List<String> spoken = new ArrayList<>();
         final Map<Runnable, Long> tasks = new LinkedHashMap<>();
         public OverlayFactory main(Ui.Actions actions) { this.actions = actions; return (context, theme) -> null; }
         public OverlayFactory dock(Ui.Actions actions) { this.actions = actions; return (context, theme) -> null; }
         public void render(Model model) { this.model = model; renders++; }
         public void renderDock(String cooking, Strings strings) { dock = cooking; }
+        public void sound(Settings.Tone tone, boolean mediaStream, int minutes) { this.tone = tone; }
         public void alarm(boolean on) { alarm = on; }
+        public void testAlarm(Ui.Report report) { report.result(true, "Ringing."); }
         public void speak(String text, Locale locale) { spoken.add(text); }
         public void silence() { silences++; }
         public void keepScreenOn(boolean on) { screenOn = on; }
@@ -139,12 +147,12 @@ public final class CookTest {
         values.put("textSize", "Large");
         values.put("language", "English");
         values.put("readAloud", "Off");
-        values.put("satellite", "");
+        values.put("kioskNode", "");
         values.put("autoRead", false);
         values.put("markCooked", "Ask");
         values.put("keepAwake", true);
         values.put("awakeMinutes", 90.0);
-        values.put("timerSound", true);
+        values.put("alarmTone", "Alarm tone");
         values.put("closeOnScreensaver", true);
         values.put("splitSteps", true);
         values.put("dockCorner", "Top right");
@@ -189,6 +197,8 @@ public final class CookTest {
         voice();
         commands();
         problems();
+        questions();
+        restart();
         System.out.println("CookTest passed");
     }
 
@@ -395,8 +405,8 @@ public final class CookTest {
         long version = ui.model.pageVersion;
         cook.startTimer("5 min", 300);
         assert ui.posted(300_000L) && ui.renders > renders && ui.model.pageVersion == version : "A timer must not rebuild the page under a finger";
-        // One press that landed twice is one timer.
-        cook.startTimer("5 min", 300);
+        // One press that landed twice is one timer: the step's timer starts once, and the view can show how it is doing.
+        assert !cook.stepTimer("5 min", 300);
         List<Timers.Timer> list = cook.timers();
         assert list.size() == 1 && "Step 1 · 5 min".equals(list.get(0).label) && "7".equals(list.get(0).recipe) && list.get(0).step == 0;
         assert Double.valueOf(1).equals(host.entities.get("timers"));
@@ -421,14 +431,17 @@ public final class CookTest {
         cook.stopAlarm();
         assert !ui.alarm && cook.timers().isEmpty() && Boolean.FALSE.equals(host.entities.get("timer_ringing"));
 
-        // KS's stop word silences a ringing timer, and whatever is being read.
+        // KS's stop word only silences a ringing timer the first time, so a false alarm cannot wipe what ended. The second takes it away.
         cook.startTimer("1 min", 60);
         clock.minutes(1);
         ui.run(60_000L);
         assert ui.alarm;
         int silences = ui.silences;
         cook.onEvent("ks.stopword.detected", new HashMap<String, Object>());
-        assert !ui.alarm && ui.silences == silences + 1;
+        assert !ui.alarm && ui.silences == silences + 1 && cook.timers().get(0).state == Timers.State.RINGING;
+        assert Boolean.TRUE.equals(host.entities.get("timer_ringing"));
+        cook.onEvent("ks.stopword.detected", new HashMap<String, Object>());
+        assert cook.timers().isEmpty() && Boolean.FALSE.equals(host.entities.get("timer_ringing"));
 
         // With the view closed, the dock shows over everything with the recipe and its timers.
         cook.startTimer("2 min", 120);
@@ -475,19 +488,19 @@ public final class CookTest {
         net.runAll();
         cook.startCooking();
 
-        // Each deadline KS names gets a report just before it.
+        // Each deadline KS names gets a report well before it.
         cook.onEvent("ks.screensaver.countdown", event("due", clock.instant().plusSeconds(60).toString()));
-        assert ui.posted(55_000L);
+        assert ui.posted(45_000L);
         int postpones = host.count("postponeScreensaver");
-        clock.seconds(55);
-        ui.run(55_000L);
+        clock.seconds(45);
+        ui.run(45_000L);
         assert host.count("postponeScreensaver") == postpones + 1 && ui.posted(Awake.BEAT_MS);
 
         // A screensaver someone asked for is left alone until it goes, and cooking does not close for it.
         cook.onEvent("ks.screensaver.state", event("active", true));
         assert !ui.posted(Awake.BEAT_MS) && host.overlays.containsKey(Cook.MAIN);
         cook.onEvent("ks.screensaver.countdown", event("due", clock.instant().plusSeconds(60).toString()));
-        assert !ui.posted(55_000L);
+        assert !ui.posted(45_000L);
         cook.onEvent("ks.screensaver.state", event("active", false));
         assert ui.posted(Awake.BEAT_MS);
 
@@ -557,10 +570,9 @@ public final class CookTest {
         cook.execute("nextStep");
         assert ui.spoken.size() == 3 && ui.spoken.get(2).equals("Bake.") : ui.spoken;
 
-        // Home Assistant's voice goes through the kiosk's satellite.
+        // Home Assistant's voice goes through the kiosk's own announce action, without the card that would cover the step.
         Map<String, Object> assistant = settings();
         assistant.put("readAloud", "Home Assistant");
-        assistant.put("satellite", "assist_satellite.kitchen");
         fresh(assistant);
         assert host.status.length() > 0;
         net.runAll();
@@ -570,10 +582,41 @@ public final class CookTest {
         cook.startCooking();
         cook.read();
         Map<String, Object> call = host.haCalls.get(0);
-        assert "assist_satellite".equals(call.get("domain")) && "announce".equals(call.get("service")) && Boolean.TRUE.equals(call.get("return_response")) == false;
-        assert "assist_satellite.kitchen".equals(((Map<?, ?>) call.get("target")).get("entity_id"));
-        assert "Mix 200 g flour for 5 min.".equals(((Map<?, ?>) call.get("service_data")).get("message"));
-        assert Boolean.FALSE.equals(((Map<?, ?>) call.get("service_data")).get("preannounce"));
+        assert "esphome".equals(call.get("domain")) && "ks_kitchen_announce".equals(call.get("service")) && !call.containsKey("target");
+        Map<?, ?> data = (Map<?, ?>) call.get("service_data");
+        assert "Mix 200 g flour for 5 min.".equals(data.get("message")) && Boolean.TRUE.equals(data.get("audio_only")) && Boolean.FALSE.equals(data.get("chime"));
+        assert data.keySet().equals(new HashSet<>(Arrays.asList("message", "url", "volume", "repeat", "repeat_pause", "chime", "chime_file", "tts_engine", "tts_language", "tts_voice", "audio_only"))) : data.keySet();
+
+        // No such action: the other name a kiosk's node can have, then an honest status.
+        host.haAnswers.get(0).onResult(false, null, "service_not_found: Action esphome.ks_kitchen_announce not found");
+        assert "kitchen_announce".equals(host.haCalls.get(1).get("service"));
+        host.haAnswers.get(1).onResult(false, null, "service_not_found: Action esphome.kitchen_announce not found");
+        assert host.haCalls.size() == 2 && host.statusError && host.status.contains("kitchen");
+        // No answer within the limit is no failure: it may still be speaking, and must not be read twice.
+        host.status = "";
+        cook.read();
+        host.haAnswers.get(2).onResult(false, null, "timeout: No answer within 25 seconds");
+        assert host.haCalls.size() == 3 && host.status.isEmpty();
+        // The node that worked is the one used from then on, and leaving the step stops what is being read.
+        host.haAnswers.get(2).onResult(true, null, null);
+        cook.read();
+        assert "ks_kitchen_announce".equals(host.haCalls.get(3).get("service")) : host.haCalls.get(3);
+        cook.next();
+        Map<String, Object> stop = host.haCalls.get(4);
+        assert "ks_kitchen_announce_stop".equals(stop.get("service")) : stop;
+        // Older kiosks have no stop action. That is remembered, and costs nothing.
+        host.haAnswers.get(4).onResult(false, null, "service_not_found: Action not found");
+        cook.read();
+        cook.previous();
+        assert host.haCalls.size() == 6 : host.haCalls.size();
+
+        // A typed node wins, in whichever form it was copied, and the setting can be changed while cooking.
+        Map<String, Object> typed = new LinkedHashMap<>(assistant);
+        typed.put("kioskNode", "esphome.KS-Letna-Kuhinja_announce");
+        cook.configure(typed);
+        cook.read();
+        assert "ks_letna_kuhinja_announce".equals(host.haCalls.get(host.haCalls.size() - 1).get("service"));
+        assert "dedo_babi".equals(Settings.slug("Dedo&babi")) && "otroska_soba".equals(Settings.slug("Otroška soba"));
     }
 
     static void commands() {
@@ -597,9 +640,44 @@ public final class CookTest {
         cook.execute("previousStep");
         assert ui.model.pageNumber == 1;
 
-        // The step's timer by command: the first duration of the page.
+        // The step's timer by command: the first duration of the page, and it starts once.
         cook.execute("startStepTimer");
         assert cook.timers().size() == 1 && cook.timers().get(0).total == 300;
+        clock.seconds(1);
+        cook.execute("startStepTimer");
+        assert cook.timers().size() == 1;
+        // One more minute goes on the timer that rings next.
+        int left = cook.timers().get(0).left;
+        cook.execute("addMinute");
+        assert cook.timers().get(0).left == left + 60;
+        cook.execute("addMinute");
+        assert cook.timers().get(0).left == left + 60 : "An echo does not count";
+
+        // A ringing timer takes the first command given without touching, instead of what it asks for. The step stays.
+        clock.seconds(400);
+        ui.run(ui.tasks.values().stream().filter(delay -> delay >= 300_000L && delay < 400_000L).findFirst().get());
+        assert ui.alarm && cook.timers().get(0).state == Timers.State.RINGING;
+        int before = ui.model.pageNumber;
+        cook.execute("nextStep");
+        assert !ui.alarm && ui.model.pageNumber == before && cook.timers().size() == 1 : "Only silenced";
+        clock.seconds(1);
+        cook.execute("nextStep");
+        assert cook.timers().isEmpty() && ui.model.pageNumber == before : "Then cleared";
+        clock.seconds(1);
+        cook.execute("nextStep");
+        assert ui.model.pageNumber == before + 1 : "Then it moves";
+        clock.seconds(1);
+        cook.execute("previousStep");
+        cook.execute("startStepTimer");
+        assert cook.timers().get(0).total == 300;
+        // A clap's echo must not silence and clear at once, and one more minute starts a ringing timer again.
+        clock.seconds(400);
+        ui.run(ui.tasks.values().stream().filter(delay -> delay >= 300_000L && delay < 400_000L).findFirst().get());
+        cook.execute("stopAlarm");
+        cook.execute("stopAlarm");
+        assert !ui.alarm && cook.timers().size() == 1;
+        cook.execute("addMinute");
+        assert !ui.alarm && cook.timers().get(0).state == Timers.State.RUNNING && cook.timers().get(0).left == 60;
         cook.execute("closeCookMode");
         assert !host.overlays.containsKey(Cook.MAIN);
         // With the view closed the first step command only brings it back.
@@ -629,6 +707,175 @@ public final class CookTest {
         cook.execute("cookToday");
         net.runAll();
         assert ui.model.page == Model.Page.HOME;
+
+        // On the first page Next means today's meal, and Previous nothing. With a recipe open both go back to it.
+        fresh(settings());
+        net.runAll();
+        cook.execute("openCookMode");
+        clock.seconds(1);
+        cook.execute("previousStep");
+        assert ui.model.page == Model.Page.HOME;
+        clock.seconds(1);
+        cook.execute("nextStep");
+        net.runAll();
+        assert ui.model.page == Model.Page.RECIPE && ui.model.recipe != null;
+        cook.home();
+        clock.seconds(1);
+        cook.execute("previousStep");
+        assert ui.model.page == Model.Page.RECIPE;
+    }
+
+    /** Questions before losing a place, and each one's way out. */
+    static void questions() {
+        fresh(settings());
+        net.runAll();
+        cook.execute("openCookMode");
+        cook.openRecipe(new RecipeSource.Summary("7", "Pancakes", "", 30));
+        net.runAll();
+        cook.startCooking();
+
+        // On the first step there is nothing to lose. Further on another recipe needs a yes.
+        cook.next();
+        cook.home();
+        assert ui.model.resumeAt == 2;
+        cook.openRecipe(new RecipeSource.Summary("8", "Soup", "", 45));
+        assert String.format(Strings.ENGLISH.replaceRecipe, "Pancakes", 2).equals(ui.model.confirm) && ui.model.page == Model.Page.HOME && net.queue.isEmpty();
+        assert Strings.ENGLISH.replace.equals(ui.model.confirmLabel);
+        cook.confirm(false);
+        assert ui.model.confirm == null && cook.cooking() && ui.model.resumeAt == 2;
+        // The same recipe is just going back to it.
+        cook.openRecipe(new RecipeSource.Summary("7", "Pancakes", "", 30));
+        assert ui.model.confirm == null && ui.model.page == Model.Page.STEP;
+        cook.home();
+        cook.openRecipe(new RecipeSource.Summary("8", "Soup", "", 45));
+        cook.confirm(true);
+        assert ui.model.confirm == null && !cook.cooking() && ui.model.page == Model.Page.RECIPE && !net.queue.isEmpty();
+        assert host.triggers.contains("cookingFinished");
+        net.runAll();
+
+        // Ending from the first page asks only when there is something to lose.
+        cook.startCooking();
+        cook.home();
+        cook.askEnd();
+        assert ui.model.confirm == null && !cook.cooking();
+        cook.openRecipe(new RecipeSource.Summary("7", "Pancakes", "", 30));
+        net.runAll();
+        cook.startCooking();
+        cook.next();
+        cook.home();
+        cook.askEnd();
+        assert String.format(Strings.ENGLISH.endAsk, "Pancakes", 2).equals(ui.model.confirm) && cook.cooking();
+        cook.confirm(true);
+        assert ui.model.confirm == null && !cook.cooking() && ui.model.page == Model.Page.HOME;
+
+        // New servings with typed numbers in the words get a note, since those stay as written.
+        cook.openRecipe(new RecipeSource.Summary("7", "Pancakes", "", 30));
+        net.runAll();
+        cook.startCooking();
+        assert ui.model.fixedNote.isEmpty();
+        cook.previous();
+        cook.changeServings(1);
+        cook.startCooking();
+        assert ui.model.fixedNote.isEmpty() : "Mix 200 g flour for 5 min. has only a scaled amount and a time: " + ui.model.fixedNote;
+        // Silent sets no sound but keeps everything else.
+        Map<String, Object> silent = settings();
+        silent.put("alarmTone", "Silent");
+        fresh(silent);
+        assert ui.tone == Settings.Tone.SILENT;
+        cook.execute("openCookMode");
+        cook.startTimer("t", 60);
+        clock.seconds(60);
+        ui.run(60_000L);
+        assert !ui.alarm && cook.timers().get(0).state == Timers.State.RINGING && Boolean.TRUE.equals(host.entities.get("timer_ringing"));
+    }
+
+    /** A restart of the app or the plugin loses neither the place nor the timers. */
+    static void restart() {
+        fresh(settings());
+        net.runAll();
+        cook.execute("openCookMode");
+        cook.openRecipe(new RecipeSource.Summary("7", "Pancakes", "", 30));
+        net.runAll();
+        cook.changeServings(1);
+        cook.startCooking();
+        cook.next();
+        cook.startTimer("Sauce", 600);
+        cook.startTimer("Rest", 120);
+        cook.pauseTimer(cook.timers().stream().filter(timer -> timer.label.contains("Rest")).findFirst().get().id);
+        cook.startTimer("Long gone", 60);
+        ui.run(Cook.SAVE_AFTER_MS);
+        String state = (String) host.saved.get("resumeState");
+        assert state != null && state.length() <= Snapshot.MAX_LENGTH && !state.contains("tda_secret") : state;
+        Snapshot snapshot = Snapshot.decode(state);
+        assert "Kitchen".equals(snapshot.device) && "7".equals(snapshot.recipe) && snapshot.page == 1 && snapshot.servings == 5 && snapshot.timers.size() == 3;
+        // Saved only when something changed, however often the view renders.
+        host.saved.clear();
+        cook.touched();
+        cook.toggle(ui.model.ingredients.get(0));
+        ui.run(Cook.SAVE_AFTER_MS);
+        assert host.saved.isEmpty() : "Ticking an ingredient is not worth a write";
+
+        // Five minutes pass and the kiosk starts again.
+        Map<String, Object> values = settings();
+        values.put("resumeState", state);
+        clock.minutes(5);
+        Host again = new Host();
+        FakeUi newUi = new FakeUi();
+        Net newNet = new Net();
+        Cook newCook = new Cook(newUi, clock, newNet, settings -> source);
+        newCook.start(again, values);
+        assert newCook.timers().size() == 3 && !newCook.cooking();
+        assert again.overlays.containsKey(Cook.DOCK) : "The timers show at once, before the recipe has loaded";
+        newNet.runAll();
+        assert newCook.cooking() && newUi.model.page == Model.Page.STEP && newUi.model.pageNumber == 2 && newUi.model.servings == 5;
+        assert "Pancakes · 2/2".equals(newUi.dock) : newUi.dock;
+        assert Boolean.TRUE.equals(again.entities.get("cooking"));
+        assert again.triggers.isEmpty() : "It did not start again";
+        // A paused timer stays paused, a running one keeps its end, and the page comes back on opening.
+        Map<String, Timers.State> states = new HashMap<>();
+        for (Timers.Timer timer : newCook.timers()) states.put(timer.label, timer.state);
+        assert states.get("Step 2 · Rest") == Timers.State.PAUSED && states.get("Step 2 · Sauce") == Timers.State.RUNNING;
+        for (Timers.Timer timer : newCook.timers()) if (timer.label.contains("Sauce")) assert timer.left == 300 : timer.left;
+        newCook.execute("openCookMode");
+        assert newUi.model.page == Model.Page.STEP;
+
+        // What ended during the restart rings now.
+        assert newUi.tasks.containsValue(1L) : newUi.tasks.values();
+        newUi.run(1L);
+        assert newUi.alarm && again.triggers.contains("timerDone");
+        for (Timers.Timer timer : newCook.timers()) newCook.cancelTimer(timer.id);
+        newCook.stop();
+
+        // Ended too long ago: only mentioned. A session gone cold: not picked up.
+        clock.minutes(60);
+        Host later = new Host();
+        FakeUi laterUi = new FakeUi();
+        Cook laterCook = new Cook(laterUi, clock, new Net(), settings -> source);
+        laterCook.start(later, values);
+        assert laterCook.timers().size() == 1 && later.status.contains("2 timers ended") : later.status;
+        laterCook.stop();
+        clock.now = clock.now.plusSeconds(13 * 3600);
+        Host cold = new Host();
+        Net coldNet = new Net();
+        Cook coldCook = new Cook(new FakeUi(), clock, coldNet, settings -> source);
+        coldCook.start(cold, values);
+        coldNet.runAll();
+        assert !coldCook.cooking();
+        coldCook.stop();
+
+        // Another kiosk's state, copied by fleet sync, is not ours. The first save replaces it.
+        Host other = new Host();
+        other.deviceName = "Bedroom";
+        FakeUi otherUi = new FakeUi();
+        Net otherNet = new Net();
+        Cook otherCook = new Cook(otherUi, clock, otherNet, settings -> source);
+        otherCook.start(other, values);
+        otherNet.runAll();
+        assert otherCook.timers().isEmpty() && !otherCook.cooking();
+        otherUi.run(Cook.SAVE_AFTER_MS);
+        assert "".equals(other.saved.get("resumeState"));
+        otherCook.stop();
+        assert Snapshot.decode("") == null && Snapshot.decode("not json") == null && Snapshot.decode("{\"v\":99}") == null;
     }
 
     static void problems() {

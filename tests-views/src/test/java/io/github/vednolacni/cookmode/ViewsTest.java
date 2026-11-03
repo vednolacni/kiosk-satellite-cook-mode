@@ -26,7 +26,6 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.ScrollView;
@@ -46,6 +45,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -114,13 +114,15 @@ public final class ViewsTest {
         final List<String> triggers = new ArrayList<>();
         final Map<String, Object> entities = new HashMap<>();
         final Map<String, Shown> overlays = new LinkedHashMap<>();
+        final Map<String, Object> saved = new HashMap<>();
         String status = "";
         boolean statusError;
 
         @Override public void executeCommand(String command, Map<String, Object> arguments, CommandCallback callback) {
             commands.add(command);
-            callback.onResult(true, null, null);
+            callback.onResult(true, "getDeviceInfo".equals(command) ? Collections.singletonMap("name", "Letna Kuhinja") : null, null);
         }
+        @Override public void updateSettings(Map<String, Object> values) { saved.putAll(values); }
         @Override public void subscribe(String event) {}
         @Override public void haCall(Map<String, Object> message, CommandCallback callback) { callback.onResult(true, null, null); }
         @Override public void showOverlay(String key, OverlaySpec spec, OverlayFactory factory) {
@@ -209,15 +211,28 @@ public final class ViewsTest {
         walk("android8", true, "English");
     }
 
+    private View mainView() {
+        return host.overlays.get(Cook.MAIN).view;
+    }
+
+    /** A text's size in sp. */
+    private int sizeOf(TextView view) {
+        return Math.round(view.getTextSize() / view.getResources().getDisplayMetrics().scaledDensity);
+    }
+
+    /** The step counter on show, for a clearer failure. */
+    private String counter() {
+        TextView shown = findText(content, text -> text.matches("\\d+ / \\d+"));
+        return shown == null ? "nothing" : shown.getText().toString();
+    }
+
     private void walk(String shots, boolean dark, String language) {
         begin(shots, dark, settings(language));
         open();
-        View view = host.overlays.get(Cook.MAIN).view;
-        assertNotNull(view);
+        assertNotNull(host.overlays.get(Cook.MAIN).view);
         assertNotNull(find(s.today));
         assertNotNull(find("Ostanki"));
         assertNotNull(find(s.loadMore));
-        assertFalse("the search field must not raise the keyboard by opening", searchField().hasFocus());
         shot("1-home");
 
         // The list: the next page, the other order, and a search that keeps its field and focus.
@@ -227,26 +242,43 @@ public final class ViewsTest {
         tap(find(s.recent));
         assertNotNull(find("Kremšnita"));
         tap(find(s.all));
-        EditText search = searchField();
-        search.requestFocus();
-        search.setText("juh");
+        // Searching with the plugin's own keys, whatever keyboard the kiosk has or lacks.
+        TextView search = searchField();
+        assertNull(find(s.space));
+        tap(search);
+        assertNotNull(find(s.space));
+        assertOnScreen(find(s.search));
+        shot("1-keypad");
+        tap(find("J"));
+        tap(find("U"));
+        tap(find("H"));
+        assertEquals("juh", search.getText().toString());
         later(600);
         assertNotNull(find("Bučna juha"));
         assertNull(find("Ričet"));
         assertSame(search, searchField());
-        assertTrue(search.hasFocus());
+        assertNotNull("the keys stay while the answer comes", find(s.space));
         shot("1-search");
-        search.setText("");
+        View erase = described(s.back);
+        tap(erase);
+        assertEquals("ju", search.getText().toString());
+        press(erase);
+        later(1200);
+        release(erase);
+        assertEquals("a held key goes on", "", search.getText().toString());
         later(600);
         assertNotNull(find("Ričet"));
+        tap(find(s.close));
+        assertNull(find(s.space));
+        assertNotNull(find(s.all));
 
         // A note in the plan has no recipe: it looks for one by name.
-        search.clearFocus();
         tap(find("Ostanki"));
         assertEquals("Ostanki", searchField().getText().toString());
         assertNotNull(find(s.noRecipes));
-        searchField().setText("");
-        later(600);
+        tap(described(s.cancel));
+        assertEquals("", searchField().getText().toString());
+        settle();
 
         // A recipe with no steps says so and offers its app.
         tap(find("Zelenjavna juha"));
@@ -264,6 +296,11 @@ public final class ViewsTest {
         assertOnScreen(described("+"));
         assertOnScreen(find(s.startCooking));
         assertTrue(kitchen.viewed.contains("1"));
+
+        // What is worth knowing before starting.
+        assertNotNull(find(s.overnight));
+        assertNotNull(find("1 h 30 min"));
+        assertNotNull(find("180 °C"));
         shot("2-recipe");
 
         // Servings rescale in place, so a held plus keeps working.
@@ -294,22 +331,28 @@ public final class ViewsTest {
         assertNotNull(find("1 / 7"));
         assertEquals(Boolean.TRUE, host.entities.get("cooking"));
         assertTrue(host.triggers.contains("cookingStarted"));
-        assertTrue(view.getKeepScreenOn());
+        assertTrue(mainView().getKeepScreenOn());
         TextView step = containing("Čebulo drobno");
         assertNotNull(step);
         assertFalse("the template tags must be gone", step.getText().toString().contains("scalable"));
         assertTrue(step.getText().toString().contains("30 g"));
         shot("3-step");
 
-        // The timer in the sentence: its chip starts it, a double tap does not start two, and the space next to it nothing.
+        // The timer in the sentence: its chip starts it, a second tap shows how it is doing, and the space next to it does nothing.
         tapChip(step);
         assertEquals(1, cook.timers().size());
         assertNotNull(find(s.stepWord + " 1 · 10–15 minut"));
+        assertNull(find(s.newTimer));
+        settle();
         tapChip(step);
         assertEquals(1, cook.timers().size());
+        assertNotNull("the second tap opens the timers", find(s.newTimer));
+        tapAt(4, 4);
+        assertNull(find(s.newTimer));
         advance(3);
         tapBesideText(step);
         assertEquals(1, cook.timers().size());
+        assertNull(find(s.newTimer));
         shot("3-step-timer");
 
         // The step's ingredients are chips to tick, and share their state with the list.
@@ -324,7 +367,7 @@ public final class ViewsTest {
         assertSame(next, find(s.nextStep));
         later(400);
         doubleTap(next);
-        assertNotNull("one press that landed twice", find("3 / 7"));
+        assertNotNull("one press that landed twice is at " + counter(), find("3 / 7"));
         assertNotNull(containing("Dolij vodo"));
 
         // Swipes every way. A text that does not fit keeps its vertical drags.
@@ -414,6 +457,20 @@ public final class ViewsTest {
         assertNotNull(find(s.today));
         assertNotNull(find(String.format(s.continueAt, 3)));
         shot("7-home-cooking");
+
+        // Another recipe would forget this one's place, and ending it too, so both ask.
+        String switching = String.format(s.replaceRecipe, "Goveji golaž", 3);
+        tap(find("Ričet"));
+        assertNotNull(find(switching));
+        assertNotNull(find(s.replace));
+        shot("7-question");
+        tap(find(s.cancel));
+        assertNull(find(switching));
+        tap(described(s.endCooking));
+        assertNotNull(find(String.format(s.endAsk, "Goveji golaž", 3)));
+        tapAt(4, 4);
+        assertNull("a touch beside the question is a no", find(String.format(s.endAsk, "Goveji golaž", 3)));
+        assertTrue(cook.cooking());
         tap(find(String.format(s.continueAt, 3)));
         assertNotNull(find("3 / 7"));
 
@@ -425,7 +482,7 @@ public final class ViewsTest {
         assertNotNull(host.overlays.get(Cook.DOCK));
         settle();
         assertNotNull(host.overlays.get(Cook.DOCK).view);
-        assertNotNull(contains("Goveji golaž · 3/7"));
+        assertNotNull(containing("Goveji golaž · 3/7"));
         assertNotNull(find(Durations.clock(600)));
         shot("8-dock");
         advance(5);
@@ -454,7 +511,7 @@ public final class ViewsTest {
         tap(find(s.backToPlan));
         assertNotNull(find(s.today));
         assertNull(find(String.format(s.continueAt, 7)));
-        assertFalse(view.getKeepScreenOn());
+        assertFalse(mainView().getKeepScreenOn());
         assertEquals(Boolean.FALSE, host.entities.get("cooking"));
     }
 
@@ -482,6 +539,19 @@ public final class ViewsTest {
         tap(find(s.retry));
         assertNull(find(s.problemNetwork));
         assertNotNull(find("Goveji golaž"));
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void theSwipesCanBeTurnedOff() {
+        Map<String, Object> values = settings("English");
+        values.put("swipeSteps", false);
+        begin("no-swipes", true, values);
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        later(400);
+        swipe(0.8f, 0.5f, 0.2f, 0.5f);
+        assertNotNull(find("1 / 7"));
     }
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
@@ -518,22 +588,19 @@ public final class ViewsTest {
     }
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
-    public void turningTheTabletRebuildsAndTheKeyboardDoesNot() {
+    public void turningTheTabletRebuildsAndABarDoesNot() {
         begin("turn", true, settings("English"));
         open();
-        EditText search = searchField();
+        TextView search = searchField();
         int width = content.getWidth();
         int height = content.getHeight();
 
-        // The keyboard takes height only: the field and its focus stay.
-        search.requestFocus();
-        layout(width, height / 2);
+        // A bar coming or going takes height only: the page stays.
+        layout(width, height - 100);
         idle();
         assertSame(search, searchField());
-        assertTrue(search.hasFocus());
         layout(width, height);
         idle();
-        search.clearFocus();
 
         // Turning changes the width: a new layout, the same place.
         tap(find("Goveji golaž"));
@@ -562,9 +629,11 @@ public final class ViewsTest {
             tap(find(s.nextStep));
         }
         assertNotNull(find("4 / 5"));
-        ScrollView scroll = enclosingScroll(containing("Medtem pripravi"));
+        TextView words = containing("Medtem pripravi");
+        ScrollView scroll = enclosingScroll(words);
         assertNotNull(scroll);
         assertTrue("this step is meant to overflow", scroll.canScrollVertically(1));
+        assertEquals("the longest steps get the smallest size", 34, sizeOf(words));
         shot("long-step");
         later(400);
         swipe(0.5f, 0.6f, 0.5f, 0.2f);
@@ -572,6 +641,61 @@ public final class ViewsTest {
         assertNotNull("a vertical drag scrolls a long step", find("4 / 5"));
         swipe(0.8f, 0.5f, 0.2f, 0.5f);
         assertNotNull("a sideways swipe still moves on", find("5 / 5"));
+        settle();
+        assertEquals("a short step fills the screen", 56, sizeOf(containing("Postrezi")));
+        shot("short-step");
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void numbersThatDoNotScaleArePointedOut() {
+        begin("note", true, settings("Slovenščina"));
+        open();
+        tap(find("Goveji golaž"));
+        tap(described("+"));
+        tap(find(s.startCooking));
+        String note = String.format(s.fixedNumbers, s.servings(4, ""));
+        assertNull("only scaled amounts and a time in this step", find(note));
+        assertTrue(containing("Čebulo").getText().toString().contains("37,5 g"));
+        later(400);
+        tap(find(s.nextStep));
+        assertNotNull(containing("2 lovorjeva lista"));
+        assertNotNull(find(note));
+        shot("note");
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aRestartBringsBackTheStepAndTheTimers() {
+        begin("restart", true, settings("English"));
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        later(400);
+        tap(find(s.nextStep));
+        cook.startTimer("Sauce", 600);
+        later(Cook.SAVE_AFTER_MS + 100);
+        String saved = (String) host.saved.get("resumeState");
+        assertNotNull(saved);
+
+        // Everything goes, and a new session starts from the setting.
+        host.overlays.clear();
+        content.removeAllViews();
+        cook.stop();
+        idle();
+        Map<String, Object> values = settings("English");
+        values.put("resumeState", saved);
+        Host again = new Host();
+        host = again;
+        net = new Net();
+        cook = new Cook(new AndroidUi(), clock, net, settings -> kitchen);
+        cook.start(again, values);
+        settle();
+        assertNotNull("the card shows what is going on", again.overlays.get(Cook.DOCK));
+        assertNotNull(containing("Goveji golaž · 2/7"));
+        assertEquals(1, cook.timers().size());
+        cook.execute("openCookMode");
+        settle();
+        assertNotNull(find("2 / 7"));
+        assertNotNull(find(s.stepWord + " 2 · Sauce"));
     }
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
@@ -586,6 +710,10 @@ public final class ViewsTest {
         tap(described(s.read));
         cook.startTimer("Test", 60);
         advance(61);
+        assertNotNull(find(s.timeIsUp));
+        // The first word only silences, so what ended stays on show.
+        cook.onEvent("ks.stopword.detected", new HashMap<String, Object>());
+        settle();
         assertNotNull(find(s.timeIsUp));
         cook.onEvent("ks.stopword.detected", new HashMap<String, Object>());
         settle();
@@ -658,12 +786,12 @@ public final class ViewsTest {
         values.put("textSize", "Large");
         values.put("language", language);
         values.put("readAloud", "Off");
-        values.put("satellite", "");
+        values.put("kioskNode", "");
         values.put("autoRead", false);
         values.put("markCooked", "Ask");
         values.put("keepAwake", true);
         values.put("awakeMinutes", 90.0);
-        values.put("timerSound", true);
+        values.put("alarmTone", "Alarm tone");
         values.put("closeOnScreensaver", true);
         values.put("splitSteps", true);
         values.put("dockCorner", "Top right");
@@ -940,17 +1068,13 @@ public final class ViewsTest {
         return findText(content, text -> text.contains(part));
     }
 
-    private TextView contains(String part) {
-        return containing(part);
-    }
-
     private interface Words {
         boolean match(String text);
     }
 
     private static TextView findText(View view, Words words) {
         if (view.getVisibility() != View.VISIBLE) return null;
-        if (view instanceof TextView && !(view instanceof EditText) && words.match(((TextView) view).getText().toString())) return (TextView) view;
+        if (view instanceof TextView && words.match(((TextView) view).getText().toString())) return (TextView) view;
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
@@ -978,18 +1102,19 @@ public final class ViewsTest {
         return null;
     }
 
-    private EditText searchField() {
-        EditText field = findEdit(content);
+    private TextView searchField() {
+        TextView field = findHint(content, s.searchHint);
         if (field == null) fail("no search field");
         return field;
     }
 
-    private static EditText findEdit(View view) {
-        if (view instanceof EditText) return (EditText) view;
+    private static TextView findHint(View view, String hint) {
+        if (view.getVisibility() != View.VISIBLE) return null;
+        if (view instanceof TextView && hint.contentEquals(((TextView) view).getHint() == null ? "" : ((TextView) view).getHint())) return (TextView) view;
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                EditText found = findEdit(group.getChildAt(i));
+                TextView found = findHint(group.getChildAt(i), hint);
                 if (found != null) return found;
             }
         }

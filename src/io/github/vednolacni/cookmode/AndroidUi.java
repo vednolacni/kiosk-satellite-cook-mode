@@ -18,6 +18,7 @@ import me.jxl.kiosk.plugins.OverlayFactory;
  */
 final class AndroidUi implements Ui {
     private static final long TICK_MS = 1_000L;
+    private static final long TEST_MS = 5_000L;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Images images = new Images();
@@ -28,12 +29,16 @@ final class AndroidUi implements Ui {
         Parts.guard(this::apply);
     };
     private final Runnable tick = this::tick;
+    private final Runnable endTest = () -> Parts.guard(this::endTest);
 
     // Written on any thread, read on the main thread.
     private volatile Model model;
     private volatile String dockText = "";
     private volatile Strings dockStrings = Strings.ENGLISH;
     private volatile boolean keepOn;
+    private volatile Settings.Tone tone = Settings.Tone.ALARM;
+    private volatile boolean mediaStream;
+    private volatile int ringMinutes = 3;
 
     // Main thread only.
     private Context context;
@@ -43,6 +48,7 @@ final class AndroidUi implements Ui {
     private TabletVoice voice;
     private Locale voiceLocale;
     private boolean ticking;
+    private boolean alarmOn;
     private boolean closed;
 
     @Override public OverlayFactory main(Actions actions) {
@@ -135,12 +141,47 @@ final class AndroidUi implements Ui {
         }
     }
 
+    @Override public void sound(Settings.Tone tone, boolean mediaStream, int minutes) {
+        this.tone = tone;
+        this.mediaStream = mediaStream;
+        ringMinutes = minutes;
+    }
+
     @Override public void alarm(boolean on) {
         main.post(() -> Parts.guard(() -> {
             if (closed) return;
-            if (!on) sound.stop();
-            else if (context != null) sound.start(context);
+            alarmOn = on;
+            if (!on) {
+                sound.stop();
+                return;
+            }
+            sound.start(context, tone == Settings.Tone.BEEPS, mediaStream, ringMinutes);
+            if (context != null && AlarmSound.volume(context, mediaStream) == 0 && actions != null) {
+                actions.problem("A timer rang, but the tablet's " + (mediaStream ? "media" : "alarm") + " volume is at zero.");
+            }
         }));
+    }
+
+    @Override public void testAlarm(Report report) {
+        main.post(() -> Parts.guard(() -> {
+            if (closed) return;
+            sound.stop();
+            sound.start(context, tone != Settings.Tone.ALARM, mediaStream, ringMinutes);
+            main.postDelayed(endTest, TEST_MS);
+            String stream = mediaStream ? "media" : "alarm";
+            if (context == null) {
+                report.result(true, "Beeping for a few seconds. Open Cook Mode once to try the alarm tone and read the volume.");
+                return;
+            }
+            float volume = AlarmSound.volume(context, mediaStream);
+            if (volume == 0) report.result(false, "The tablet's " + stream + " volume is at zero, so timers will be silent. Turn it up, or choose the other sound stream.");
+            else report.result(true, "Ringing for a few seconds at " + Math.round(volume * 100) + "% of the tablet's " + stream + " volume.");
+        }));
+    }
+
+    /** A test ends by itself unless a real timer has started ringing meanwhile. */
+    private void endTest() {
+        if (!alarmOn) sound.stop();
     }
 
     @Override public void speak(String text, Locale locale) {
@@ -168,6 +209,7 @@ final class AndroidUi implements Ui {
         main.post(() -> Parts.guard(() -> {
             closed = true;
             main.removeCallbacks(tick);
+            main.removeCallbacks(endTest);
             sound.stop();
             if (voice != null) voice.close();
             voice = null;

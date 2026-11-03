@@ -23,8 +23,8 @@ except ValueError as error:
 sources = [*sorted((root / 'sdk/src').rglob('*.java')), *sorted((root / 'src').rglob('*.java')), *sorted((root / 'tests').rglob('*.java'))]
 with tempfile.TemporaryDirectory(prefix='kiosk-plugin-test-') as directory:
     subprocess.run([tool('javac'), '--release', '8', '-encoding', 'UTF-8', '-cp', platform, '-d', directory, *map(str, sources)], check=True)
-    for test in ['TextTest', 'HttpTest', 'TimersTest', 'TandoorTest', 'CookTest']:
-        subprocess.run([tool('java'), '-ea', '-cp', os.pathsep.join([directory, platform]), 'io.github.vednolacni.cookmode.' + test], check=True)
+    for test in ['TextTest', 'HttpTest', 'TimersTest', 'TandoorTest', 'CookTest', 'ManifestTest']:
+        subprocess.run([tool('java'), '-ea', '-cp', os.pathsep.join([directory, platform]), 'io.github.vednolacni.cookmode.' + test], check=True, cwd=root)
 
 subprocess.run([sys.executable, str(root / 'tools/test_android_sdk.py')], check=True)
 

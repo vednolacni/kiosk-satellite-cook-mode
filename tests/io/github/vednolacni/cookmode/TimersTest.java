@@ -67,6 +67,7 @@ public final class TimersTest {
         assert timers.due(now + 91_000).isEmpty() && timers.ringing();
         assert timers.list(now + 91_000).get(0).id == sauce && timers.list(now + 91_000).get(0).left == 0;
         assert !timers.add(sauce, -60, now + 91_000) && timers.ringing();
+        assert timers.list(now + 91_000).get(0).value == now + 90_000;
 
         // Adding time moves the end, taking more than is left rings at once.
         assert timers.add(pasta, 60, now + 100_000) && timers.nextDue() == now + 100_000 + 540_000 + 60_000;
@@ -80,6 +81,25 @@ public final class TimersTest {
         assert timers.ringing() && timers.add(again, 60, now + 40_000);
         assert !timers.ringing() && timers.nextDue() == now + 100_000 && timers.list(now + 40_000).get(0).left == 60;
         assert timers.cancel(again) && !timers.any();
+
+        // A timer comes back after a restart, running to its end or paused with what was left.
+        Timers restored = new Timers();
+        int running = restored.restore("Sauce", 600, false, now + 300_000, "7", 2);
+        int paused = restored.restore("Rest", 120, true, 60_000, "7", 2);
+        assert running > 0 && paused > 0 && restored.nextDue() == now + 300_000;
+        assert restored.list(now).get(0).state == Timers.State.PAUSED && restored.list(now).get(0).left == 60 && restored.list(now).get(0).value == 60_000;
+        assert restored.list(now).get(1).left == 300 && restored.list(now).get(1).value == now + 300_000 && "7".equals(restored.list(now).get(1).recipe);
+
+        // What is saved fits a setting, however long the labels. Labels shorten first, then the furthest timers go.
+        List<Snapshot.SavedTimer> many = new ArrayList<>();
+        for (int i = 0; i < Timers.MAX; i++) many.add(new Snapshot.SavedTimer("Korak " + i + " · dolgo besedilo z žemljami in še več besedila, ki ne konča kmalu", 600, i == 2, now + i * 1000L, "1234567", i));
+        String encoded = new Snapshot("Kuhinja pri dedku in babici", now, "1234567", 4.5, 3, now, many).encode();
+        assert encoded.length() <= Snapshot.MAX_LENGTH : encoded.length();
+        Snapshot decoded = Snapshot.decode(encoded);
+        assert decoded != null && "Kuhinja pri dedku in babici".equals(decoded.device) && decoded.savedAt == now && "1234567".equals(decoded.recipe) && decoded.servings == 4.5 && decoded.page == 3;
+        assert !decoded.timers.isEmpty() && decoded.timers.get(0).value == now && decoded.timers.get(0).label.startsWith("Korak 0") && !decoded.timers.get(0).paused;
+        Snapshot few = Snapshot.decode(new Snapshot("K", now, "", 0, 0, 0, Collections.singletonList(new Snapshot.SavedTimer("Žemlje", 60, true, 5000, "", -1))).encode());
+        assert few.recipe.isEmpty() && few.timers.size() == 1 && "Žemlje".equals(few.timers.get(0).label) && few.timers.get(0).paused && few.timers.get(0).value == 5000 && few.timers.get(0).step == -1;
 
         // At most MAX timers, and cancel removes one.
         for (int i = 0; i < Timers.MAX; i++) assert timers.start("T" + i, 60, "", -1, now) > 0;
@@ -105,10 +125,12 @@ public final class TimersTest {
         assert host.commands.equals(Collections.singletonList("stopScreensaver")) && main.only() == Awake.BEAT_MS;
         awake.hold(true);
         assert host.commands.size() == 1;
-        // A deadline 20 seconds out moves the beat to 5 seconds before it.
+        // A deadline moves the beat to 15 seconds before it, or halfway when it is near, and never to right now.
+        awake.countdown(clock.instant().plusSeconds(60).toString());
+        assert main.only() == 45_000L;
         awake.countdown(clock.instant().plusSeconds(20).toString());
-        assert main.only() == 15_000L;
-        awake.countdown(clock.instant().plusSeconds(3).toString());
+        assert main.only() == 10_000L;
+        awake.countdown(clock.instant().plusSeconds(1).toString());
         assert main.only() == 1_000L;
         awake.countdown(null);
         assert main.only() == Awake.BEAT_MS;
@@ -123,6 +145,24 @@ public final class TimersTest {
         awake.stop();
         beat.run();
         assert main.tasks.isEmpty() && host.commands.size() == 3 && host.commands.get(2).equals("stopScreensaver");
+        // A screensaver starting at the deadline came from a late beat, and goes once. One a person started stays.
+        Host late = new Host();
+        Awake held = new Awake(lock, clock, main);
+        held.start(late);
+        held.hold(true);
+        held.countdown(clock.instant().plusSeconds(600).toString());
+        late.commands.clear();
+        held.screensaver(true);
+        assert late.commands.isEmpty() : "Far from the deadline someone asked for it";
+        held.screensaver(false);
+        held.countdown(clock.instant().plusSeconds(5).toString());
+        held.screensaver(true);
+        assert late.commands.equals(Collections.singletonList("postponeScreensaver"));
+        held.screensaver(false);
+        held.screensaver(true);
+        assert late.commands.size() == 1 : "Not twice within two minutes";
+        held.stop();
+
         assert Awake.epoch("2026-10-30T16:00:20Z") == clock.millis() + 20_000 && Awake.epoch("soon") == -1 && Awake.epoch(5) == -1;
     }
 }

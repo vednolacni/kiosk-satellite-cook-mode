@@ -23,8 +23,10 @@ final class Timers {
         /** The recipe and page that started it, so a tap can return there. Empty and -1 when none. */
         final String recipe;
         final int step;
+        /** When it rings in epoch milliseconds, or when it rang, or while paused, the milliseconds left. */
+        final long value;
 
-        Timer(int id, String label, int total, State state, int left, String recipe, int step) {
+        Timer(int id, String label, int total, State state, int left, String recipe, int step, long value) {
             this.id = id;
             this.label = label;
             this.total = total;
@@ -32,6 +34,7 @@ final class Timers {
             this.left = left;
             this.recipe = recipe;
             this.step = step;
+            this.value = value;
         }
     }
 
@@ -69,6 +72,20 @@ final class Timers {
         if (seconds <= 0 || entries.size() >= MAX) return 0;
         Entry entry = new Entry(nextId++, label, seconds, recipe, step);
         entry.endsAt = now + seconds * 1000L;
+        entries.add(entry);
+        return entry.id;
+    }
+
+    /** Bring back a timer from before a restart: running until value, or paused with value milliseconds left. */
+    int restore(String label, int total, boolean paused, long value, String recipe, int step) {
+        if (entries.size() >= MAX) return 0;
+        Entry entry = new Entry(nextId++, label, total, recipe, step);
+        if (paused) {
+            entry.state = State.PAUSED;
+            entry.remaining = value;
+        } else {
+            entry.endsAt = value;
+        }
         entries.add(entry);
         return entry.id;
     }
@@ -179,10 +196,18 @@ final class Timers {
 
     private static Timer snapshot(Entry entry, long now) {
         long millis;
-        if (entry.state == State.RUNNING) millis = Math.max(0, entry.endsAt - now);
-        else if (entry.state == State.PAUSED) millis = entry.remaining;
-        else millis = 0;
+        long value;
+        if (entry.state == State.RUNNING) {
+            millis = Math.max(0, entry.endsAt - now);
+            value = entry.endsAt;
+        } else if (entry.state == State.PAUSED) {
+            millis = entry.remaining;
+            value = entry.remaining;
+        } else {
+            millis = 0;
+            value = entry.rangAt;
+        }
         int left = (int) ((millis + 999) / 1000);
-        return new Timer(entry.id, entry.label, entry.total, entry.state, left, entry.recipe, entry.step);
+        return new Timer(entry.id, entry.label, entry.total, entry.state, left, entry.recipe, entry.step, value);
     }
 }

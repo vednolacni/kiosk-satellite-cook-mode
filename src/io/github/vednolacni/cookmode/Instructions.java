@@ -20,6 +20,7 @@ final class Instructions {
     /** A tag that shows the text went through Tandoor's Markdown. 2.6.7 skips that and sends the raw source. */
     private static final Pattern BLOCK_TAG = Pattern.compile("<(p|br|ul|ol|li|h[1-6]|div|table|blockquote|pre)\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern TEMPLATE = Pattern.compile("\\{\\{.*?\\}\\}|\\{%.*?%\\}", Pattern.DOTALL);
+    private static final Pattern NUMBER = Pattern.compile("[0-9½¼¾⅓⅔]");
     private static final Pattern ENTITY = Pattern.compile("&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);");
 
     private Instructions() {}
@@ -30,6 +31,25 @@ final class Instructions {
             case MARKDOWN: return PlainText.fromMarkdown(step.text);
             default: return step.text.trim();
         }
+    }
+
+    /**
+     * Whether the step's words hold numbers that stay as written when the servings change, besides times and
+     * temperatures. Only Tandoor's own amounts scale, so "200 g flour" typed into a step is still 200 g for twice as many.
+     */
+    static boolean hasFixedNumbers(Recipe.Step step) {
+        String text = step.format == Recipe.Format.TANDOOR_HTML
+            ? tandoor(SCALABLE.matcher(step.text).replaceAll(""), 1, false)
+            : render(step, 1, false);
+        StringBuilder rest = new StringBuilder();
+        int at = 0;
+        for (Durations.Found found : Durations.find(text)) {
+            if (found.start < at) continue;
+            rest.append(text, at, found.start).append(' ');
+            at = found.end;
+        }
+        rest.append(text.substring(at));
+        return NUMBER.matcher(Hints.TEMPERATURE.matcher(rest).replaceAll("")).find();
     }
 
     /** Tandoor's rendered instruction HTML, scaled by factor, as plain text. */

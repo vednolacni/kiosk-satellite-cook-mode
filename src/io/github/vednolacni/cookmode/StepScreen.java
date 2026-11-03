@@ -6,6 +6,9 @@ import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
+import android.text.StaticLayout;
+import android.text.TextPaint;
+import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -30,6 +33,11 @@ final class StepScreen implements Screen {
     private static final long MOVE_GAP_MS = 350L;
     /** How far outside a timer chip a touch still counts as on it. */
     private static final int CHIP_MARGIN_DP = 8;
+    private static final float LINE_SPACING = 1.28f;
+    private static final int TEXT_STEP_SP = 2;
+    private static final int NOTE_GAP_DP = 12;
+    private static final int TITLE_GAP_DP = 20;
+    private static final int CHIPS_GAP_DP = 8;
 
     private final Parts parts;
     private final Ui.Actions actions;
@@ -41,7 +49,11 @@ final class StepScreen implements Screen {
     private final TextView nextPeek;
     private final boolean peeks;
     private final ScrollView scroll;
+    private final LinearLayout story;
     private final TextView text;
+    private final TextView fixedNote;
+    private final Runnable openTimers;
+    private final Swipes swipes;
     private final TextView chipsTitle;
     private final FlowLayout chips;
     private final View panel;
@@ -57,6 +69,9 @@ final class StepScreen implements Screen {
     private final Images images;
     private String shownImage;
     private String shownStep;
+    private int textLeast;
+    private int textMost;
+    private int textShown;
     private boolean panelOpen;
     private ChipSpan pressedChip;
     private long lastMove;
@@ -76,6 +91,7 @@ final class StepScreen implements Screen {
         this.actions = actions;
         this.images = images;
         this.panelOpen = panelOpen;
+        this.openTimers = openTimers;
         peeks = heightPx >= parts.px(PEEKS_FROM_DP);
         Runnable forward = () -> move(actions::next);
         Runnable backward = () -> move(actions::previous);
@@ -110,23 +126,30 @@ final class StepScreen implements Screen {
         previousPeek = peek(backward);
         column.addView(previousPeek, parts.wide(4));
         text = parts.text("", 30, 500, "onSurface", 0);
-        text.setLineSpacing(0, 1.28f);
+        text.setLineSpacing(0, LINE_SPACING);
         text.setOnTouchListener((view, event) -> touchedText(event));
+        fixedNote = parts.text("", 14, 400, "onSurfaceVariant", 2);
+        fixedNote.setVisibility(View.GONE);
         chipsTitle = parts.text(strings.forThisStep, 13, 600, "onSurfaceVariant", 1);
         chips = new FlowLayout(parts.context(), parts.px(8));
-        LinearLayout story = parts.column();
+        story = parts.column();
         story.setGravity(Gravity.CENTER_VERTICAL);
         story.setPadding(0, parts.px(16), 0, parts.px(16));
         story.addView(text, parts.wide());
-        story.addView(chipsTitle, parts.wide(20));
-        story.addView(chips, parts.wide(8));
+        story.addView(fixedNote, parts.wide(NOTE_GAP_DP));
+        story.addView(chipsTitle, parts.wide(TITLE_GAP_DP));
+        story.addView(chips, parts.wide(CHIPS_GAP_DP));
         scroll = new ScrollView(parts.context());
         scroll.setFillViewport(true);
+        scroll.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            // The room changed, when the page first shows, a timer comes or the list opens beside it.
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) view.post(() -> Parts.guard(this::fitText));
+        });
         scroll.addView(story, new ScrollView.LayoutParams(Parts.MATCH, Parts.WRAP));
         column.addView(scroll, new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
         nextPeek = peek(forward);
         column.addView(nextPeek, parts.wide());
-        Swipes swipes = new Swipes(parts.context(), parts, scroll, forward, backward);
+        swipes = new Swipes(parts.context(), parts, scroll, forward, backward);
         swipes.addView(column, new FrameLayout.LayoutParams(Parts.MATCH, Parts.MATCH));
         middle.addView(swipes, new LinearLayout.LayoutParams(0, Parts.MATCH, 1));
 
@@ -164,7 +187,7 @@ final class StepScreen implements Screen {
         next = parts.pill(strings.nextStep, "mdi:arrow-right", true, forward);
         parts.iconAfter(next);
         parts.theme().styleText(next, 19, 700, "onPrimary");
-        next.setMinHeight(parts.px(64));
+        next.setMinHeight(parts.px(72));
         next.setMinWidth(parts.px(wide ? 240 : 170));
 
         LinearLayout tools = parts.row();
@@ -220,9 +243,10 @@ final class StepScreen implements Screen {
         filled.weight = model.pageNumber;
         meter.setLayoutParams(filled);
         meterTrack.setWeightSum(Math.max(1, model.pageCount));
+        swipes.on(model.swipes);
 
         // A step change or new servings means new words. Anything else, such as ticking an ingredient, leaves the page be.
-        String step = model.pageNumber + "|" + model.factor + "|" + model.textSize;
+        String step = model.pageNumber + "|" + model.factor + "|" + model.textSize + "|" + model.textMost;
         if (!step.equals(shownStep)) {
             shownStep = step;
             showStep(model);
@@ -232,8 +256,11 @@ final class StepScreen implements Screen {
     }
 
     private void showStep(Model model) {
-        text.setTextSize(TypedValue.COMPLEX_UNIT_SP, model.textSize);
+        textLeast = model.textSize;
+        textMost = model.textMost;
         text.setText(spanned(model));
+        fixedNote.setText(model.fixedNote);
+        fixedNote.setVisibility(model.fixedNote.isEmpty() ? View.GONE : View.VISIBLE);
         // A long step can be read from its start, and a new step does not begin scrolled.
         scroll.scrollTo(0, 0);
         previousPeek.setText(firstLine(model.previousPeek));
@@ -246,7 +273,7 @@ final class StepScreen implements Screen {
         if (model.ownTimer != null) chips.addView(timerChip(model.ownTimer));
         for (Recipe.Ingredient ingredient : model.stepIngredients) {
             if (ingredient.header) continue;
-            TextView view = parts.text(ingredient.line(model.factor, model.strings.decimalComma), Math.max(15, model.textSize * 0.6f), 500, "onSurface", 1);
+            TextView view = parts.text(ingredient.line(model.factor, model.strings.decimalComma), Math.max(15, Math.min(24, model.textSize * 0.6f)), 500, "onSurface", 1);
             view.setPadding(parts.px(14), parts.px(8), parts.px(14), parts.px(8));
             view.setMinHeight(parts.px(40));
             view.setGravity(Gravity.CENTER_VERTICAL);
@@ -256,6 +283,40 @@ final class StepScreen implements Screen {
             stepChips.add(new StepChip(ingredient, view));
         }
         showStepChips();
+        fitText();
+    }
+
+    /**
+     * The largest size at which the words and what is under them fit without scrolling, so a short step can be read from
+     * across the kitchen. A step too long for the smallest size scrolls.
+     */
+    private void fitText() {
+        int width = scroll.getWidth();
+        int room = scroll.getHeight() - story.getPaddingTop() - story.getPaddingBottom();
+        if (width <= 0 || room <= 0 || textMost == 0) return;
+        room -= under(fixedNote, width, NOTE_GAP_DP) + under(chipsTitle, width, TITLE_GAP_DP) + under(chips, width, CHIPS_GAP_DP);
+        CharSequence words = text.getText();
+        TextPaint paint = new TextPaint(text.getPaint());
+        DisplayMetrics metrics = parts.context().getResources().getDisplayMetrics();
+        int size = textLeast;
+        for (int sp = textMost; sp > textLeast; sp -= TEXT_STEP_SP) {
+            paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, metrics));
+            StaticLayout layout = StaticLayout.Builder.obtain(words, 0, words.length(), paint, width).setLineSpacing(0, LINE_SPACING).build();
+            if (layout.getHeight() <= room) {
+                size = sp;
+                break;
+            }
+        }
+        if (size != textShown) {
+            textShown = size;
+            text.setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
+        }
+    }
+
+    private int under(View view, int width, int gapDp) {
+        if (view.getVisibility() != View.VISIBLE) return 0;
+        view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.AT_MOST), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        return view.getMeasuredHeight() + parts.px(gapDp);
     }
 
     /** With the whole list open beside the step, its own ingredients would only take the step's room. */
@@ -277,7 +338,7 @@ final class StepScreen implements Screen {
             words.append(run.text);
             if (!run.timer()) continue;
             int end = words.length();
-            Runnable tap = () -> actions.startTimer(run.text, run.seconds);
+            Runnable tap = () -> startOrShow(run);
             words.setSpan(new ChipSpan(background, foreground, parts.theme().iconPath("mdi:timer-outline"), parts.px(8), tap), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
         return words;
@@ -322,8 +383,13 @@ final class StepScreen implements Screen {
             chip.setCompoundDrawablesRelative(icon, null, null, null);
             chip.setCompoundDrawablePadding(parts.px(6));
         }
-        Parts.onTap(chip, () -> actions.startTimer(timer.text, timer.seconds));
+        Parts.onTap(chip, () -> startOrShow(timer));
         return chip;
+    }
+
+    /** A timer the step names starts once. Pressing it again shows how it is doing. */
+    private void startOrShow(StepText.Run timer) {
+        if (!actions.stepTimer(timer.text, timer.seconds)) openTimers.run();
     }
 
     private void chip(StepChip chip, boolean checked) {
@@ -355,6 +421,8 @@ final class StepScreen implements Screen {
     private void showPanel() {
         panel.setVisibility(panelOpen ? View.VISIBLE : View.GONE);
         showStepChips();
+        // Without the step's own ingredients under them, the words have more room.
+        fitText();
         panelButton.setBackground(parts.ripple(parts.theme().color(panelOpen ? "primaryContainer" : "surfaceContainerHigh"), 100));
     }
 

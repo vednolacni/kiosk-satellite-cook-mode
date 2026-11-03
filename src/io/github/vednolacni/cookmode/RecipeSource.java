@@ -17,7 +17,7 @@ interface RecipeSource {
     final class SourceException extends Exception {
         private static final long serialVersionUID = 1L;
 
-        enum Kind { AUTH, HOST, NOT_FOUND, NETWORK, SERVER, PARSE, UNSUPPORTED }
+        enum Kind { AUTH, READ_ONLY, HOST, NOT_API, NOT_FOUND, NETWORK, LOCAL_NAME, TLS, SERVER, PARSE, UNSUPPORTED }
 
         final Kind kind;
 

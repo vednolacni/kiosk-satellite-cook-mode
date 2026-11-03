@@ -42,13 +42,22 @@ public final class HttpTest {
             assert missing.status == 404 && missing.text().contains("Not found");
             // A redirect within the server keeps the token. One to another host is refused before anything is sent.
             assert http.request("GET", base + "/same", auth, null, 1024).ok();
-            assert fails(http, base + "/away", "another host");
+            assert fails(http, base + "/away", "http://example.invalid");
+            assert follows("http://a.test/x", "http://a.test/y") && follows("http://a.test:8080/x", "http://A.TEST:8080/y") && follows("https://a.test/x", "https://a.test:443/y");
+            // The same host over https is better. Anything else may be another server, or leave the token in plain text.
+            assert follows("http://a.test/x", "https://a.test/y") && follows("http://a.test:8080/x", "https://a.test:8443/y");
+            assert !follows("https://a.test/x", "http://a.test/y") && !follows("http://a.test:8080/x", "http://a.test:9090/y");
+            assert !follows("http://a.test/x", "http://b.test/x") && !follows("http://a.test/x", "ftp://a.test/x");
             assert fails(http, base + "/loop", "Too many redirects");
             assert fails(http, base + "/big", "larger than");
         } finally {
             server.stop(0);
         }
         System.out.println("HttpTest passed");
+    }
+
+    static boolean follows(String from, String to) throws IOException {
+        return Http.mayFollow(new java.net.URL(from), new java.net.URL(to));
     }
 
     static boolean fails(Http http, String url, String message) {

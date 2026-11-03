@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package io.github.vednolacni.cookmode;
 
+import android.graphics.drawable.Drawable;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.ImageView;
@@ -24,6 +25,7 @@ final class RecipeScreen implements Screen {
     private final TextView name;
     private final TextView description;
     private final TextView times;
+    private final FlowLayout hints;
     private final LinearLayout servings;
     private final TextView servingsText;
     private final TextView status;
@@ -33,6 +35,7 @@ final class RecipeScreen implements Screen {
     private final View read;
     private final TextView openInApp;
     private String shownImage;
+    private Recipe shownRecipe;
 
     RecipeScreen(Parts parts, Ui.Actions actions, Images images, Strings strings, boolean wide, int heightPx) {
         this.parts = parts;
@@ -58,6 +61,8 @@ final class RecipeScreen implements Screen {
         name = parts.text("", 26, 700, "onSurface", 3);
         description = parts.text("", 15, 400, "onSurfaceVariant", 3);
         times = parts.text("", 15, 500, "onSurfaceVariant", 2);
+        hints = new FlowLayout(parts.context(), parts.px(6));
+        hints.setVisibility(View.GONE);
 
         servings = parts.row();
         View minus = parts.iconButton("mdi:minus", "-", "onSurface", 52, () -> {});
@@ -84,6 +89,7 @@ final class RecipeScreen implements Screen {
         summary.addView(name, parts.wide(14));
         summary.addView(description, parts.wide(6));
         summary.addView(times, parts.wide(8));
+        summary.addView(hints, parts.wide(8));
         list.addView(ingredientsTitle, parts.wide(wide ? 4 : 16));
         list.addView(status, parts.wide(8));
         list.addView(ingredients.view(), parts.wide(6));
@@ -135,6 +141,7 @@ final class RecipeScreen implements Screen {
             status.setVisibility(model.recipeLoading ? View.VISIBLE : View.GONE);
             description.setVisibility(View.GONE);
             times.setVisibility(View.GONE);
+            hints.setVisibility(View.GONE);
             servings.setVisibility(View.GONE);
             ingredients.view().setVisibility(View.GONE);
             return;
@@ -146,10 +153,33 @@ final class RecipeScreen implements Screen {
         String time = times(recipe, strings);
         times.setText(time);
         times.setVisibility(time.isEmpty() ? View.GONE : View.VISIBLE);
+        if (recipe != shownRecipe) {
+            shownRecipe = recipe;
+            showHints(recipe, strings);
+        }
         servings.setVisibility(recipe.servings > 0 ? View.VISIBLE : View.GONE);
         servingsText.setText(strings.servings(model.servings, recipe.servingsText));
         ingredients.view().setVisibility(View.VISIBLE);
         ingredients.show(model);
+    }
+
+    /** What is worth knowing before starting, such as a night's soaking. */
+    private void showHints(Recipe recipe, Strings strings) {
+        hints.removeAllViews();
+        for (Hints.Hint hint : Hints.of(recipe, strings)) {
+            TextView chip = parts.text(hint.text, 14, 600, "onSurface", 1);
+            chip.setBackground(parts.round(parts.theme().color("surfaceContainerHigh"), 100));
+            chip.setPadding(parts.px(12), parts.px(6), parts.px(12), parts.px(6));
+            chip.setGravity(Gravity.CENTER_VERTICAL);
+            Drawable icon = parts.icon(hint.icon, "onSurfaceVariant");
+            if (icon != null) {
+                icon.setBounds(0, 0, parts.px(18), parts.px(18));
+                chip.setCompoundDrawablesRelative(icon, null, null, null);
+                chip.setCompoundDrawablePadding(parts.px(6));
+            }
+            hints.addView(chip);
+        }
+        hints.setVisibility(hints.getChildCount() == 0 ? View.GONE : View.VISIBLE);
     }
 
     private static String times(Recipe recipe, Strings strings) {

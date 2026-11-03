@@ -1,28 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 package io.github.vednolacni.cookmode;
 
-import android.content.Context;
 import android.graphics.drawable.Drawable;
-import android.text.Editable;
-import android.text.InputFilter;
-import android.text.InputType;
-import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
-import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputMethodManager;
-import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * The first page: the meal, the plan and every recipe. Today's meals come first, one tap from cooking, and the recipes
- * are there for anyone who does not plan at all. The two lists update apart from the search field, which keeps its
- * text and its keyboard through every answer.
+ * are there for anyone who does not plan at all. The two lists update apart from the search field, which keeps what is
+ * typed in it through every answer.
  */
 final class HomeScreen implements Screen {
     private static final long SEARCH_AFTER_MS = 500L;
@@ -30,24 +23,31 @@ final class HomeScreen implements Screen {
     private static final int CELL_WIDTH_DP = 240;
     /** How narrow a grid cell may get before the grid drops a column. */
     private static final int CELL_MIN_DP = 170;
+    /** Below this height the keys shrink, so a row of results stays in view above them. */
+    private static final int SHORT_SCREEN_DP = 560;
+    private static final int QUERY_MOST = 60;
 
     private final Parts parts;
     private final Ui.Actions actions;
     private final Images images;
     private final int columns;
+    private final boolean wide;
     private final View root;
     private final TextView date;
     private final TextView message;
     private final View body;
-    private final EditText search;
+    private final TextView search;
     private final ImageView clear;
+    private final Keypad keypad;
+    private final View orders;
     private final TextView orderAll;
     private final TextView orderRecent;
     private final LinearLayout plan;
+    private final View recipesTitle;
     private final LinearLayout grid;
     private final Runnable searchLater = () -> Parts.guard(this::searchNow);
 
-    private boolean setting;
+    private String typed = "";
     private String query = "";
     /** What the lists show, to leave them alone when an answer changed nothing. */
     private final List<RecipeSource.Planned> shownMeals = new ArrayList<>();
@@ -55,10 +55,11 @@ final class HomeScreen implements Screen {
     private String shownPlanState;
     private String shownGridState;
 
-    HomeScreen(Parts parts, Ui.Actions actions, Images images, Strings strings, boolean wide, int widthPx) {
+    HomeScreen(Parts parts, Ui.Actions actions, Images images, Strings strings, boolean wide, int widthPx, int heightPx) {
         this.parts = parts;
         this.actions = actions;
         this.images = images;
+        this.wide = wide;
         // The recipes get the wider column next to the plan, or all of a narrow screen.
         int gridWidth = wide ? widthPx * 7 / 12 : widthPx;
         columns = Math.max(2, Math.min(5, (gridWidth - parts.px(32)) / parts.px(CELL_MIN_DP)));
@@ -84,24 +85,26 @@ final class HomeScreen implements Screen {
         page.addView(message, parts.wide());
 
         search = searchField(strings);
-        clear = parts.iconButton("mdi:close-circle-outline", strings.close, "onSurfaceVariant", 44, () -> {
-            setQuery("");
+        clear = parts.iconButton("mdi:close-circle-outline", strings.cancel, "onSurfaceVariant", 44, () -> {
+            type("");
             searchNow();
-            hideKeyboard();
         });
         clear.setBackground(null);
+        clear.setVisibility(View.GONE);
         LinearLayout searchRow = parts.row();
         searchRow.addView(search, parts.fill(1));
         searchRow.addView(clear);
 
-        LinearLayout orders = parts.row();
+        LinearLayout orderRow = parts.row();
         orderAll = orderChip(strings.all, RecipeSource.Order.NAME);
         orderRecent = orderChip(strings.recent, RecipeSource.Order.RECENT);
-        orders.addView(orderAll, parts.wrap());
-        orders.addView(orderRecent, parts.after(8));
+        orderRow.addView(orderAll, parts.wrap());
+        orderRow.addView(orderRecent, parts.after(8));
+        orders = orderRow;
 
         plan = parts.column();
         grid = parts.column();
+        recipesTitle = parts.text(strings.recipes, 16, 700, "onSurface", 1);
 
         if (wide) {
             LinearLayout panes = parts.row();
@@ -121,13 +124,35 @@ final class HomeScreen implements Screen {
             column.addView(searchRow, parts.wide(4));
             LinearLayout both = parts.column();
             both.addView(plan, parts.wide());
-            both.addView(parts.text(strings.recipes, 16, 700, "onSurface", 1), parts.wide(20));
+            both.addView(recipesTitle, parts.wide(20));
             both.addView(orders, parts.wide(8));
             both.addView(grid, parts.wide());
             column.addView(scroller(both), new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
             body = column;
         }
         page.addView(body, new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
+
+        boolean shortScreen = heightPx < parts.px(SHORT_SCREEN_DP);
+        keypad = new Keypad(parts, strings, shortScreen ? 42 : 52, new Keypad.Keys() {
+            @Override public void typed(String letter) {
+                if (typed.length() < QUERY_MOST) searchSoon(typed + letter.toLowerCase(Locale.ROOT));
+            }
+
+            @Override public void erase() {
+                if (!typed.isEmpty()) searchSoon(typed.substring(0, typed.length() - 1));
+            }
+
+            @Override public void close() {
+                searchNow();
+                showKeypad(false);
+            }
+
+            @Override public void search() {
+                searchNow();
+                showKeypad(false);
+            }
+        });
+        page.addView(keypad.view(), parts.wide());
     }
 
     @Override public View view() {
@@ -139,11 +164,13 @@ final class HomeScreen implements Screen {
         message.setVisibility(model.configured ? View.GONE : View.VISIBLE);
         message.setText(model.strings.notConfigured);
         body.setVisibility(model.configured ? View.VISIBLE : View.GONE);
-        if (!model.configured) return;
+        if (!model.configured) {
+            keypad.show(false);
+            return;
+        }
         query = model.query;
         // What the cook is typing wins over the answer to what they typed before.
-        if (!search.hasFocus() && !model.query.equals(search.getText().toString().trim())) setQuery(model.query);
-        clear.setVisibility(search.getText().length() > 0 ? View.VISIBLE : View.GONE);
+        if (!keypad.open() && !model.query.equals(typed.trim())) type(model.query);
         order(orderAll, model.order == RecipeSource.Order.NAME);
         order(orderRecent, model.order == RecipeSource.Order.RECENT);
         showPlan(model);
@@ -157,65 +184,55 @@ final class HomeScreen implements Screen {
 
     // The search field.
 
-    private EditText searchField(Strings strings) {
-        EditText field = new EditText(parts.context());
-        field.setSingleLine(true);
-        field.setInputType(InputType.TYPE_CLASS_TEXT);
-        field.setImeOptions(EditorInfo.IME_ACTION_SEARCH | EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN);
-        field.setFilters(new InputFilter[] {new InputFilter.LengthFilter(200)});
-        field.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
+    private TextView searchField(Strings strings) {
+        TextView field = parts.text("", 16, 400, "onSurface", 1);
         field.setHint(strings.searchHint);
-        parts.theme().styleText(field, 16, 400, "onSurface");
         field.setHintTextColor(parts.theme().color("onSurfaceVariant"));
-        field.setBackgroundTintList(null);
-        field.setBackground(parts.round(parts.theme().color("surfaceContainerHigh"), parts.theme().radiusControl()));
+        field.setBackground(parts.ripple(parts.theme().color("surfaceContainerHigh"), parts.theme().radiusControl()));
         field.setPadding(parts.px(14), parts.px(11), parts.px(14), parts.px(11));
         field.setMinHeight(parts.px(48));
+        field.setGravity(Gravity.CENTER_VERTICAL);
         Drawable glass = parts.icon("mdi:magnify", "onSurfaceVariant");
         if (glass != null) {
             glass.setBounds(0, 0, parts.px(22), parts.px(22));
             field.setCompoundDrawablesRelative(glass, null, null, null);
             field.setCompoundDrawablePadding(parts.px(10));
         }
-        field.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
-            @Override public void afterTextChanged(Editable text) {
-                if (setting) return;
-                clear.setVisibility(text.length() > 0 ? View.VISIBLE : View.GONE);
-                field.removeCallbacks(searchLater);
-                field.postDelayed(searchLater, SEARCH_AFTER_MS);
-            }
-        });
-        field.setOnEditorActionListener((view, action, event) -> {
-            if (action != EditorInfo.IME_ACTION_SEARCH) return false;
-            Parts.guard(() -> {
-                searchNow();
-                hideKeyboard();
-            });
-            return true;
-        });
+        Parts.onTap(field, () -> showKeypad(true));
         return field;
     }
 
-    private void setQuery(String text) {
-        setting = true;
+    private void type(String text) {
+        typed = text;
         search.setText(text);
-        setting = false;
-        search.setSelection(search.getText().length());
         clear.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
+        showSearching();
+    }
+
+    private void searchSoon(String text) {
+        type(text);
+        search.removeCallbacks(searchLater);
+        search.postDelayed(searchLater, SEARCH_AFTER_MS);
     }
 
     private void searchNow() {
         search.removeCallbacks(searchLater);
-        String text = search.getText().toString().trim();
+        String text = typed.trim();
         if (!text.equals(query)) actions.search(text);
     }
 
-    private void hideKeyboard() {
-        search.clearFocus();
-        InputMethodManager keyboard = (InputMethodManager) parts.context().getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (keyboard != null) keyboard.hideSoftInputFromWindow(search.getWindowToken(), 0);
+    private void showKeypad(boolean open) {
+        keypad.show(open);
+        showSearching();
+    }
+
+    /** While searching, what is found goes first. On a wide screen the plan can stay beside it. */
+    private void showSearching() {
+        boolean searching = keypad.open() || !typed.isEmpty();
+        orders.setVisibility(keypad.open() ? View.GONE : View.VISIBLE);
+        if (wide) return;
+        plan.setVisibility(searching ? View.GONE : View.VISIBLE);
+        recipesTitle.setVisibility(searching ? View.GONE : View.VISIBLE);
     }
 
     private TextView orderChip(String label, RecipeSource.Order order) {
@@ -274,7 +291,7 @@ final class HomeScreen implements Screen {
         LinearLayout.LayoutParams wordsAt = parts.fill(1);
         wordsAt.setMarginStart(parts.px(14));
         card.addView(words, wordsAt);
-        card.addView(parts.iconButton("mdi:stop", strings.endCooking, "onSurface", 48, actions::backToPlan));
+        card.addView(parts.iconButton("mdi:stop", strings.endCooking, "onSurface", 48, actions::askEnd));
         Parts.onTap(card, actions::resumeCooking);
         return card;
     }
@@ -320,7 +337,7 @@ final class HomeScreen implements Screen {
     // Every recipe.
 
     private void showGrid(Model model) {
-        String state = model.recipesLoading + "|" + model.recipesMore;
+        String state = model.recipesLoading + "|" + model.recipesMore + "|" + (model.banner == null);
         if (model.recipes.equals(shownRecipes) && state.equals(shownGridState)) return;
         shownRecipes = model.recipes;
         shownGridState = state;
@@ -343,7 +360,8 @@ final class HomeScreen implements Screen {
             loading.setGravity(Gravity.CENTER);
             loading.setPadding(0, parts.px(16), 0, parts.px(16));
             grid.addView(loading, parts.wide());
-        } else if (model.recipes.isEmpty()) {
+        } else if (model.recipes.isEmpty() && model.banner == null) {
+            // With a problem in the banner, an empty list says nothing about the recipes.
             TextView none = parts.text(model.strings.noRecipes, 16, 400, "onSurfaceVariant", 0);
             none.setGravity(Gravity.CENTER);
             none.setPadding(0, parts.px(32), 0, parts.px(32));

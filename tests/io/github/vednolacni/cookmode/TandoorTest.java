@@ -137,15 +137,36 @@ public final class TandoorTest {
         assert bodies.get(bodies.size() - 1).equals("POST /v15/api/cook-log/ {\"recipe\":7,\"servings\":3}") : bodies.get(bodies.size() - 1);
     }
 
-    static void failures() {
+    static void failures() throws Exception {
         assert kind(new TandoorSource(base + "/bad", "t", new Http())) == RecipeSource.SourceException.Kind.HOST;
         assert message(new TandoorSource(base + "/bad", "t", new Http())).contains("ALLOWED_HOSTS setting must include 127.0.0.1:");
         assert kind(new TandoorSource(base + "/denied", "t", new Http())) == RecipeSource.SourceException.Kind.AUTH;
         assert message(new TandoorSource(base + "/denied", "t", new Http())).contains("(Authentication credentials were not provided or access is forbidden.)");
-        assert kind(new TandoorSource(base + "/web", "t", new Http())) == RecipeSource.SourceException.Kind.PARSE;
+        assert kind(new TandoorSource(base + "/web", "t", new Http())) == RecipeSource.SourceException.Kind.NOT_API;
+        assert kind(new TandoorSource("http://no-such-server.invalid.local:1", "t", new Http())) == RecipeSource.SourceException.Kind.LOCAL_NAME;
         assert kind(new TandoorSource("http://127.0.0.1:1", "t", new Http())) == RecipeSource.SourceException.Kind.NETWORK;
         assert kind(new TandoorSource("", "t", new Http())) == RecipeSource.SourceException.Kind.HOST;
         assert kind(new TandoorSource(base + "/v2", "", new Http())) == RecipeSource.SourceException.Kind.AUTH;
+
+        // A token that can only read: reading works, and recording says why it cannot.
+        HttpServer readOnly = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        readOnly.createContext("/", exchange -> {
+            boolean reading = "GET".equals(exchange.getRequestMethod());
+            byte[] answer = (reading ? "{\"version\":\"2.7.2\"}" : "{\"detail\":\"You do not have permission.\"}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(reading ? 200 : 403, answer.length);
+            try (java.io.OutputStream out = exchange.getResponseBody()) {
+                out.write(answer);
+            }
+        });
+        readOnly.start();
+        try {
+            new TandoorSource("http://127.0.0.1:" + readOnly.getAddress().getPort(), "t", new Http()).cooked("7", 2);
+            assert false : "Recording must fail";
+        } catch (RecipeSource.SourceException refused) {
+            assert refused.kind == RecipeSource.SourceException.Kind.READ_ONLY && refused.getMessage().contains("You do not have permission.") : refused.getMessage();
+        } finally {
+            readOnly.stop(0);
+        }
     }
 
     static void instructions() {

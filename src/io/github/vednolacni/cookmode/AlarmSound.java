@@ -13,14 +13,13 @@ import android.os.Looper;
 import android.os.SystemClock;
 
 /**
- * The sound of a ringing timer: the device's alarm tone on the alarm stream, repeated until silenced, or plain beeps on
- * a tablet with no tone at all. Ringtone only loops by itself from Android 9, and kitchen tablets such as the ThinkSmart
- * View run Android 8.1, so it is played again whenever it stops. Main thread only. It gives up after a few minutes so a
- * forgotten timer does not ring all day.
+ * The sound of a ringing timer: the device's alarm tone, repeated until silenced, or plain beeps on a tablet with no tone
+ * at all or when asked for them. Ringtone only loops by itself from Android 9, and kitchen tablets such as the ThinkSmart
+ * View run Android 8.1, so it is played again whenever it stops. Beeps need no Context, so they also work before any view
+ * has been built. Main thread only. It gives up after a few minutes so a forgotten timer does not ring all day.
  */
 final class AlarmSound {
     private static final long CHECK_MS = 1_500L;
-    private static final long LONGEST_MS = 3 * 60_000L;
     private static final int BEEP_MS = 800;
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -29,11 +28,12 @@ final class AlarmSound {
     private ToneGenerator beeper;
     private long until;
 
-    void start(Context context) {
+    /** Start sounding for at most minutes. context may be null, which means beeps. */
+    void start(Context context, boolean beeps, boolean mediaStream, int minutes) {
         if (playing()) return;
-        until = SystemClock.uptimeMillis() + LONGEST_MS;
-        ringtone = ringtone(context);
-        if (ringtone == null) beeper = beeper();
+        until = SystemClock.uptimeMillis() + minutes * 60_000L;
+        if (context != null && !beeps) ringtone = ringtone(context, mediaStream);
+        if (ringtone == null) beeper = beeper(mediaStream);
         main.post(again);
     }
 
@@ -57,7 +57,16 @@ final class AlarmSound {
         return ringtone != null || beeper != null;
     }
 
-    private static Ringtone ringtone(Context context) {
+    /** The volume of the stream the alarm sounds on, as a share of its largest. */
+    static float volume(Context context, boolean mediaStream) {
+        AudioManager audio = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+        if (audio == null) return 1;
+        int stream = mediaStream ? AudioManager.STREAM_MUSIC : AudioManager.STREAM_ALARM;
+        int largest = audio.getStreamMaxVolume(stream);
+        return largest <= 0 ? 1 : audio.getStreamVolume(stream) / (float) largest;
+    }
+
+    private static Ringtone ringtone(Context context, boolean mediaStream) {
         try {
             Uri uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
             if (uri == null) uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
@@ -65,7 +74,7 @@ final class AlarmSound {
             Ringtone tone = RingtoneManager.getRingtone(context, uri);
             if (tone == null) return null;
             tone.setAudioAttributes(new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setUsage(mediaStream ? AudioAttributes.USAGE_MEDIA : AudioAttributes.USAGE_ALARM)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build());
             return tone;
@@ -74,9 +83,9 @@ final class AlarmSound {
         }
     }
 
-    private static ToneGenerator beeper() {
+    private static ToneGenerator beeper(boolean mediaStream) {
         try {
-            return new ToneGenerator(AudioManager.STREAM_ALARM, ToneGenerator.MAX_VOLUME);
+            return new ToneGenerator(mediaStream ? AudioManager.STREAM_MUSIC : AudioManager.STREAM_ALARM, ToneGenerator.MAX_VOLUME);
         } catch (RuntimeException noSound) {
             // A tablet without any sound still shows the ringing timer.
             return null;

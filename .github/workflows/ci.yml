@@ -18,7 +18,12 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
       - name: Install Android build tools
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+        run: sdkmanager 'platforms;android-35' 'platforms;android-26' 'build-tools;35.0.0'
+      # The manifest allows Android 8.0, and a call to anything newer would crash there, not fail here.
+      - name: Compile against the oldest Android the manifest allows
+        run: |
+          mkdir -p "$RUNNER_TEMP/api26"
+          javac --release 8 -encoding UTF-8 -cp "$ANDROID_HOME/platforms/android-26/android.jar" -d "$RUNNER_TEMP/api26" $(find sdk/src src -name '*.java')
       - name: Test
         run: python3 tools/test.py
       - name: Build

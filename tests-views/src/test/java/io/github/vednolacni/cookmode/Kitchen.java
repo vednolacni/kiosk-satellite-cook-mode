@@ -41,12 +41,12 @@ final class Kitchen implements RecipeSource {
         List<Recipe.Ingredient> second = Arrays.asList(food(2, "žlici", "sladka paprika", ""), food(Double.NaN, "", "sol", "po okusu"), food(0.5, "žličke", "kumina", "mleta"));
         List<Recipe.Ingredient> third = Arrays.asList(food(1, "l", "voda", ""), Recipe.Ingredient.header("Za konec"), food(2, "stroka", "česen", ""));
         String longStep = "Medtem pripravi prilogo. Polento zakuhaj v slanem kropu in jo ob stalnem mešanju kuhaj 5 minut, da se zgosti.\n\n"
-            + "Golažu dodaj strt česen in majaron. Če je pregost, prilij malo vode, če je preredek, ga kuhaj odkritega še 10 minut.\n\n"
+            + "Golažu dodaj strt česen in majaron. Če je pregost, prilij malo vode, če je preredek, ga kuhaj odkritega še 10 minut. Kruh pogrej v pečici na 180 °C.\n\n"
             + "Poskusi in po potrebi dosoli. Pusti ga stati 15 minut, da se okusi povežejo, potem pa ga znova pogrej.";
         return new Recipe("1", "Goveji golaž", "Pravi domači golaž, ki se kuha počasi in je naslednji dan še boljši.", picture(1), 4, "", 30, 120,
             "http://tandoor.test/view/recipe/1", "", Arrays.asList(
                 new Recipe.Step("Čebula", "<p>Čebulo drobno nasekljaj in jo na <scalable-number v-bind:number=\"30.0\"></scalable-number> g masti praži 10–15 minut, da lepo porumeni.</p>", Recipe.Format.TANDOOR_HTML, first, 0),
-                new Recipe.Step("", "Dodaj meso na kocke, papriko, sol in kumino. Praži še 5 minut na močnem ognju, da meso dobi barvo.", Recipe.Format.PLAIN, second, 0),
+                new Recipe.Step("", "Dodaj meso na kocke, ki je čez noč počivalo v marinadi, papriko, sol, kumino in 2 lovorjeva lista. Praži še 5 minut na močnem ognju.", Recipe.Format.PLAIN, second, 0),
                 new Recipe.Step("Dušenje", "Dolij vodo, pokrij in duši 1 uro 30 minut na majhnem ognju. Občasno premešaj.", Recipe.Format.PLAIN, third, 90 * 60),
                 new Recipe.Step("Priloga in zaključek", longStep, Recipe.Format.PLAIN, Collections.<Recipe.Ingredient>emptyList(), 0),
                 new Recipe.Step("Postrezi", "Postrezi s polento in svežim kruhom.", Recipe.Format.PLAIN, Collections.<Recipe.Ingredient>emptyList(), 5 * 60)));

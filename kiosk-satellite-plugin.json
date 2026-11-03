@@ -58,7 +58,7 @@
         "Extra large"
       ],
       "group": "Cooking",
-      "description": "Large reads well from about two metres on an 8 inch tablet."
+      "description": "Short steps grow to fill the screen and long ones shrink to fit, within this size. Large reads well from about one and a half metres on an 8 inch tablet."
     },
     {
       "key": "splitSteps",
@@ -69,12 +69,12 @@
       "description": "Recipes imported from the web often hold the whole method in one step. This shows each of its paragraphs as a step of its own."
     },
     {
-      "key": "timerSound",
+      "key": "swipeSteps",
       "type": "boolean",
-      "title": "Timer sound",
+      "title": "Swipe to change steps",
       "default": true,
       "group": "Cooking",
-      "description": "Plays the tablet's alarm tone when a timer ends, at the tablet's alarm volume, for up to three minutes."
+      "description": "Turn off if a splashing hand keeps changing the step."
     },
     {
       "key": "markCooked",
@@ -103,6 +103,73 @@
       "description": "Auto follows the device language."
     },
     {
+      "key": "alarmTone",
+      "type": "select",
+      "title": "Timer sound",
+      "default": "Alarm tone",
+      "options": [
+        "Alarm tone",
+        "Beeps",
+        "Silent"
+      ],
+      "group": "Timers",
+      "description": "What plays when a timer ends. Alarm tone is the tablet's own, and a tablet without one beeps instead."
+    },
+    {
+      "key": "alarmStream",
+      "type": "select",
+      "title": "Sound stream",
+      "default": "Alarm",
+      "options": [
+        "Alarm",
+        "Media"
+      ],
+      "group": "Timers",
+      "visibleWhen": {
+        "key": "alarmTone",
+        "notEquals": "Silent"
+      },
+      "description": "Which of the tablet's volumes it follows. Choose Media if you only ever set the media volume."
+    },
+    {
+      "key": "ringMinutes",
+      "type": "number",
+      "title": "Ring for at most",
+      "default": 3,
+      "min": 1,
+      "max": 10,
+      "step": 1,
+      "unit": "min",
+      "group": "Timers",
+      "visibleWhen": {
+        "key": "alarmTone",
+        "notEquals": "Silent"
+      },
+      "description": "The sound stops after this long. The timer stays on the screen until someone stops it."
+    },
+    {
+      "key": "dockCorner",
+      "type": "select",
+      "title": "Corner of the timer card",
+      "default": "Top right",
+      "options": [
+        "Top right",
+        "Top left",
+        "Bottom right",
+        "Bottom left"
+      ],
+      "group": "Timers",
+      "description": "While the panel is closed, a small card shows what is cooking and how long the timers have left."
+    },
+    {
+      "key": "dockOnTop",
+      "type": "boolean",
+      "title": "Timer card over everything",
+      "default": true,
+      "group": "Timers",
+      "description": "Also over the screensaver, the kiosk's menu and its camera views. Off, it sits with the dashboard."
+    },
+    {
       "key": "readAloud",
       "type": "select",
       "title": "Voice",
@@ -113,19 +180,19 @@
         "Home Assistant"
       ],
       "group": "Read aloud",
-      "description": "Tablet voice uses Android's text-to-speech, which needs no connection but not every tablet has, and few speak Slovenian. Home Assistant speaks through the kiosk's own voice satellite."
+      "description": "Tablet voice uses Android's text-to-speech, which needs no connection but not every tablet has, and few speak Slovenian. Home Assistant speaks through the kiosk's announcements, with the engine and voice set under Settings > ESPHome > Announcements."
     },
     {
-      "key": "satellite",
-      "type": "entity",
-      "title": "Voice satellite",
+      "key": "kioskNode",
+      "type": "string",
+      "title": "ESPHome node of this kiosk",
       "default": "",
       "group": "Read aloud",
       "visibleWhen": {
         "key": "readAloud",
         "equals": "Home Assistant"
       },
-      "description": "The assist_satellite entity of this kiosk."
+      "description": "Only if reading fails. Empty tries ks_ plus the device's name. It is the middle of the kiosk's action in Home Assistant: esphome.ks_kitchen_announce means ks_kitchen."
     },
     {
       "key": "autoRead",
@@ -161,29 +228,34 @@
         "key": "keepAwake",
         "equals": true
       },
-      "description": "With nobody touching the tablet for this long, a forgotten recipe stops holding the screen. Any touch or action starts it again."
+      "description": "With nobody touching the tablet for this long, a forgotten recipe stops holding the screen. Any touch or action starts it again, and timers still ring."
     },
     {
       "key": "closeOnScreensaver",
       "type": "boolean",
       "title": "Close the list when the screensaver starts",
       "default": true,
-      "group": "Panel",
+      "group": "Screen",
       "description": "Only the first page, the way the built-in views go away. A recipe being cooked stays."
     },
     {
-      "key": "dockCorner",
-      "type": "select",
-      "title": "Corner of the timer card",
-      "default": "Top right",
-      "options": [
-        "Top right",
-        "Top left",
-        "Bottom right",
-        "Bottom left"
-      ],
-      "group": "Panel",
-      "description": "While the panel is closed, a small card shows what is cooking and how long the timers have left."
+      "key": "showAdvanced",
+      "type": "boolean",
+      "title": "Show advanced settings",
+      "default": false,
+      "group": "Advanced"
+    },
+    {
+      "key": "resumeState",
+      "type": "string",
+      "title": "Saved session",
+      "default": "",
+      "group": "Advanced",
+      "visibleWhen": {
+        "key": "showAdvanced",
+        "equals": true
+      },
+      "description": "Written by the plugin, so the recipe being cooked and its timers survive a restart of the kiosk. Empty it to forget them."
     }
   ],
   "buttons": [
@@ -197,6 +269,13 @@
         "key": "serverUrl",
         "notEmpty": true
       }
+    },
+    {
+      "id": "testAlarm",
+      "title": "Test the timer sound",
+      "label": "Ring",
+      "group": "Timers",
+      "description": "Rings for a few seconds and reports the tablet's volume, so a silent alarm shows before dinner."
     }
   ],
   "commands": [
@@ -231,6 +310,10 @@
     {
       "id": "startStepTimer",
       "title": "Start the step's timer"
+    },
+    {
+      "id": "addMinute",
+      "title": "One more minute"
     },
     {
       "id": "stopAlarm",

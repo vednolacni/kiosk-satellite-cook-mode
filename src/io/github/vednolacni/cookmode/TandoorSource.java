@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.net.UnknownHostException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
@@ -13,7 +14,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import javax.net.ssl.SSLException;
 
 /**
  * Tandoor Recipes over its REST API, for 1.5.x and 2.x. The token is a Tandoor API token with the scope "read write",
@@ -67,7 +70,7 @@ final class TandoorSource implements RecipeSource {
         try {
             version = Json.text(Json.object(get("/api/server-settings/current/")).get("version"));
         } catch (SourceException missing) {
-            if (missing.kind != SourceException.Kind.NOT_FOUND && missing.kind != SourceException.Kind.PARSE) throw missing;
+            if (missing.kind != SourceException.Kind.NOT_FOUND && missing.kind != SourceException.Kind.NOT_API && missing.kind != SourceException.Kind.PARSE) throw missing;
             version = "";
         }
         return version;
@@ -277,6 +280,15 @@ final class TandoorSource implements RecipeSource {
         Http.Response response;
         try {
             response = http.request(method, url, headers, bytes, LIMIT);
+        } catch (Http.Refused refused) {
+            throw new SourceException(SourceException.Kind.NOT_API, refused.getMessage() + ". The token was not sent there. A login page may be in front of Tandoor.", refused);
+        } catch (UnknownHostException unknown) {
+            boolean local = host().toLowerCase(Locale.ROOT).contains(".local");
+            throw new SourceException(local ? SourceException.Kind.LOCAL_NAME : SourceException.Kind.NETWORK, "This tablet cannot find " + host() + "."
+                + (local ? " Android before version 12 cannot resolve .local names, so use the IP address." : ""), unknown);
+        } catch (SSLException secure) {
+            throw new SourceException(SourceException.Kind.TLS, "The secure connection to " + host() + " failed: " + reason(secure)
+                + ". A private certificate must be installed in Android, and Android 8.1 cannot use a server that only offers TLS 1.3. Plain http on the home network also works.", secure);
         } catch (IOException failed) {
             throw new SourceException(SourceException.Kind.NETWORK, "Could not reach Tandoor at " + host() + ": " + reason(failed), failed);
         }
@@ -284,6 +296,9 @@ final class TandoorSource implements RecipeSource {
         if (status == 400) {
             throw new SourceException(SourceException.Kind.HOST, "Tandoor answered 400 Bad Request. Its ALLOWED_HOSTS setting must include " + host()
                 + ". Use the address you open Tandoor with in a browser.");
+        }
+        if (status == 403 && body != null) {
+            throw new SourceException(SourceException.Kind.READ_ONLY, "Tandoor refused to record this. The API token needs the scope \"read write\"." + detail(response));
         }
         if (status == 401 || status == 403) {
             throw new SourceException(SourceException.Kind.AUTH, "Tandoor refused the API token. Create one under Settings > API with the scope \"read write\" and copy it right after saving." + detail(response));
@@ -293,7 +308,7 @@ final class TandoorSource implements RecipeSource {
         if (response.body.length == 0) return null;
         String text = response.text().trim();
         if (!text.startsWith("{") && !text.startsWith("[")) {
-            throw new SourceException(SourceException.Kind.PARSE, "The address answered with a web page, not Tandoor's API. Check the Tandoor address.");
+            throw new SourceException(SourceException.Kind.NOT_API, "The address answered with a web page, not Tandoor's API. Check the Tandoor address, and that no login page is in front of it.");
         }
         try {
             return Json.parse(text);

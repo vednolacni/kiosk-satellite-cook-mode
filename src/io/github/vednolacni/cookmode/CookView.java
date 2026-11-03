@@ -2,10 +2,11 @@
 package io.github.vednolacni.cookmode;
 
 import android.content.Context;
+import android.graphics.Color;
 import android.util.DisplayMetrics;
+import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -31,6 +32,9 @@ final class CookView extends FrameLayout {
     private View banner;
     private TextView bannerText;
     private TextView bannerButton;
+    private View question;
+    private TextView questionText;
+    private TextView questionYes;
     private TimerViews timerViews;
     private Screen screen;
     private Model.Page shownPage;
@@ -50,8 +54,6 @@ final class CookView extends FrameLayout {
         DisplayMetrics display = context.getResources().getDisplayMetrics();
         width = display.widthPixels;
         height = display.heightPixels;
-        // The search field must not take the first focus, or opening the view would raise the keyboard.
-        setFocusableInTouchMode(true);
     }
 
     void show(Model next) {
@@ -73,7 +75,6 @@ final class CookView extends FrameLayout {
     /** The view is going away. */
     void leave() {
         if (screen instanceof HomeScreen) ((HomeScreen) screen).leave();
-        hideKeyboard();
     }
 
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
@@ -81,14 +82,9 @@ final class CookView extends FrameLayout {
         return super.dispatchTouchEvent(event);
     }
 
-    @Override protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        requestFocus();
-    }
-
     @Override protected void onSizeChanged(int newWidth, int newHeight, int oldWidth, int oldHeight) {
         super.onSizeChanged(newWidth, newHeight, oldWidth, oldHeight);
-        // Height alone changes when the keyboard opens, and a new page would close it again.
+        // Turning the tablet changes the width. A bar coming or going takes a little height, which is no reason for a new page.
         boolean turned = Math.abs(newWidth - width) >= parts.px(SAME_WIDTH_DP);
         width = newWidth;
         if (turned) height = newHeight;
@@ -118,10 +114,36 @@ final class CookView extends FrameLayout {
         holder = new FrameLayout(getContext());
         column.addView(holder, new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
         addView(column, new LayoutParams(Parts.MATCH, Parts.MATCH));
+        question = questionCard(strings);
+        addView(question, new LayoutParams(Parts.MATCH, Parts.MATCH));
         addView(timerViews.sheet(), new LayoutParams(Parts.MATCH, Parts.MATCH));
         addView(timerViews.alarm(), new LayoutParams(Parts.MATCH, Parts.MATCH));
         timerViews.show(timers);
         showModel();
+    }
+
+    /** A question with something to lose behind it. A touch beside the card means no. */
+    private View questionCard(Strings strings) {
+        FrameLayout scrim = new FrameLayout(getContext());
+        scrim.setBackgroundColor(Color.argb(140, 0, 0, 0));
+        scrim.setVisibility(GONE);
+        Parts.onTap(scrim, () -> actions.confirm(false));
+        LinearLayout card = parts.column();
+        card.setBackground(parts.theme().card());
+        card.setPadding(parts.px(28), parts.px(24), parts.px(28), parts.px(20));
+        card.setClickable(true);
+        questionText = parts.text("", 20, 500, "onSurface", 0);
+        card.addView(questionText, parts.wide());
+        LinearLayout buttons = parts.row();
+        buttons.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        buttons.addView(parts.pill(strings.cancel, false, () -> actions.confirm(false)), parts.wrap());
+        questionYes = parts.pill("", true, () -> actions.confirm(true));
+        questionYes.setMinHeight(parts.px(56));
+        buttons.addView(questionYes, parts.after(8));
+        card.addView(buttons, parts.wide(20));
+        FrameLayout.LayoutParams cardAt = new FrameLayout.LayoutParams(Math.min(parts.px(480), width - parts.px(32)), Parts.WRAP, Gravity.CENTER);
+        scrim.addView(card, cardAt);
+        return scrim;
     }
 
     private void showModel() {
@@ -132,6 +154,11 @@ final class CookView extends FrameLayout {
             bannerText.setText(current.banner);
             // There is nothing to try again when all the timers are taken.
             bannerButton.setText(current.banner.equals(current.strings.tooManyTimers) ? current.strings.close : current.strings.retry);
+        }
+        question.setVisibility(current.confirm != null ? View.VISIBLE : View.GONE);
+        if (current.confirm != null) {
+            questionText.setText(current.confirm);
+            questionYes.setText(current.confirmLabel);
         }
         if (screen == null || current.page != shownPage) {
             leaveScreen();
@@ -155,25 +182,16 @@ final class CookView extends FrameLayout {
             case STEP:
                 return new StepScreen(parts, actions, images, current.strings, wide, height, ingredientsOpen, timerViews::openSheet);
             case FINISH:
-                return new FinishScreen(parts, actions, images, current.strings);
+                return new FinishScreen(parts, actions, images, current.strings, height);
             default:
-                return new HomeScreen(parts, actions, images, current.strings, wide, width);
+                return new HomeScreen(parts, actions, images, current.strings, wide, width, height);
         }
     }
 
     /** The page is going away. What belongs to the cooking outlives it. */
     private void leaveScreen() {
         if (screen instanceof StepScreen) ingredientsOpen = ((StepScreen) screen).panelOpen();
-        if (screen instanceof HomeScreen) {
-            ((HomeScreen) screen).leave();
-            hideKeyboard();
-        }
+        if (screen instanceof HomeScreen) ((HomeScreen) screen).leave();
         screen = null;
-    }
-
-    private void hideKeyboard() {
-        InputMethodManager keyboard = (InputMethodManager) getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (keyboard != null && getWindowToken() != null) keyboard.hideSoftInputFromWindow(getWindowToken(), 0);
-        requestFocus();
     }
 }

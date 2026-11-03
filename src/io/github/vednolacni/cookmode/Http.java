@@ -15,10 +15,20 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Blocking HTTP for the plugin's own network thread, never the plugin's callback worker or the main thread. Redirects
- * are followed only within the same host, so the API token never travels to another server. cancelAll closes every
- * open connection, which the plugin's stop needs because a blocked read ignores interruption.
+ * are followed only to the same server, or from http to https on the same host, so the API token never travels to
+ * another server or falls back to plain text. cancelAll closes every open connection, which the plugin's stop needs
+ * because a blocked read ignores interruption.
  */
 final class Http {
+    /** The server sent the request somewhere it must not go. Nothing was sent there. */
+    static final class Refused extends IOException {
+        private static final long serialVersionUID = 1L;
+
+        Refused(String message) {
+            super(message);
+        }
+    }
+
     static final class Response {
         final int status;
         final byte[] body;
@@ -46,6 +56,7 @@ final class Http {
     /** Send a request and read the answer's body, up to limit bytes. A larger body throws. */
     Response request(String method, String url, Map<String, String> headers, byte[] body, int limit) throws IOException {
         URL target = new URL(url);
+        if (!web(target)) throw new Refused("Not a web address: " + target.getProtocol());
         for (int redirect = 0; ; redirect++) {
             HttpURLConnection connection = (HttpURLConnection) target.openConnection();
             open.add(connection);
@@ -68,7 +79,7 @@ final class Http {
                     String location = connection.getHeaderField("Location");
                     if (location == null || redirect >= MAX_REDIRECTS) throw new IOException("Too many redirects from " + url);
                     URL next = new URL(target, location);
-                    if (!next.getHost().equalsIgnoreCase(target.getHost())) throw new IOException("The server sent the request on to another host, " + next.getHost());
+                    if (!mayFollow(target, next)) throw new Refused("The server sent the request on to " + next.getProtocol() + "://" + next.getAuthority());
                     target = next;
                     continue;
                 }
@@ -79,6 +90,21 @@ final class Http {
                 connection.disconnect();
             }
         }
+    }
+
+    /** Whether a request and its headers may go on from one address to the other. */
+    static boolean mayFollow(URL from, URL to) {
+        if (!web(to) || !to.getHost().equalsIgnoreCase(from.getHost())) return false;
+        if (to.getProtocol().equals(from.getProtocol())) return port(to) == port(from);
+        return to.getProtocol().equals("https");
+    }
+
+    private static boolean web(URL url) {
+        return url.getProtocol().equals("http") || url.getProtocol().equals("https");
+    }
+
+    private static int port(URL url) {
+        return url.getPort() == -1 ? url.getDefaultPort() : url.getPort();
     }
 
     /** Close every open connection. Their reads throw at once. */

@@ -27,10 +27,14 @@ final class Model {
     /** Changes whenever the current page's content changes. */
     final long pageVersion;
     final Strings strings;
-    /** The step text's size in sp. */
+    /** The step text's smallest and largest sizes in sp. Short steps get the room they leave. */
     final int textSize;
+    final int textMost;
     /** A problem to show above the page, in the panel's language, or null. */
     final String banner;
+    /** A question that needs an answer before anything else, or null, and the word for yes. */
+    final String confirm;
+    final String confirmLabel;
 
     // Home.
     final String date;
@@ -69,21 +73,27 @@ final class Model {
     /** Ready around this time, as text, or an empty string. */
     final String readyAround;
     final boolean canRead;
+    final boolean swipes;
+    /** A note that the numbers in the words do not change with the servings, or an empty string. */
+    final String fixedNote;
 
     // Finish.
     final boolean canLogCooked;
     final boolean logged;
 
-    Model(Page page, long pageVersion, Strings strings, int textSize, String banner, String date, boolean configured, List<Day> days, boolean planLoading,
+    Model(Page page, long pageVersion, Strings strings, int textSize, int textMost, String banner, String confirm, String confirmLabel, String date, boolean configured, List<Day> days, boolean planLoading,
           String query, RecipeSource.Order order, List<RecipeSource.Summary> recipes, boolean recipesLoading, boolean recipesMore,
           Recipe recipe, String recipeName, String recipeImage, boolean recipeLoading, double servings, double factor, Set<Recipe.Ingredient> checked,
           List<Recipe.Ingredient> ingredients, int resumeAt, int pageNumber, int pageCount, String stepTitle, List<StepText.Run> runs, StepText.Run ownTimer,
-          List<Recipe.Ingredient> stepIngredients, String previousPeek, String nextPeek, String readyAround, boolean canRead, boolean canLogCooked, boolean logged) {
+          List<Recipe.Ingredient> stepIngredients, String previousPeek, String nextPeek, String readyAround, boolean canRead, boolean swipes, String fixedNote, boolean canLogCooked, boolean logged) {
         this.page = page;
         this.pageVersion = pageVersion;
         this.strings = strings;
         this.textSize = textSize;
+        this.textMost = textMost;
         this.banner = banner;
+        this.confirm = confirm;
+        this.confirmLabel = confirmLabel;
         this.date = date;
         this.configured = configured;
         this.days = days;
@@ -112,6 +122,8 @@ final class Model {
         this.nextPeek = nextPeek;
         this.readyAround = readyAround;
         this.canRead = canRead;
+        this.swipes = swipes;
+        this.fixedNote = fixedNote;
         this.canLogCooked = canLogCooked;
         this.logged = logged;
     }

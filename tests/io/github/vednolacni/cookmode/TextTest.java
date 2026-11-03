@@ -11,7 +11,57 @@ public final class TextTest {
         durations();
         plainText();
         stepText();
+        hints();
+        settings();
         System.out.println("TextTest passed");
+    }
+
+    static Recipe.Step plain(String text, int seconds) {
+        return new Recipe.Step("", text, Recipe.Format.PLAIN, Collections.<Recipe.Ingredient>emptyList(), seconds);
+    }
+
+    static void hints() {
+        Recipe recipe = new Recipe("1", "Bread", "", "", 4, "", 0, 0, "", "", Arrays.asList(
+            plain("Leave the dough overnight in the fridge.", 0),
+            plain("Prove for 2 hours, then for 3 hours more. Bake 40 min at 220 °C, then at 180°.", 0),
+            plain("Rest.", 90 * 60),
+            plain("A 500 g loaf. Serve at 20 °C with 100 friends.", 0)));
+        List<Hints.Hint> hints = Hints.of(recipe, Strings.ENGLISH);
+        List<String> words = new ArrayList<>();
+        for (Hints.Hint hint : hints) words.add(hint.text);
+        assert words.equals(Arrays.asList("Overnight", "3 h", "2 h", "220 °C", "180 °C")) : words;
+        assert "mdi:weather-night".equals(hints.get(0).icon) && "mdi:timer-sand".equals(hints.get(1).icon) && "mdi:thermometer".equals(hints.get(3).icon);
+        assert Hints.of(new Recipe("2", "Soup", "", "", 4, "", 0, 0, "", "", Collections.singletonList(plain("Boil for 10 minutes.", 0))), Strings.SLOVENIAN).isEmpty();
+        List<Hints.Hint> slovenian = Hints.of(new Recipe("3", "Kruh", "", "", 4, "", 0, 0, "", "", Collections.singletonList(plain("Testo pusti čez noč in peci v pečici na 200 stopinjah, ali pri 350F.", 0))), Strings.SLOVENIAN);
+        assert "Čez noč".equals(slovenian.get(0).text) && "200 °F".equals(slovenian.get(1).text) && "350 °F".equals(slovenian.get(2).text) : slovenian.get(1).text;
+
+        // Numbers in the words stay as written. Times and temperatures are meant to, and scaled amounts do change.
+        assert Instructions.hasFixedNumbers(plain("Add 200 g flour.", 0));
+        assert Instructions.hasFixedNumbers(plain("Add ½ cup of milk.", 0));
+        assert !Instructions.hasFixedNumbers(plain("Bake 40 min at 220 °C until golden.", 0));
+        assert !Instructions.hasFixedNumbers(plain("Mix well.", 0));
+        assert !Instructions.hasFixedNumbers(new Recipe.Step("", "<p>Add <scalable-number v-bind:number=\"200.0\"></scalable-number> g and simmer 10–15 min.</p>", Recipe.Format.TANDOOR_HTML, Collections.<Recipe.Ingredient>emptyList(), 0));
+        assert Instructions.hasFixedNumbers(new Recipe.Step("", "<p>Add <scalable-number v-bind:number=\"200.0\"></scalable-number> g and 2 eggs.</p>", Recipe.Format.TANDOOR_HTML, Collections.<Recipe.Ingredient>emptyList(), 0));
+        assert !Instructions.hasFixedNumbers(new Recipe.Step("", "<p><plural-name singular=\"egg\" plural=\"eggs\" v-bind:amount=\"3\"></plural-name></p>", Recipe.Format.TANDOOR_HTML, Collections.<Recipe.Ingredient>emptyList(), 0));
+    }
+
+    static void settings() {
+        Map<String, Object> values = new HashMap<>();
+        values.put("apiToken", "  Bearer tda_abc ");
+        values.put("textSize", "Extra large");
+        values.put("alarmTone", "Beeps");
+        values.put("alarmStream", "Media");
+        values.put("ringMinutes", 50.0);
+        values.put("swipeSteps", false);
+        values.put("dockOnTop", false);
+        values.put("kioskNode", "esphome.ks-kitchen_announce");
+        Settings settings = new Settings(values);
+        assert "tda_abc".equals(settings.apiToken) && settings.textSize == 34 && settings.textMost == 56;
+        assert settings.tone == Settings.Tone.BEEPS && settings.mediaStream && settings.ringMinutes == 10 && !settings.swipeSteps && !settings.dockOnTop;
+        assert "ks_kitchen".equals(settings.kioskNode);
+        Settings defaults = new Settings(new HashMap<String, Object>());
+        assert defaults.apiToken.isEmpty() && defaults.textSize == 28 && defaults.textMost == 44 && defaults.tone == Settings.Tone.ALARM && !defaults.mediaStream && defaults.ringMinutes == 3 && defaults.swipeSteps && defaults.dockOnTop;
+        assert "ks_a".equals(Settings.node("KS_A_announce")) && "dedo_babi".equals(Settings.slug("Dedo&babi")) && "".equals(Settings.slug("  "));
     }
 
     static void stepText() {

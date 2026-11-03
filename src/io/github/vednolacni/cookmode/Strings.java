@@ -60,6 +60,20 @@ final class Strings {
     final String recipeMissing;
     final String stepWord;
     final String loading;
+    final String overnight;
+    /** Takes the recipe's own servings. */
+    final String fixedNumbers;
+    /** Takes the recipe's name and the step it is at. */
+    final String replaceRecipe;
+    final String replace;
+    /** Takes the recipe's name and the step it is at. */
+    final String endAsk;
+    final String problemReadOnly;
+    final String problemNotApi;
+    final String problemLocalName;
+    final String problemTls;
+    final String space;
+    final String search;
     private final DateTimeFormatter longDate;
     private final DateTimeFormatter shortDate;
 
@@ -75,6 +89,12 @@ final class Strings {
         "Tandoor refused the API token. Create a new one under Settings > API.",
         "Tandoor refused this address. Use the address you open it with in a browser.",
         "The recipe server cannot be reached.", "The recipe server had a problem.", "This recipe is no longer available.", "Step", "Loading…",
+        "Overnight", "Amounts in the text are for %s.", "%s is at step %d. Switch recipes?", "Switch", "%s is at step %d. End cooking?",
+        "The API token can only read, so Tandoor cannot record this.",
+        "This address does not lead to Tandoor's API. A login page may be in front of it.",
+        "This tablet cannot find the server by that name. Android before version 12 cannot resolve .local names, so use the IP address.",
+        "The secure connection failed. The tablet may not trust the certificate or know its TLS version.",
+        "Space", "Search",
     });
 
     static final Strings SLOVENIAN = new Strings(new Locale("sl"), true, "EEEE, d. MMMM", "EEEE, d. M.", new String[] {
@@ -87,6 +107,12 @@ final class Strings {
         "Tandoor je zavrnil API žeton. Ustvari novega v Nastavitve > API.",
         "Tandoor je zavrnil ta naslov. Uporabi naslov, s katerim ga odpreš v brskalniku.",
         "Strežnik z recepti ni dosegljiv.", "Strežnik z recepti ima težavo.", "Ta recept ni več na voljo.", "Korak", "Nalagam …",
+        "Čez noč", "Količine v besedilu veljajo za %s.", "%s je pri koraku %d. Zamenjam recept?", "Zamenjaj", "%s je pri koraku %d. Končam kuhanje?",
+        "API žeton je samo za branje, zato Tandoor tega ne more zabeležiti.",
+        "Ta naslov ne vodi do Tandoorjevega API-ja. Morda je pred njim prijavna stran.",
+        "Tablica strežnika s tem imenom ne najde. Android pred različico 12 ne razume imen .local, zato uporabi naslov IP.",
+        "Varna povezava ni uspela. Tablica morda ne zaupa certifikatu ali ne pozna njegove različice TLS.",
+        "Presledek", "Išči",
     });
 
     private Strings(Locale locale, boolean decimalComma, String longDate, String shortDate, String[] words) {
@@ -143,6 +169,17 @@ final class Strings {
         recipeMissing = words[i++];
         stepWord = words[i++];
         loading = words[i++];
+        overnight = words[i++];
+        fixedNumbers = words[i++];
+        replaceRecipe = words[i++];
+        replace = words[i++];
+        endAsk = words[i++];
+        problemReadOnly = words[i++];
+        problemNotApi = words[i++];
+        problemLocalName = words[i++];
+        problemTls = words[i++];
+        space = words[i++];
+        search = words[i++];
     }
 
     /** The Language setting's choice. Auto follows the device. */

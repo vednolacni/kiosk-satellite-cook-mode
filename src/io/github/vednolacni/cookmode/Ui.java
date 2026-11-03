@@ -27,7 +27,10 @@ interface Ui extends Awake.Scheduler {
         void next();
         void previous();
         void read();
+        /** A new timer, however many of its kind already run. */
         void startTimer(String label, int seconds);
+        /** The timer a step's words name. False when it already runs, so one press does not make two. */
+        boolean stepTimer(String label, int seconds);
         void pauseTimer(int id);
         void resumeTimer(int id);
         void addToTimer(int id, int seconds);
@@ -37,6 +40,10 @@ interface Ui extends Awake.Scheduler {
         void endCooking();
         /** Forget the recipe being cooked but stay in the view, on the home page. */
         void backToPlan();
+        /** The same, after asking if there is anything to lose. */
+        void askEnd();
+        /** The answer to the question the view shows. */
+        void confirm(boolean yes);
         /** Someone touched a view, which restarts the wait before the screen may sleep. */
         void touched();
         /** The dock was tapped: back to the main view. */
@@ -47,6 +54,11 @@ interface Ui extends Awake.Scheduler {
         void problem(String message);
         /** Headers a picture at this address needs. Never blocks. */
         Map<String, String> imageHeaders(String url);
+    }
+
+    /** How a test of the sound went, for the plugin page. */
+    interface Report {
+        void result(boolean ok, String message);
     }
 
     /** The long-lived main view. KS builds it later on the main thread, with the latest model. */
@@ -61,8 +73,14 @@ interface Ui extends Awake.Scheduler {
     /** What the dock shows besides the timers, such as the recipe and page being cooked, or empty. Safe on any thread. */
     void renderDock(String cooking, Strings strings);
 
+    /** How the alarm sounds from now on. Safe on any thread. */
+    void sound(Settings.Tone tone, boolean mediaStream, int minutes);
+
     /** Start or stop the alarm sound. Safe on any thread. */
     void alarm(boolean on);
+
+    /** Sound the alarm for a few seconds and tell how loud it can be. Safe on any thread. */
+    void testAlarm(Report report);
 
     /** Keep the tablet's display on while a view is up. Safe on any thread. */
     void keepScreenOn(boolean on);

@@ -25,9 +25,12 @@ final class Swipes extends FrameLayout {
     private final Runnable backward;
     private final int start;
     private final int length;
+    private boolean on = true;
     private float downX;
     private float downY;
     private boolean swiping;
+    /** A second finger came down. That is KS's gesture, or a palm. */
+    private boolean several;
 
     /** scroller is the view inside that may want vertical drags for itself. */
     Swipes(Context context, Parts parts, View scroller, Runnable forward, Runnable backward) {
@@ -39,15 +42,23 @@ final class Swipes extends FrameLayout {
         length = parts.px(LENGTH_DP);
     }
 
+    void on(boolean on) {
+        this.on = on;
+    }
+
     @Override public boolean dispatchTouchEvent(MotionEvent event) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 downX = event.getX();
                 downY = event.getY();
                 swiping = false;
+                several = false;
+                break;
+            case MotionEvent.ACTION_POINTER_DOWN:
+                several = true;
                 break;
             case MotionEvent.ACTION_MOVE:
-                if (!swiping && isSwipe(event)) {
+                if (on && !several && !swiping && isSwipe(event)) {
                     swiping = true;
                     // Whatever the finger started on must not take this for a tap.
                     MotionEvent cancel = MotionEvent.obtain(event);
@@ -57,7 +68,7 @@ final class Swipes extends FrameLayout {
                 }
                 break;
             case MotionEvent.ACTION_UP:
-                if (swiping) finish(event);
+                if (swiping && !several) finish(event);
                 break;
             default:
                 break;
