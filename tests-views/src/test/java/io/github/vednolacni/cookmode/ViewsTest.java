@@ -642,7 +642,7 @@ public final class ViewsTest {
         swipe(0.8f, 0.5f, 0.2f, 0.5f);
         assertNotNull("a sideways swipe still moves on", find("5 / 5"));
         settle();
-        assertEquals("a short step fills the screen", 56, sizeOf(containing("Postrezi")));
+        assertEquals("a short step fills the screen", 56, sizeOf(containing("Postrezi s polento")));
         shot("short-step");
     }
 
@@ -991,7 +991,9 @@ public final class ViewsTest {
             long down = SystemClock.uptimeMillis();
             send(MotionEvent.ACTION_DOWN, at[0], at[1], down, down);
             send(MotionEvent.ACTION_UP, at[0], at[1], down, down);
+            System.out.println("press " + i + " at " + down + " sent, at " + SystemClock.uptimeMillis() + " " + counter() + " screen " + System.identityHashCode(find(s.nextStep)) + " " + content.getWidth() + "x" + content.getHeight());
             idle();
+            System.out.println("press " + i + " idle, at " + SystemClock.uptimeMillis() + " " + counter() + " screen " + System.identityHashCode(find(s.nextStep)) + " " + content.getWidth() + "x" + content.getHeight());
         }
         settle();
     }

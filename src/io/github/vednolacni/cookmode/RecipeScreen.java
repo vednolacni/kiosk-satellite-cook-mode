@@ -13,7 +13,7 @@ import android.widget.TextView;
 final class RecipeScreen implements Screen {
     private static final int PICTURE_WIDTH_DP = 640;
     /** The picture takes this share of the screen's height, so what matters stays in view on a small tablet. */
-    private static final int PICTURE_SHARE_PERCENT = 30;
+    private static final int PICTURE_SHARE_PERCENT = 24;
     private static final int PICTURE_LEAST_DP = 110;
     private static final int PICTURE_MOST_DP = 240;
 
