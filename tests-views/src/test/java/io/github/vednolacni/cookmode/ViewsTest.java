@@ -945,9 +945,11 @@ public final class ViewsTest {
         tap(find(s.nextStep));
         cook.home();
         settle();
-        pause();
         // The first touch raises the question.
-        touch(center(find("Palačinke")));
+        View card = find("Ričet");
+        reveal(card);
+        pause();
+        touch(center(card));
         View yes = find(s.replace);
         assertNotNull(yes);
         // The second lands at once, on the answer. It still stands, and nothing was given up.
