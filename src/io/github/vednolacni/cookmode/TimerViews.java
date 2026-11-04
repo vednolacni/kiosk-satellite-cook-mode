@@ -11,6 +11,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -23,6 +24,7 @@ final class TimerViews {
 
     private final Parts parts;
     private final Ui.Actions actions;
+    private final Runnable underFinger;
     private Strings strings;
 
     private final HorizontalScrollView strip;
@@ -39,10 +41,11 @@ final class TimerViews {
     private final TextView alarmLabels;
     private List<Timers.Timer> latest = new ArrayList<>();
 
-    TimerViews(Parts parts, Ui.Actions actions, Strings strings) {
+    TimerViews(Parts parts, Ui.Actions actions, Strings strings, Runnable underFinger) {
         this.parts = parts;
         this.actions = actions;
         this.strings = strings;
+        this.underFinger = underFinger;
 
         strip = new HorizontalScrollView(parts.context());
         strip.setHorizontalScrollBarEnabled(false);
@@ -128,18 +131,26 @@ final class TimerViews {
 
     void openSheet() {
         sheet.setVisibility(View.VISIBLE);
+        underFinger.run();
     }
 
     private void closeSheet() {
         sheet.setVisibility(View.GONE);
+        underFinger.run();
     }
 
     /** Show the timers as they stand now. Runs each second while any exists. */
     void show(List<Timers.Timer> timers) {
         latest = timers;
+        boolean stripWas = strip.getVisibility() == View.VISIBLE;
+        boolean alarmWas = alarm.getVisibility() == View.VISIBLE;
         showStrip(timers);
-        showSheet(timers);
+        boolean rowsMoved = showSheet(timers);
         showAlarm(timers);
+        // An alarm that comes up takes the very first touch, wherever it lands, so nothing may stand in its way.
+        if (alarm.getVisibility() == View.VISIBLE) return;
+        boolean stripMoved = stripWas != (strip.getVisibility() == View.VISIBLE);
+        if (alarmWas || stripMoved || (rowsMoved && sheet.getVisibility() == View.VISIBLE)) underFinger.run();
     }
 
     // The strip.
@@ -174,15 +185,20 @@ final class TimerViews {
 
     // The sheet.
 
-    private void showSheet(List<Timers.Timer> timers) {
-        String key = key(timers);
-        if (!key.equals(sheetKey)) {
+    /** In the order they started, which time left does not change, so a second press lands on the same timer. True if rows moved. */
+    private boolean showSheet(List<Timers.Timer> timers) {
+        List<Timers.Timer> rows = new ArrayList<>(timers);
+        Collections.sort(rows, (a, b) -> Integer.compare(a.id, b.id));
+        String key = key(rows);
+        boolean changed = !key.equals(sheetKey);
+        if (changed) {
             sheetKey = key;
             sheetRows.removeAllViews();
             sheetTimes.clear();
-            for (Timers.Timer timer : timers) sheetRows.addView(sheetRow(timer), parts.wide(10));
+            for (Timers.Timer timer : rows) sheetRows.addView(sheetRow(timer), parts.wide(10));
         }
-        tick(sheetTimes, timers);
+        tick(sheetTimes, rows);
+        return changed;
     }
 
     private View sheetRow(Timers.Timer timer) {

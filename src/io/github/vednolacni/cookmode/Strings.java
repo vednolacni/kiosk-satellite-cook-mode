@@ -109,7 +109,7 @@ final class Strings {
         "Tandoor je zavrnil API žeton. Ustvari novega v Nastavitvah > API.",
         "Tandoor je zavrnil ta naslov. Uporabi naslov, s katerim ga odpreš v brskalniku.",
         "Strežnik z recepti ni dosegljiv.", "Strežnik z recepti ima težavo.", "Ta recept ni več na voljo.", "Korak", "Nalagam …",
-        "Čez noč", "Količine v besedilu veljajo za %s.", "%s je pri koraku %d. Zamenjam recept?", "Zamenjaj", "%s je pri koraku %d. Končam kuhanje?",
+        "Čez noč", "Količine v besedilu veljajo za %s.", "Recept »%s« je pri koraku %d. Zamenjam recept?", "Zamenjaj", "Recept »%s« je pri koraku %d. Končam kuhanje?",
         "API žeton je samo za branje, zato Tandoor tega ne more zabeležiti.",
         "Ta naslov ne vodi do Tandoorjevega API-ja. Morda je pred njim prijavna stran.",
         "Tablica strežnika s tem imenom ne najde. Android pred različico 12 ne razume imen .local, zato uporabi naslov IP.",

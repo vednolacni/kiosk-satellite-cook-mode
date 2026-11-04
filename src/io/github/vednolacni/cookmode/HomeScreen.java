@@ -4,6 +4,7 @@ package io.github.vednolacni.cookmode;
 import android.graphics.drawable.Drawable;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -30,6 +31,7 @@ final class HomeScreen implements Screen {
     private final Parts parts;
     private final Ui.Actions actions;
     private final Images images;
+    private final Runnable underFinger;
     private final int columns;
     private final boolean wide;
     private final View root;
@@ -58,11 +60,13 @@ final class HomeScreen implements Screen {
     private String shownPlanState;
     private String shownFooter;
     private String answered;
+    private boolean listLoading;
 
-    HomeScreen(Parts parts, Ui.Actions actions, Images images, Strings strings, boolean wide, int widthPx, int heightPx) {
+    HomeScreen(Parts parts, Ui.Actions actions, Images images, Strings strings, boolean wide, int widthPx, int heightPx, Runnable underFinger) {
         this.parts = parts;
         this.actions = actions;
         this.images = images;
+        this.underFinger = underFinger;
         this.wide = wide;
         // The recipes get the wider column next to the plan, or all of a narrow screen.
         int gridWidth = wide ? widthPx * 7 / 12 : widthPx;
@@ -186,6 +190,26 @@ final class HomeScreen implements Screen {
         order(orderRecent, model.order == RecipeSource.Order.RECENT);
         showPlan(model);
         showGrid(model);
+        // The server answers again, so a picture that failed, perhaps with Wi-Fi still joining, gets another try.
+        boolean listCame = listLoading && !model.recipesLoading;
+        listLoading = model.recipesLoading;
+        if (listCame && model.banner == null) {
+            askAgain(plan, THUMBNAIL_WIDTH_DP);
+            askAgain(rows, CELL_WIDTH_DP);
+        }
+    }
+
+    private void askAgain(View view, int widthDp) {
+        if (view instanceof ImageView) {
+            ImageView picture = (ImageView) view;
+            Object url = picture.getTag();
+            if (url instanceof String && !((String) url).isEmpty() && picture.getDrawable() == null) {
+                images.load(picture, (String) url, actions.imageHeaders((String) url), parts.px(widthDp));
+            }
+        } else if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) askAgain(group.getChildAt(i), widthDp);
+        }
     }
 
     /** Stop what is waiting. The page is going away, and may come back. */
@@ -237,6 +261,8 @@ final class HomeScreen implements Screen {
     private void showKeypad(boolean open) {
         keypad.show(open);
         showSearching();
+        // The keys go, and a card comes up under the finger that pressed one.
+        if (!open) underFinger.run();
     }
 
     /** While searching, what is found goes first. On a wide screen the plan can stay beside it. */
@@ -267,12 +293,16 @@ final class HomeScreen implements Screen {
     private void showPlan(Model model) {
         List<RecipeSource.Planned> meals = new ArrayList<>();
         for (Model.Day day : model.days) meals.addAll(day.meals);
-        String state = model.planLoading + "|" + model.resumeAt + "|" + model.recipeName + "|" + model.recipeImage;
+        // What the rows show and nothing else, since building them again under a finger takes its tap: the day, which names
+        // today and tomorrow, whether there is anything to say about an empty today, and the card of what is being cooked.
+        boolean loadingToday = model.planLoading && model.days.get(0).meals.isEmpty();
+        String state = model.date + "|" + loadingToday + "|" + model.resumeAt + (model.resumeAt > 0 ? "|" + model.recipeName + "|" + model.recipeImage : "");
         if (meals.equals(shownMeals) && state.equals(shownPlanState)) return;
         shownMeals.clear();
         shownMeals.addAll(meals);
         shownPlanState = state;
         plan.removeAllViews();
+        images.newest();
         if (model.resumeAt > 0) plan.addView(resumeCard(model), parts.wide(4));
         boolean first = true;
         for (Model.Day day : model.days) {
@@ -355,8 +385,8 @@ final class HomeScreen implements Screen {
         // The answer to a new question starts at its top. Loading more of the same stays where it is.
         String question = model.query + "|" + model.order;
         if (!model.recipesLoading && !question.equals(answered)) {
-            // On a narrow screen the plan is above the list, and the cook is not looking for that.
-            if (answered != null) gridScroll.scrollTo(0, Math.min(gridScroll.getScrollY(), wide ? 0 : orders.getTop()));
+            // On a narrow screen the plan can be above the list, and the cook is not looking for that.
+            if (answered != null) gridScroll.scrollTo(0, Math.min(gridScroll.getScrollY(), wide || plan.getVisibility() != View.VISIBLE ? 0 : orders.getTop()));
             answered = question;
         }
     }
@@ -364,6 +394,8 @@ final class HomeScreen implements Screen {
     /** More of the same list only adds rows, so what is on the screen is not built again under a finger. */
     private void showRows(List<RecipeSource.Summary> recipes) {
         boolean more = shownRecipes != null && recipes.size() >= shownRecipes.size() && recipes.subList(0, shownRecipes.size()).equals(shownRecipes);
+        // The answer to a new question goes before the pictures of what it replaces.
+        if (shownRecipes != null && !more) images.newest();
         int keep = more ? shownRecipes.size() / columns : 0;
         while (rows.getChildCount() > keep) rows.removeViewAt(rows.getChildCount() - 1);
         shownRecipes = recipes;

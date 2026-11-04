@@ -142,7 +142,15 @@ final class TandoorSource implements RecipeSource {
 
     @Override
     public Recipe recipe(String id) throws SourceException {
-        Map<String, Object> recipe = Json.object(get("/api/recipe/" + number(id) + "/"));
+        Object read;
+        try {
+            read = get("/api/recipe/" + number(id) + "/");
+        } catch (SourceException refused) {
+            // A token that has gone bad is a 403 here too. Any good one can read the list, so that says which it was.
+            if (refused.kind == SourceException.Kind.PRIVATE) get("/api/recipe/?page_size=1");
+            throw refused;
+        }
+        Map<String, Object> recipe = Json.object(read);
         List<Recipe.Step> steps = new ArrayList<>();
         for (Object item : Json.list(recipe.get("steps"))) {
             Map<String, Object> step = Json.object(item);
@@ -323,6 +331,10 @@ final class TandoorSource implements RecipeSource {
         }
         if (status == 401 || status == 403) {
             throw new SourceException(SourceException.Kind.AUTH, "Tandoor refused the API token. Create one under Settings > API with the scope \"read write\" and copy it right after saving." + detail(response));
+        }
+        if (status == 404 && path.matches("/api/recipe/[0-9]+/") && !response.text().trim().startsWith("{")) {
+            // Tandoor says it in JSON. This is something in front of it, such as a proxy while Tandoor starts, and says nothing about the recipe.
+            throw new SourceException(SourceException.Kind.NETWORK, "Something in front of Tandoor answered 404 for " + path + ".");
         }
         if (status == 404) throw new SourceException(SourceException.Kind.NOT_FOUND, "Tandoor has nothing at " + path + "." + detail(response));
         if (status >= 300) throw new SourceException(SourceException.Kind.SERVER, "Tandoor answered HTTP " + status + "." + detail(response));

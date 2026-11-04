@@ -14,12 +14,12 @@ Tandoor Recipes is supported today. Mealie, Norish, KitchenOwl and Grocy fit the
 - **A recipe before you start.** Its photo, times, ingredients to tick off, and servings that rescale every amount, including the amounts inside the steps. Chips warn of what is worth planning around: an overnight rest, a long wait, the oven's temperature.
 - **One big step at a time.** The text grows to fill the screen for a short step and shrinks for a long one, within the size you choose, with the steps around it fading away. Swipe in any direction or press Next. Long imported steps split into paragraphs. Each step shows its own ingredients, and the whole list can stay open beside it.
 - **Honest amounts.** Tandoor scales the amounts it knows about. A number simply typed into a step stays as written, so with changed servings the step says for how many servings its words were written.
-- **Timers from the recipe's own words.** "Simmer for 10–15 minutes" shows the duration as a chip in the sentence: tap it and the timer runs. Several run at once, with pause, plus and minus one minute and an alarm that a touch anywhere stops. They keep running when you leave the recipe or close the panel, when a small card shows them over the dashboard and the screensaver.
+- **Timers from the recipe's own words.** "Simmer for 10–15 minutes" shows the duration as a chip in the sentence: tap it and the timer runs. Several run at once, with pause, plus and minus one minute and an alarm that a touch anywhere stops. They keep running when you leave the recipe or close the panel, when a small card shows them over the dashboard and the screensaver. A black screensaver turns the screen off, so there the card shows only once a timer rings.
 - **Read aloud.** The tablet's own voice, or Home Assistant's through the kiosk's announcements, which is how a kiosk gets a Slovenian voice, with no card over the step. Each step can read itself.
 - **A screen that stays on.** The screensaver holds back while a recipe is up, until nobody has touched the tablet for as long as you choose, so a forgotten recipe does not keep it on all night.
-- **Hands-free.** Next step, Previous step, Read step, Start the step's timer, One more minute and Stop the alarm are plugin actions for claps, corner taps and Show fingers. A ringing timer takes the first such command and only goes quiet, so a false clap cannot wipe what ended. The next one clears it.
+- **Hands-free.** Next step, Previous step, Read step, Start the step's timer, One more minute and Stop the alarm are plugin actions for claps, corner taps and Show fingers. A ringing timer takes the first such command and only goes quiet, so a false clap cannot wipe what ended. The next one clears it. One more minute is the exception: it starts the timer again for a minute.
 - **Finish.** After the last step it can add the meal to Tandoor's cook log.
-- **It remembers.** Closing the panel keeps your place. Opening it again returns to the same step, until you end cooking. The step and the timers also survive a restart of the kiosk, and a timer that ended meanwhile rings when it comes back.
+- **It remembers.** Closing the panel keeps your place. Opening it again returns to the same step, until you end cooking. Closing the last page ends cooking, because the meal is ready. The step and the timers also survive a restart of the kiosk, unless it stays off for more than 12 hours. A timer that ended less than half an hour ago rings when the kiosk comes back, and the plugin's page mentions an older one.
 
 English and Slovenian, including Slovenian's four plural forms and decimal commas.
 
@@ -41,7 +41,7 @@ English and Slovenian, including Slovenian's four plural forms and decimal comma
 | | Ring for at most | The sound stops after this long, 1 to 10 minutes. The timer stays on the screen. |
 | | Test the timer sound | Rings for a few seconds and reports the volume, so a silent alarm shows before dinner. |
 | | Corner of the timer card | Where the small card sits while the panel is closed. |
-| | Timer card over everything | Also over the screensaver, the kiosk's menu and its camera views. |
+| | Timer card over everything | Also over the screensaver, except a black one until a timer rings, and over the kiosk's menu and its camera views. |
 | Read aloud | Voice | Off, Tablet voice or Home Assistant. |
 | | ESPHome node of this kiosk | Only if reading fails. See [Reading aloud](#reading-aloud). |
 | | Read each step by itself | Otherwise only when asked. |
@@ -49,7 +49,7 @@ English and Slovenian, including Slovenian's four plural forms and decimal comma
 | | Let the screen rest after | How long without a touch before a forgotten recipe lets go, 15 to 240 minutes. |
 | | Close the list when the screensaver starts | Only the first page. A recipe being cooked stays. |
 | Advanced | Show advanced settings | Shows the row below. |
-| | Saved session | Written by the plugin, for a restart. Emptied, it is forgotten at the next restart. End cooking and stopping the timers forget it at once. |
+| | Saved session | Written by the plugin, for a restart. Emptied, it is forgotten at the next restart, unless a change writes it again first, or the half-hourly save while a recipe is being cooked. End cooking and stopping the timers forget it for good. |
 
 ### Creating the token
 
@@ -84,7 +84,7 @@ Opening one recipe can also say it is private and not shared with the token's us
 | --- | --- |
 | Open Cook Mode, Close Cook Mode, Toggle Cook Mode | The panel. Opening wakes the screen and closes the screensaver. |
 | Cook today's meal | Goes straight to the next meal planned today. |
-| Next step, Previous step | Move through the recipe. On the first page Next opens today's meal. With the panel closed or under a screensaver, the first one only brings it back. |
+| Next step, Previous step | Move through the recipe. On the first page Next opens today's meal. With the panel closed or under a screensaver, the first one only brings it back. A ringing timer comes first, and the panel comes back after it is cleared. |
 | Read step | Reads the current step aloud. |
 | Start the step's timer | Starts the first of the step's timers that does not run yet. |
 | One more minute | Starts a ringing timer again for a minute, or else adds a minute to the next one to ring. |
@@ -112,11 +112,11 @@ Kiosk Mode's exit gesture of several fast taps counts taps anywhere, also on the
 
 ## Where data goes
 
-- **Your Tandoor server.** The plugin calls the address in **Tandoor address** with your token, to read the meal plan and recipes and, unless **Record the meal in Tandoor** is **Never**, to record what you opened and cooked. The token never goes to any other host: a redirect to another host is not followed, nor to another port unless it goes from http up to https on the same host, nor from https back to http, and a next-page link from another host is rewritten to your server. With Fleet Management, Kiosk Satellite copies the token to other kiosks only if a profile includes **Plugin secrets**, and an export of the configuration holds it.
+- **Your Tandoor server.** The plugin calls the address in **Tandoor address** with your token, to read the meal plan and recipes and, unless **Record the meal in Tandoor** is **Never**, to record what you opened and cooked. The token never goes to any other host: a redirect to another host is not followed, nor to another port unless it goes from http up to https on the same host, nor from https back to http, and a next-page link from another host is rewritten to your server. With Fleet Management, Kiosk Satellite copies the token to other kiosks only if a profile includes **Plugin secrets**. Plugin settings are not part of a configuration export, so a replaced tablet needs the token again.
 - **Pictures.** They load from wherever Tandoor says they are, which can be S3 storage if you set that up. Tandoor's media is public, so the token is not sent with them.
 - **Home Assistant.** Only with the Home Assistant voice: the text of a step or the ingredient list goes through Kiosk Satellite's own connection to the kiosk's announce action, and on to whichever text-to-speech engine you chose, which may be a cloud service. The plugin never sees your Home Assistant token.
 - **ESPHome entities.** With them on, the recipe, the step, the timers and today's meals go to Home Assistant.
-- **The tablet.** With the tablet voice, Android's text-to-speech engine reads the step. Which engine that is, and what it does with the text, is up to the tablet. The **Saved session** setting holds the recipe's id, the servings, the step and the timers, in Kiosk Satellite's settings. It never holds the token. It is stored as a secret, so Fleet Management leaves it out unless a profile includes **Plugin secrets**, and other kiosks ignore it then because it names its device.
+- **The tablet.** With the tablet voice, Android's text-to-speech engine reads the step. Which engine that is, and what it does with the text, is up to the tablet. The **Saved session** setting holds the recipe's id and name, the servings, the step and the timers, in Kiosk Satellite's settings. It never holds the token. It is stored as a secret, so Fleet Management leaves it out unless a profile includes **Plugin secrets**. With Plugin secrets the leader's value replaces each follower's, so a follower's session does not survive a restart and every step syncs the fleet: keep Cook Mode out of such a profile, or type the token on each kiosk.
 - Nothing is sent anywhere else, and there is no telemetry.
 
 ## Installation
@@ -151,7 +151,7 @@ python3 tools/test.py
 python3 tools/build.py --android-platform 35
 ```
 
-Without a local Android SDK, push to GitHub. The **Build** workflow runs the tests and attaches the ZIP to the run as an artifact.
+Without a local Android SDK, push to `main` or run **Build** by hand on your branch (Actions > Build > Run workflow). The run holds the ZIP as an artifact. A push to another branch starts no Build, and a pull request's run has no ZIP.
 
 ### Release
 

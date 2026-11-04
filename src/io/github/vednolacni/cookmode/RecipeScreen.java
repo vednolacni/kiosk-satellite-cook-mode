@@ -127,6 +127,7 @@ final class RecipeScreen implements Screen {
         name.setText(model.recipeName);
         if (!model.recipeImage.equals(shownImage)) {
             shownImage = model.recipeImage;
+            images.newest();
             images.load(picture, model.recipeImage, actions.imageHeaders(model.recipeImage), parts.px(PICTURE_WIDTH_DP));
         }
         boolean ready = recipe != null;

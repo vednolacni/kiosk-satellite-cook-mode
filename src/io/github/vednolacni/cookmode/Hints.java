@@ -27,10 +27,19 @@ final class Hints {
     }
 
     private static final String SCALE = "(?:celsius|celzij\\p{L}*|fahrenheit|[CF](?!\\p{L}))";
-    /** A temperature in the words, or a range of two: 180 °C, 350 degrees F, 180/160 °C, 200 stopinj, 180 st. A lone letter counts only in capitals. */
+    /**
+     * A temperature in the words, or a range of two: 180 °C, 350 degrees F, 180/160 °C, 180 do 200 °C, 200 stopinj, 180 st.
+     * A lone letter or st. needs a number no recipe measures in cups or pieces: 2 C of flour and 3 St. Eier are amounts. Below
+     * three digits the letter counts only in capitals.
+     */
     static final Pattern TEMPERATURE = Pattern.compile(
-        "(?<![\\p{L}\\p{N}.,])([0-9]{1,3})(?:[ \\t]*[-–/][ \\t]*([0-9]{2,3}))?[ \\t]*"
-            + "(°[ \\t]*" + SCALE + "?|(?:stopinj\\p{L}*|degrees?|grad\\p{L}*)(?:[ \\t]+" + SCALE + ")?|(?-i:[CF])(?!\\p{L})|st\\.|stop\\.)",
+        "(?<![\\p{L}\\p{N}.,])([0-9]{1,3})(?:(?:[ \\t]*[-–/][ \\t]*|[ \\t]+(?:do|to|bis)[ \\t]+)([0-9]{2,3}))?[ \\t]*"
+            + "(°[ \\t]*" + SCALE + "?|(?:stopinj\\p{L}*|degrees?|grad\\p{L}*)(?:[ \\t]+" + SCALE + ")?"
+            + "|(?<=[0-9]{3}[ \\t]{0,4})[CF](?!\\p{L})|(?<=[0-9]{2}[ \\t]{0,4})(?-i:[CF])(?!\\p{L})|(?<=[0-9]{2}[ \\t]{0,4})(?:st\\.|stop\\.))",
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    /** A pan turned by 180 degrees is no oven. "Turn the oven down to 180 degrees" and "Obrni pečico na 180°" are. */
+    private static final Pattern TURNED = Pattern.compile(
+        "(?<!\\p{L})(?:za|um|by)[ \\t]+$|(?<!\\p{L})(?:rotate|turn|obrni|zavrti)\\p{L}*[^.!?\\n]*?(?<![ \\t](?:to|at|na|pri))[ \\t]+$",
         Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final Pattern OVERNIGHT = Pattern.compile("čez noč|preko noči|overnight|über nacht|ueber nacht", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     /** Below this it is warm milk, not an oven, and above the other no oven goes. */
@@ -40,6 +49,8 @@ final class Hints {
     private static final int SURELY_FAHRENHEIT = 300;
     /** Shorter waits are part of cooking. Longer ones are worth planning around. */
     private static final int LONG_SECONDS = 60 * 60;
+    /** A marinade of two days is worth knowing about, though no timer runs that long. */
+    private static final int LONGEST_SECONDS = 14 * 24 * 60 * 60;
     private static final int MOST_OF_EACH = 2;
 
     private Hints() {}
@@ -53,13 +64,14 @@ final class Hints {
             String text = Instructions.render(step, 1, false);
             Matcher temperature = TEMPERATURE.matcher(text);
             while (temperature.find()) {
+                if (TURNED.matcher(text.substring(Math.max(0, temperature.start() - 40), temperature.start())).find()) continue;
                 String scale = scale(temperature.group(3));
                 oven(temperatures, temperature.group(1), scale);
                 if (temperature.group(2) != null) oven(temperatures, temperature.group(2), scale);
             }
             overnight |= OVERNIGHT.matcher(text).find();
             if (step.seconds >= LONG_SECONDS && !rests.contains(step.seconds)) rests.add(step.seconds);
-            for (Durations.Found found : Durations.find(text)) {
+            for (Durations.Found found : Durations.find(text, LONGEST_SECONDS)) {
                 if (found.seconds >= LONG_SECONDS && !rests.contains(found.seconds)) rests.add(found.seconds);
             }
         }

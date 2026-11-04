@@ -157,6 +157,12 @@ public final class TandoorTest {
             if (path.equals("/api/recipe/7/")) {
                 status = 403;
                 answer = "{\"detail\":\"You do not have the required permissions to view this page!\"}";
+            } else if (path.equals("/api/recipe/404/")) {
+                status = 404;
+                answer = "{\"detail\":\"No Recipe matches the given query.\"}";
+            } else if (path.equals("/api/recipe/405/")) {
+                status = 404;
+                answer = "404 page not found";
             } else if (path.equals("/api/recipe/8/")) {
                 answer = "{\"id\":8,\"name\":\"Pizza\",\"servings\":2,\"steps\":["
                     + "{\"id\":1,\"name\":\"\",\"instruction\":\"\",\"instructions_markdown\":\"\",\"time\":0,\"ingredients\":[],\"step_recipe_data\":{\"id\":9,\"name\":\"Testo\",\"steps\":[{\"id\":2,\"name\":\"\",\"instruction\":\"Zmešaj.\",\"time\":0,\"ingredients\":[]}]}},"
@@ -187,6 +193,19 @@ public final class TandoorTest {
             } catch (RecipeSource.SourceException refused) {
                 assert refused.kind == RecipeSource.SourceException.Kind.PRIVATE && refused.getMessage().contains("required permissions") : refused.kind;
             }
+            // A recipe that is gone says so in JSON. Anything else came from something in front of Tandoor.
+            try {
+                source.recipe("404");
+                assert false : "A recipe that is gone must fail";
+            } catch (RecipeSource.SourceException refused) {
+                assert refused.kind == RecipeSource.SourceException.Kind.NOT_FOUND : refused.kind;
+            }
+            try {
+                source.recipe("405");
+                assert false : "A proxy's answer must fail";
+            } catch (RecipeSource.SourceException refused) {
+                assert refused.kind == RecipeSource.SourceException.Kind.NETWORK : refused.kind;
+            }
             try {
                 source.cooked("99", 2);
                 assert false : "A recipe gone from the server cannot be recorded";
@@ -203,6 +222,25 @@ public final class TandoorTest {
             assert pizza.steps.get(2).seconds == 1200 && "Peci.".equals(Instructions.render(pizza.steps.get(4), 1, false));
         } finally {
             odd.stop(0);
+        }
+
+        // A token gone bad is a 403 on one recipe too, and it must not read as a private recipe.
+        HttpServer revoked = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        revoked.createContext("/", exchange -> {
+            byte[] answer = "{\"detail\":\"Authentication credentials were not provided.\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(403, answer.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(answer);
+            }
+        });
+        revoked.start();
+        try {
+            new TandoorSource("http://127.0.0.1:" + revoked.getAddress().getPort(), "tda_old", new Http()).recipe("7");
+            assert false : "A revoked token must fail";
+        } catch (RecipeSource.SourceException refused) {
+            assert refused.kind == RecipeSource.SourceException.Kind.AUTH : refused.kind;
+        } finally {
+            revoked.stop(0);
         }
 
         // A token that can only read: reading works, and recording says why it cannot.

@@ -26,7 +26,7 @@ final class CookView extends FrameLayout {
     /** The display's size is a guess at the overlay's until it is laid out. Closer than this needs no second build. */
     private static final int SAME_WIDTH_DP = 48;
     /** A wet finger can land twice. What comes up under it after the first touch must not take the second. */
-    private static final long PAGE_GUARD_MS = 350L;
+    private static final long GUARD_MS = 350L;
 
     private final Ui.Actions actions;
     private final Images images;
@@ -50,8 +50,8 @@ final class CookView extends FrameLayout {
     private boolean ingredientsOpen;
     private Model model;
     private List<Timers.Timer> timers = Collections.emptyList();
-    private long pageAt;
-    private boolean pageMoved;
+    private long movedAt;
+    private boolean moved;
     private boolean ignoring;
 
     CookView(Context context, KsTheme theme, Ui.Actions actions, Images images) {
@@ -89,7 +89,7 @@ final class CookView extends FrameLayout {
         if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
             Parts.guard(actions::touched);
             // Against now, not the event's own time, which KS's window need not count the same way.
-            ignoring = SystemClock.uptimeMillis() - pageAt < PAGE_GUARD_MS;
+            ignoring = SystemClock.uptimeMillis() - movedAt < GUARD_MS;
         }
         // The whole gesture goes: a page must not see the rest of a touch it never saw begin.
         return ignoring || super.dispatchTouchEvent(event);
@@ -98,10 +98,16 @@ final class CookView extends FrameLayout {
     @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         super.onLayout(changed, left, top, right, bottom);
         // On a slow tablet building and laying out a page takes longer than the guard itself.
-        if (pageMoved) {
-            pageMoved = false;
-            pageAt = SystemClock.uptimeMillis();
+        if (moved) {
+            moved = false;
+            movedAt = SystemClock.uptimeMillis();
         }
+    }
+
+    /** Something came up or went away where a finger may land again. */
+    private void underFingerChanged() {
+        movedAt = SystemClock.uptimeMillis();
+        moved = true;
     }
 
     @Override protected void onSizeChanged(int newWidth, int newHeight, int oldWidth, int oldHeight) {
@@ -132,7 +138,7 @@ final class CookView extends FrameLayout {
         banner = bar;
         column.addView(banner, parts.wide());
 
-        timerViews = new TimerViews(parts, actions, strings);
+        timerViews = new TimerViews(parts, actions, strings, this::underFingerChanged);
         column.addView(timerViews.strip(), parts.wide());
         holder = new FrameLayout(getContext());
         column.addView(holder, new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
@@ -178,8 +184,10 @@ final class CookView extends FrameLayout {
             // There is nothing to try again when all the timers are taken.
             bannerButton.setText(current.banner.equals(current.strings.tooManyTimers) ? current.strings.close : current.strings.retry);
         }
-        question.setVisibility(current.confirm != null ? View.VISIBLE : View.GONE);
-        if (current.confirm != null) {
+        boolean asks = current.confirm != null;
+        if (asks != (question.getVisibility() == View.VISIBLE)) underFingerChanged();
+        question.setVisibility(asks ? View.VISIBLE : View.GONE);
+        if (asks) {
             questionText.setText(current.confirm);
             questionYes.setText(current.confirmLabel);
         }
@@ -190,8 +198,7 @@ final class CookView extends FrameLayout {
             shownVersion = -1;
             holder.removeAllViews();
             holder.addView(screen.view(), new LayoutParams(Parts.MATCH, Parts.MATCH));
-            pageAt = SystemClock.uptimeMillis();
-            pageMoved = true;
+            underFingerChanged();
         }
         if (current.pageVersion != shownVersion) {
             shownVersion = current.pageVersion;
@@ -209,7 +216,7 @@ final class CookView extends FrameLayout {
             case FINISH:
                 return new FinishScreen(parts, actions, images, current.strings, height);
             default:
-                if (home == null) home = new HomeScreen(parts, actions, images, current.strings, wide, width, height);
+                if (home == null) home = new HomeScreen(parts, actions, images, current.strings, wide, width, height, this::underFingerChanged);
                 return home;
         }
     }

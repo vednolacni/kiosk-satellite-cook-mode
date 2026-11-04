@@ -33,7 +33,7 @@
       "title": "API token",
       "default": "",
       "group": "Recipe server",
-      "description": "In Tandoor, open Settings > API and create a token with the scope \"read write\". Copy it right after saving: Tandoor shows it only briefly. It stays in Kiosk Satellite and goes only to the address above. Fleet Management copies it only if a profile includes Plugin secrets, and an export of the configuration holds it."
+      "description": "In Tandoor, open Settings > API and create a token with the scope \"read write\". Copy it right after saving: Tandoor shows it only briefly. It stays in Kiosk Satellite and goes only to the address above. Fleet Management copies it only if a profile includes Plugin secrets. A configuration export does not hold plugin settings, so a replaced tablet needs it again."
     },
     {
       "key": "planDays",
@@ -145,7 +145,7 @@
         "key": "alarmTone",
         "notEquals": "Silent"
       },
-      "description": "The sound stops after this long. The timer stays on the screen until someone stops it."
+      "description": "The sound stops after this long. The timer stays on the screen until someone stops it, or the kiosk restarts more than half an hour after it rang."
     },
     {
       "key": "dockCorner",
@@ -167,7 +167,7 @@
       "title": "Timer card over everything",
       "default": true,
       "group": "Timers",
-      "description": "Also over the screensaver, the kiosk's menu and its camera views. Off, it sits with the dashboard."
+      "description": "Also over the screensaver, except a black one until a timer rings, and over the kiosk's menu and its camera views. Off, it sits with the dashboard."
     },
     {
       "key": "readAloud",
@@ -255,7 +255,7 @@
         "key": "showAdvanced",
         "equals": true
       },
-      "description": "Written by the plugin, so the recipe being cooked and its timers survive a restart of the kiosk. Emptied, they are forgotten at the next restart. End cooking and stopping the timers forget them at once."
+      "description": "Written by the plugin, so the recipe being cooked and its timers survive a restart of the kiosk. Emptied, they are forgotten at the next restart, unless a change writes them again first, or the half-hourly save while a recipe is being cooked. End cooking and stopping the timers forget them for good."
     }
   ],
   "buttons": [

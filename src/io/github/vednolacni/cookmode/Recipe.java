@@ -53,7 +53,7 @@ final class Recipe {
         /** The amount and its unit for these servings, such as 200 g, or an empty string. */
         String measure(double factor, boolean decimalComma) {
             String amount = amountText(factor, decimalComma);
-            if (amount.isEmpty() || rawOnly()) return "";
+            if (amount.isEmpty()) return "";
             String unitName = plural(factor) && !unitPlural.isEmpty() ? unitPlural : unit;
             return unitName.isEmpty() ? amount : amount + " " + unitName;
         }
@@ -62,13 +62,20 @@ final class Recipe {
         String name(double factor) {
             if (header) return food;
             String foodName = plural(factor) && !foodPlural.isEmpty() ? foodPlural : food;
-            if (foodName.isEmpty()) return (note.isEmpty() ? raw : note).trim();
+            if (foodName.isEmpty()) return (note.isEmpty() ? rawName() : note).trim();
             return (note.isEmpty() ? foodName : foodName + ", " + note).trim();
         }
 
-        /** With nothing else to go on, the line as first written stands alone: it holds its own amount, if any. */
-        private boolean rawOnly() {
-            return food.isEmpty() && note.isEmpty() && !raw.isEmpty();
+        /** With nothing else to go on, the line as first written, without the amount and unit that are shown scaled beside it. */
+        private String rawName() {
+            String rest = raw.trim();
+            if (!hasAmount()) return rest;
+            rest = rest.replaceFirst("^[0-9½¼¾⅓⅔.,/⁄ -]+", "");
+            for (String name : new String[] {unitPlural, unit}) {
+                boolean stands = !name.isEmpty() && rest.regionMatches(true, 0, name, 0, name.length()) && (rest.length() == name.length() || !Character.isLetter(rest.charAt(name.length())));
+                if (stands) return rest.substring(name.length()).trim();
+            }
+            return rest;
         }
 
         /** The whole line: "200 g flour, sifted". */

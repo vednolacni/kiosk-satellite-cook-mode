@@ -19,6 +19,8 @@ final class Kitchen implements RecipeSource {
     final List<String> viewed = new ArrayList<>();
     /** The next call throws this, once. */
     SourceException failNext;
+    /** A household that plans only some days. */
+    boolean nothingToday;
     private final Map<String, Recipe> recipes = new LinkedHashMap<>();
 
     Kitchen(String pictures) {
@@ -76,6 +78,11 @@ final class Kitchen implements RecipeSource {
 
     @Override public List<Planned> mealPlan(LocalDate first, LocalDate last) throws SourceException {
         maybeFail();
+        if (nothingToday) {
+            return Arrays.asList(
+                new Planned("c", TODAY.plusDays(1), "Kosilo", 12 * 60, 0, "3", "Zelenjavna juha", "", 0, "", 40),
+                new Planned("d", TODAY.plusDays(2), "Večerja", 19 * 60, 0xFFE53935, "2", "Palačinke", "", 2, picture(2), 20));
+        }
         return Arrays.asList(
             new Planned("a", TODAY, "Kosilo", 12 * 60, 0xFF43A047, "1", "Goveji golaž", "", 4, picture(1), 150),
             new Planned("b", TODAY, "Večerja", 19 * 60, 0, null, "Ostanki", "Kar je ostalo od kosila", 0, "", 0),

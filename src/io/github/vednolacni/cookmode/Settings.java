@@ -11,6 +11,9 @@ final class Settings {
     enum MarkCooked { ASK, ALWAYS, NEVER }
     enum Tone { ALARM, BEEPS, SILENT }
 
+    private static final String KS_ACCENTS = "àáâãäåèéêëìíîïòóôõöùúûüñçýÿ";
+    private static final String KS_PLAIN = "aaaaaaeeeeiiiiooooouuuuncyy";
+
     final String serverUrl;
     final String apiToken;
     final int planDays;
@@ -118,6 +121,17 @@ final class Settings {
     static String slug(String name) {
         String plain = Normalizer.normalize(name, Normalizer.Form.NFD).replaceAll("\\p{M}", "").toLowerCase(Locale.ROOT);
         return plain.replaceAll("[^a-z0-9]+", "_").replaceAll("^_+|_+$", "");
+    }
+
+    /** What KS itself makes of a device's name for a new node. It knows these accents only, so Otroška soba becomes otro_ka_soba. */
+    static String ksSlug(String name) {
+        StringBuilder plain = new StringBuilder();
+        for (char letter : name.toLowerCase(Locale.ROOT).toCharArray()) {
+            int accented = KS_ACCENTS.indexOf(letter);
+            if (letter == 'ß') plain.append("ss");
+            else plain.append(accented >= 0 ? KS_PLAIN.charAt(accented) : letter);
+        }
+        return plain.toString().replaceAll("[^a-z0-9]+", "_").replaceAll("^_+|_+$", "");
     }
 
     private static String text(Object value) {

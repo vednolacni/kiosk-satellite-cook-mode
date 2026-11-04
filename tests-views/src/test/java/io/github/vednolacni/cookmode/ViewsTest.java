@@ -165,6 +165,7 @@ public final class ViewsTest {
     private Cook cook;
     private Strings s;
     private HttpServer server;
+    private volatile boolean picturesFail;
     private String prefix = "";
 
     @Before public void setUp() throws IOException {
@@ -174,6 +175,11 @@ public final class ViewsTest {
         activity.setContentView(content);
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
+            if (picturesFail) {
+                exchange.sendResponseHeaders(500, -1);
+                exchange.close();
+                return;
+            }
             String name = exchange.getRequestURI().getPath().replaceAll("\\D", "");
             byte[] body = picture(name.isEmpty() ? 0 : Integer.parseInt(name));
             exchange.sendResponseHeaders(200, body.length);
@@ -424,12 +430,12 @@ public final class ViewsTest {
         assertEquals(2, cook.timers().size());
         tap(described(s.timers));
         tap(described(s.pause));
-        assertEquals(Timers.State.PAUSED, cook.timers().get(0).state);
+        assertEquals(Timers.State.PAUSED, firstStarted().state);
         shot("5-timers-paused");
         tap(described(s.resume));
-        int left = cook.timers().get(0).left;
+        int left = firstStarted().left;
         tap(find("+1"));
-        assertEquals(left + 60, cook.timers().get(0).left);
+        assertEquals(left + 60, firstStarted().left);
         for (Timers.Timer timer : cook.timers()) cook.cancelTimer(timer.id);
         settle();
         assertNull(described(s.pause));
@@ -837,8 +843,9 @@ public final class ViewsTest {
         int at = scroll.getScrollY();
         assertTrue("this list is meant to scroll", at > 0);
 
-        // The same answer again changes nothing under a finger.
+        // The same answer again changes nothing under a finger, also while it is on its way.
         cook.refresh();
+        idle();
         settle();
         assertSame(card, find("Ričet"));
         assertSame(meal, find("Goveji golaž"));
@@ -927,6 +934,136 @@ public final class ViewsTest {
         assertTrue(sound.playing());
         sound.stop();
         assertFalse(sound.playing());
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aPressThatLandsTwiceDoesNotAnswerWhatItJustAsked() {
+        begin("double-question", true, settings("English"));
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        tap(find(s.nextStep));
+        cook.home();
+        settle();
+        pause();
+        // The first touch raises the question.
+        touch(center(find("Palačinke")));
+        View yes = find(s.replace);
+        assertNotNull(yes);
+        // The second lands at once, on the answer. It still stands, and nothing was given up.
+        touch(center(yes));
+        assertNotNull(find(s.replace));
+        assertTrue(cook.cooking());
+        // A moment later it is a real answer.
+        tap(find(s.cancel));
+        assertNull(find(s.replace));
+        assertTrue(cook.cooking());
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void whatGoesAwayUnderAFingerDoesNotPassItsTouchOn() {
+        begin("double-stop", true, settings("English"));
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        float[] next = center(find(s.nextStep));
+        cook.startTimer("Test", 60);
+        settle();
+        advance(61);
+        assertNotNull(find(s.timeIsUp));
+        pause();
+        // An alarm takes the very first touch. What lies under it is not pressed by the same finger landing again.
+        touch(next);
+        assertTrue(cook.timers().isEmpty());
+        touch(next);
+        assertNotNull(find("1 / 7"));
+        // Two timers: the next one's X has come up under the finger.
+        cook.startTimer("One", 600);
+        cook.startTimer("Two", 900);
+        settle();
+        tap(described(s.timers));
+        pause();
+        float[] cancel = center(described(s.cancel));
+        touch(cancel);
+        assertEquals(1, cook.timers().size());
+        touch(center(described(s.cancel)));
+        assertEquals("the second press was the same finger", 1, cook.timers().size());
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aRowInTheTimerSheetStaysThatTimersRow() {
+        begin("sheet-order", true, settings("English"));
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        cook.startTimer("Roast", 270);
+        cook.startTimer("Pasta", 300);
+        settle();
+        tap(described(s.timers));
+        View plus = find("+1");
+        // Past the other one's time, and the row and its button stay where they were.
+        tap(plus);
+        assertSame(plus, find("+1"));
+        tap(plus);
+        assertEquals(270 + 120, timerNamed("Roast").left);
+        assertEquals(300, timerNamed("Pasta").left);
+        // A hold goes on past it too.
+        press(plus);
+        later(1500);
+        release(plus);
+        assertTrue(timerNamed("Roast").left > 270 + 120);
+        assertEquals(300, timerNamed("Pasta").left);
+    }
+
+    @Test @Config(qualifiers = "w600dp-h960dp-port-tvdpi")
+    public void anAnswerTypedOnTheKeysStartsAtItsTop() {
+        begin("port-search", false, settings("English"));
+        open();
+        TextView card = find("Ričet");
+        ScrollView scroll = enclosingScroll(card);
+        reveal(card);
+        scroll.scrollTo(0, scroll.getScrollY() + theme.px(200));
+        layout();
+        tap(searchField());
+        assertTrue("the list is where it was when the keys came", scroll.getScrollY() > 0);
+        tap(find("A"));
+        later(600);
+        assertNotNull(find("Lazanja"));
+        assertEquals(0, scroll.getScrollY());
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aPictureThatFailedComesWhenTheServerAnswersAgain() {
+        begin("pictures", true, settings("English"));
+        picturesFail = true;
+        open();
+        ImageView meal = pictureBeside(find("Goveji golaž"));
+        ImageView cell = pictureBeside(find("Ričet"));
+        assertNull(meal.getDrawable());
+        assertNull(cell.getDrawable());
+        // Nothing comes while nothing has been answered. The same list changes nothing, except that it asks again.
+        picturesFail = false;
+        View row = find("Goveji golaž");
+        cook.refresh();
+        idle();
+        settle();
+        assertSame(row, find("Goveji golaž"));
+        assertNotNull(meal.getDrawable());
+        assertNotNull(cell.getDrawable());
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void thePlanMovesOnAtMidnight() {
+        begin("midnight", true, settings("English"));
+        kitchen.nothingToday = true;
+        open();
+        assertNotNull(find(s.nothingToday));
+        assertNotNull(find("Zelenjavna juha"));
+        // The same meals are read again on the next day, when the first of them has become today's.
+        clock.now = clock.now.plusSeconds(14 * 3600);
+        later(Cook.PLAN_REFRESH_MS);
+        assertNull(find(s.nothingToday));
+        assertNotNull(find("Zelenjavna juha"));
     }
 
     // Setting up.
@@ -1164,13 +1301,40 @@ public final class ViewsTest {
     /** Two presses with no time between them, the way a wet finger can land twice. */
     private void doubleTap(View view) {
         float[] at = center(view);
-        for (int i = 0; i < 2; i++) {
-            long down = SystemClock.uptimeMillis();
-            send(MotionEvent.ACTION_DOWN, at[0], at[1], down, down);
-            send(MotionEvent.ACTION_UP, at[0], at[1], down, down);
-            idle();
-        }
+        for (int i = 0; i < 2; i++) touch(at);
         settle();
+    }
+
+    /** One press with no time before it, and what it brought up laid out and ready for the next. */
+    private void touch(float[] at) {
+        long down = SystemClock.uptimeMillis();
+        send(MotionEvent.ACTION_DOWN, at[0], at[1], down, down);
+        send(MotionEvent.ACTION_UP, at[0], at[1], down, down);
+        idle();
+        layout();
+    }
+
+    private Timers.Timer firstStarted() {
+        Timers.Timer first = null;
+        for (Timers.Timer timer : cook.timers()) if (first == null || timer.id < first.id) first = timer;
+        return first;
+    }
+
+    private Timers.Timer timerNamed(String part) {
+        for (Timers.Timer timer : cook.timers()) if (timer.label.contains(part)) return timer;
+        throw new AssertionError("No timer named " + part);
+    }
+
+    /** The picture of the row or card these words are in. */
+    private static ImageView pictureBeside(View view) {
+        for (View at = view; at.getParent() instanceof ViewGroup; at = (View) at.getParent()) {
+            ViewGroup group = (ViewGroup) at.getParent();
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View child = group.getChildAt(i);
+                if (child instanceof ImageView && child.getTag() instanceof String) return (ImageView) child;
+            }
+        }
+        throw new AssertionError("No picture beside " + view);
     }
 
     private void press(View view) {
