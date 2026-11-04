@@ -225,6 +225,8 @@ public final class TextTest {
         assert seconds("Razdeli na 4 s pomočjo žlice.").isEmpty() && seconds("Stepi 2 s sladkorjem").isEmpty();
         assert seconds("Peci 1 h pri 200 °C").equals(Collections.singletonList(3600)) && seconds("mešaj 30 s pri nizki hitrosti").equals(Collections.singletonList(30));
         assert seconds("Na 4\n\nS kuhalnico premešaj.").isEmpty() && seconds("Vzemi 2 M jajci.").isEmpty();
+        // A number that long is no duration.
+        assert seconds("1234567 min").isEmpty();
         // Digits a double cannot be parsed from are just text, also where the regular expressions would take them.
         assert seconds("٣ min").isEmpty() && seconds("５ min").isEmpty();
         assert "0:45".equals(Durations.clock(45)) && "12:00".equals(Durations.clock(720)) && "1:05:00".equals(Durations.clock(3900));

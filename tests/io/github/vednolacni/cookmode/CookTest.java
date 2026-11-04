@@ -1386,6 +1386,19 @@ public final class CookTest {
         cook.home();
         assert ui.model.resumeAt == 2;
 
+        // Changing one's mind before the other has come: nothing was lost, and its answer changes nothing.
+        cook.openRecipe(new RecipeSource.Summary("8", "Soup", "", 45));
+        cook.confirm(true);
+        Runnable late = net.queue.remove(0);
+        cook.home();
+        assert ui.model.resumeAt == 0;
+        cook.openRecipe(new RecipeSource.Summary("7", "Pancakes", "", 30));
+        assert cook.cooking() && ui.model.page == Model.Page.STEP && ui.model.pageNumber == 2 && ui.model.confirm == null;
+        source.fail = null;
+        late.run();
+        assert "Pancakes".equals(ui.model.recipeName) && !host.triggers.contains("cookingFinished");
+        cook.home();
+
         // With the server back it goes through, and only now is the first one finished.
         source.fail = null;
         source.recipe = new Recipe("8", "Soup", "", "", 2, "", 5, 0, "", "", Collections.<Recipe.Step>emptyList());

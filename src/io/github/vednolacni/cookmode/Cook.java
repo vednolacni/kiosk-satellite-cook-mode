@@ -825,6 +825,13 @@ final class Cook implements Ui.Actions {
             changed();
             return;
         }
+        // The one set aside, before what was to replace it has even come.
+        if (stash != null && id.equals(stash.id)) {
+            forget();
+            comeBack();
+            changed();
+            return;
+        }
         // Set aside, not ended: this recipe may not come, and the recipe in hand cannot be read again while the server is away.
         if (cooking && recipe != null) stash = new Stash(recipe, recipeId, recipeImage, servings, pages, pageIndex, sessionStart, copyChecked(), logged, logFailed);
         forget();

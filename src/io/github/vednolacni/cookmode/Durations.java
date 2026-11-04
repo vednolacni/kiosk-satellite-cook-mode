@@ -35,8 +35,9 @@ final class Durations {
         }
     }
 
-    // Plain ASCII digits. On Android \d also matches digits that parseDouble cannot read.
-    private static final String WHOLE = "[0-9]+";
+    // Plain ASCII digits: on Android \d also matches digits that parseDouble cannot read. With a limit, so a text of
+    // nothing but digits does not cost a pass over the rest of it for each one.
+    private static final String WHOLE = "[0-9]{1,6}";
     private static final String GLYPHS = "½¼¾⅓⅔";
     private static final String NUMBER = "(?:" + WHOLE + "[ \\t]*)?(?:[" + GLYPHS + "]|" + WHOLE + "[/⁄]" + WHOLE + ")|" + WHOLE + "(?:[.,]" + WHOLE + ")?";
     private static final Pattern NUMBER_PARTS = Pattern.compile("(?:(" + WHOLE + ")[ \\t]*)?(?:([" + GLYPHS + "])|(" + WHOLE + ")[/⁄](" + WHOLE + "))");
