@@ -16,7 +16,7 @@ import me.jxl.kiosk.plugins.OverlayFactory;
  * and everything here happens in a posted task on the main thread. Exceptions in posted tasks would end the app, so
  * each one is guarded.
  */
-final class AndroidUi implements Ui {
+class AndroidUi implements Ui {
     private static final long TICK_MS = 1_000L;
     private static final long TEST_MS = 5_000L;
 
@@ -91,6 +91,10 @@ final class AndroidUi implements Ui {
                 if (dock == shown) dock = null;
             }
         };
+    }
+
+    @Override public long elapsed() {
+        return android.os.SystemClock.elapsedRealtime();
     }
 
     @Override public void render(Model next) {

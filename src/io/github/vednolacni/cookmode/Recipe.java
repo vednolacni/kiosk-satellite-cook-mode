@@ -70,12 +70,16 @@ final class Recipe {
         private String rawName() {
             String rest = raw.trim();
             if (!hasAmount()) return rest;
-            rest = rest.replaceFirst("^[0-9½¼¾⅓⅔.,/⁄ -]+", "");
+            // All that says the amount again: ca. 200, 2 do 3, 1–2, 1 and 1/2, pol.
+            rest = rest.replaceFirst("(?i)^(?:(?:ca|cca|pribl|approx)\\.? +|(?:približno|okoli|okrog|about|etwa|pol|half) +)?[0-9½¼¾⅓⅔.,/⁄ –—-]*(?:(?:do|to|bis|and|in|und) +[0-9½¼¾⅓⅔.,/⁄ –—-]+)?", "");
             for (String name : new String[] {unitPlural, unit}) {
                 boolean stands = !name.isEmpty() && rest.regionMatches(true, 0, name, 0, name.length()) && (rest.length() == name.length() || !Character.isLetter(rest.charAt(name.length())));
-                if (stands) return rest.substring(name.length()).trim();
+                if (stands) return rest.substring(name.length()).replaceFirst("^[.,:;]+", "").trim();
             }
-            return rest;
+            // Another form of the unit than Tandoor keeps: 2 žlici for žlica, 2 cups for cup.
+            String word = rest.split(" ", 2)[0];
+            boolean sameUnit = unit.length() >= 3 && word.length() <= unit.length() + 2 && word.regionMatches(true, 0, unit, 0, unit.length() - 1);
+            return sameUnit ? rest.substring(word.length()).trim() : rest;
         }
 
         /** The whole line: "200 g flour, sifted". */

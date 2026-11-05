@@ -40,6 +40,8 @@ final class Timers {
 
     /** At most this many timers run at once. A kitchen rarely needs more, and the bar stays readable. */
     static final int MAX = 6;
+    /** How far the wall clock must stray from the steady one to count as set. Android itself leaves smaller corrections alone. */
+    private static final long CLOCK_SET_MS = 5_000L;
 
     private static final class Entry {
         final int id;
@@ -50,6 +52,10 @@ final class Timers {
         State state = State.RUNNING;
         /** While running, when it rings in epoch milliseconds. */
         long endsAt;
+        /** While running, the same on the steady clock, which nobody can set, or -1 until that is known. */
+        long steadyEnd = -1;
+        /** Its end is a time from before a restart, which only the wall clock can say. */
+        boolean restored;
         /** While paused, the milliseconds that were left. */
         long remaining;
         /** While ringing, when it started to. */
@@ -85,9 +91,43 @@ final class Timers {
             entry.remaining = value;
         } else {
             entry.endsAt = value;
+            entry.restored = true;
         }
         entries.add(entry);
         return entry.id;
+    }
+
+    /**
+     * The tablet's clock can be set under a running timer: one with no battery starts with it far behind and learns the time
+     * later. A timer started here goes on counting what it had left. One from before a restart ends at a time on the wall
+     * clock, so it waits for the clock to be set, and may then turn out to have ended long ago. Those that ended more than
+     * late milliseconds ago are gone, and their number is returned. An elapsed below zero means there is no steady clock.
+     */
+    int steady(long now, long elapsed, long late) {
+        if (elapsed < 0) return 0;
+        int gone = 0;
+        for (int i = entries.size() - 1; i >= 0; i--) {
+            Entry entry = entries.get(i);
+            if (entry.state != State.RUNNING) continue;
+            long byWall = entry.endsAt - now;
+            if (entry.steadyEnd < 0) {
+                entry.steadyEnd = elapsed + byWall;
+                continue;
+            }
+            long bySteady = entry.steadyEnd - elapsed;
+            if (Math.abs(byWall - bySteady) < CLOCK_SET_MS) continue;
+            if (!entry.restored) {
+                entry.endsAt = now + bySteady;
+                continue;
+            }
+            entry.restored = false;
+            entry.steadyEnd = elapsed + byWall;
+            if (byWall < -late) {
+                entries.remove(i);
+                gone++;
+            }
+        }
+        return gone;
     }
 
     boolean pause(int id, long now) {
@@ -102,6 +142,7 @@ final class Timers {
         Entry entry = find(id);
         if (entry == null || entry.state != State.PAUSED) return false;
         entry.endsAt = now + entry.remaining;
+        entry.steadyEnd = -1;
         entry.state = State.RUNNING;
         return true;
     }
@@ -114,10 +155,16 @@ final class Timers {
             if (seconds <= 0) return false;
             entry.state = State.RUNNING;
             entry.endsAt = now + seconds * 1000L;
+            entry.steadyEnd = -1;
+            entry.restored = false;
             return true;
         }
-        if (entry.state == State.PAUSED) entry.remaining = Math.max(0, entry.remaining + seconds * 1000L);
-        else entry.endsAt = Math.max(now, entry.endsAt + seconds * 1000L);
+        if (entry.state == State.PAUSED) {
+            entry.remaining = Math.max(0, entry.remaining + seconds * 1000L);
+        } else {
+            entry.endsAt = Math.max(now, entry.endsAt + seconds * 1000L);
+            entry.steadyEnd = -1;
+        }
         return true;
     }
 

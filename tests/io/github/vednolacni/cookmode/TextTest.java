@@ -30,6 +30,15 @@ public final class TextTest {
         assert ran.equals(Arrays.asList("recipe", "found1", "found2", "plan1", "plan2", "cell1", "cell2")) : ran;
     }
 
+    /** The waits the first page warns of in these words. */
+    static List<String> waits(String text) {
+        List<String> words = new ArrayList<>();
+        for (Hints.Hint hint : Hints.of(new Recipe("1", "R", "", "", 4, "", 0, 0, "", "", Collections.singletonList(plain(text, 0))), Strings.ENGLISH)) {
+            if ("mdi:timer-sand".equals(hint.icon)) words.add(hint.text);
+        }
+        return words;
+    }
+
     static Recipe.Step plain(String text, int seconds) {
         return new Recipe.Step("", text, Recipe.Format.PLAIN, Collections.<Recipe.Ingredient>emptyList(), seconds);
     }
@@ -79,6 +88,19 @@ public final class TextTest {
         assert ovens("Bake at 180 to 200 °C.").equals(Arrays.asList("180 °C", "200 °C"));
         assert ovens("Bei 180 bis 200 °C backen.").equals(Arrays.asList("180 °C", "200 °C"));
         assert !Instructions.hasFixedNumbers(plain("Pečemo na 180 do 200 °C.", 0));
+        // An oven's number is no wait of days, and a pan is no oven only while it is the pan being turned.
+        assert waits("Peci pri 180 uro in pol.").equals(Collections.singletonList("1 h 30 min")) : waits("Peci pri 180 uro in pol.");
+        assert waits("Peci na 200 ½ ure.").isEmpty() && waits("Bei 180 ½ Std. backen.").isEmpty();
+        assert waits("Marinate 48 hr.").equals(Collections.singletonList("48 h")) && waits("Fermentiraj 168 ur.").equals(Collections.singletonList("168 h"));
+        assert waits("Pusti stati 48 ur 30 min.").equals(Collections.singletonList("48 h 30 min")) : waits("Pusti stati 48 ur 30 min.");
+        assert ovens("Bake, turning once, 200 °C for 30 min.").equals(Collections.singletonList("200 °C"));
+        assert ovens("Roast turnips, 200 °C for 20 min.").equals(Collections.singletonList("200 °C"));
+        assert ovens("Turn on the oven, 180 °C.").equals(Collections.singletonList("180 °C"));
+        assert ovens("Obrni pekač in peci 180 °C še 20 minut.").equals(Collections.singletonList("180 °C"));
+        assert ovens("Zavrti gumb do 200 °C.").equals(Collections.singletonList("200 °C"));
+        assert ovens("Turn oven to 200 °C / 180 °C fan.").equals(Arrays.asList("200 °C", "180 °C"));
+        assert ovens("Bake at 425°F for 20 min, turning the pan 180 degrees halfway.").equals(Collections.singletonList("425 °F"));
+        assert ovens("Halfway through, turn the baking sheet around 180 degrees.").isEmpty();
         // A wait no timer runs is still worth knowing about.
         assert Hints.of(new Recipe("4", "Meso", "", "", 4, "", 0, 0, "", "", Collections.singletonList(plain("Meso mariniraj 48 ur.", 0))), Strings.ENGLISH).get(0).text.equals("48 h");
         assert seconds("Meso mariniraj 48 ur.").isEmpty();
@@ -216,6 +238,18 @@ public final class TextTest {
         assert "4 žlici sladkorja".equals(new Recipe.Ingredient(false, 2, "žlica", "žlici", "", "", "", "2 žlici sladkorja").line(2, false));
         assert "3 cups flour".equals(new Recipe.Ingredient(false, 1.5, "cup", "cups", "", "", "", "1½ cups flour").line(2, false));
         assert "sol po okusu".equals(new Recipe.Ingredient(false, Double.NaN, "", "", "", "", "", "sol po okusu").line(1, false));
+        // However the line says its amount, it says one, and that one scales.
+        assert "4 žlice sladkorja".equals(new Recipe.Ingredient(false, 2, "žlica", "žlice", "", "", "", "2 do 3 žlice sladkorja").line(2, false));
+        assert "2 žlice sladkorja".equals(new Recipe.Ingredient(false, 2, "žlica", "žlice", "", "", "", "2 žlici sladkorja").line(1, false));
+        assert "10 žlice sladkorja".equals(new Recipe.Ingredient(false, 5, "žlica", "žlice", "", "", "", "5 žlic sladkorja").line(2, false));
+        assert "400 g moke".equals(new Recipe.Ingredient(false, 200, "g", "", "", "", "", "ca. 200 g moke").line(2, false));
+        assert "2 cups flour".equals(new Recipe.Ingredient(false, 1, "cup", "cups", "", "", "", "1–2 cups flour").line(2, false));
+        assert "3 cups flour".equals(new Recipe.Ingredient(false, 1.5, "cup", "cups", "", "", "", "1 and 1/2 cups flour").line(2, false));
+        assert "1 skodelica moke".equals(new Recipe.Ingredient(false, 0.5, "skodelica", "", "", "", "", "pol skodelice moke").line(2, false));
+        assert "4 žl sladkorja".equals(new Recipe.Ingredient(false, 2, "žl", "", "", "", "", "2 žl. sladkorja").line(2, false));
+        assert "400 g presejane moke".equals(new Recipe.Ingredient(false, 200, "g", "", "", "", "", "200 g, presejane moke").line(2, false));
+        assert "4 (200 g) jogurta".equals(new Recipe.Ingredient(false, 2, "", "", "", "", "", "2 (200 g) jogurta").line(2, false));
+        assert "2 cups (240 ml) milk".equals(new Recipe.Ingredient(false, 1, "cup", "cups", "", "", "", "1 cup (240 ml) milk").line(2, false));
         assert "po okusu".equals(new Recipe.Ingredient(false, Double.NaN, "", "", "", "", "po okusu", "sol po okusu").line(1, false));
     }
 
@@ -340,6 +374,39 @@ public final class TextTest {
         assert seconds("Peci 1.25 h").equals(Collections.singletonList(4500)) && seconds("Kuhaj 1,5 h").equals(Collections.singletonList(5400));
         assert seconds("Kuhaj 1 minuto in pol.").equals(Collections.singletonList(90));
         assert "1 h 30".equals(Durations.find("Kuhaj 1 h 30 na nizkem ognju.").get(0).text);
+        // A small number before a word may close what comes before it. A fraction alone cannot take a plural, so there it is whole.
+        for (String text : new String[] {"Testo razdeli na 8 in ½ ure pusti vzhajati.", "Razreži na 4 in 1/2 ure mariniraj.", "Razreži na 4-6 in ½ ure pusti.", "Oblikuj 10 do 12 in ½ ure pusti vzhajati.", "Mleko segrej na 40 in 1/2 ure pusti.", "Korak 3 - ½ ure počivaj."}) {
+            assert seconds(text).isEmpty() : text + " " + seconds(text);
+        }
+        assert seconds("Bake 1 - 1/2 hours.").equals(Collections.singletonList(5400)) && seconds("Peci 2 - ½ uri.").equals(Collections.singletonList(9000));
+        // "Before" after a length is mostly what comes next. Only a named end makes that a time of its own.
+        assert seconds("Chill for 1 hour and 30 minutes before serving.").equals(Collections.singletonList(5400));
+        assert seconds("Pusti vzhajati 1 uro in 15 minut. Pred peko premaži z jajcem.").equals(Collections.singletonList(4500));
+        assert seconds("Pusti počivati 1 uro in 30 minut pred peko.").equals(Collections.singletonList(5400));
+        assert seconds("Den Teig 1 Stunde und 30 Minuten vor dem Backen ruhen lassen.").equals(Collections.singletonList(5400));
+        assert seconds("Cook for 1 minute and 30 seconds before adding the garlic.").equals(Collections.singletonList(90));
+        assert seconds("Rest 1 hr. 30 min. Before baking, brush with egg.").equals(Collections.singletonList(5400));
+        assert seconds("Bake 1 hour and 10 min. before the end, add cheese.").equals(Arrays.asList(3600, 600));
+        // What follows "in pol" says whether it is half of the hour.
+        assert seconds("Testo naj 1 uro in pol počiva.").equals(Collections.singletonList(5400));
+        assert seconds("1 uro in pol pustite vzhajati.").equals(Collections.singletonList(5400));
+        assert seconds("2 uri in pol kuhajte na nizkem ognju.").equals(Collections.singletonList(9000));
+        assert seconds("Pusti vzhajati 1 uro in pol oziroma dokler se volumen ne podvoji.").equals(Collections.singletonList(5400));
+        assert seconds("Peci 1 uro in pol za boljši okus.").equals(Collections.singletonList(5400));
+        assert seconds("Uro in pol pecite pri 180 °C.").equals(Collections.singletonList(5400));
+        assert seconds("Kuhaj 1 uro in pol l vode prilij.").equals(Collections.singletonList(3600));
+        assert seconds("Kuhaj 2 uri in pol kg krompirja dodaj.").equals(Collections.singletonList(7200));
+        assert seconds("Kuhaj uro in pol dl smetane prilij.").isEmpty();
+        assert seconds("Kuhaj 10 min in pol dl smetane dodaj.").equals(Collections.singletonList(600));
+        assert seconds("Cook 10 minutes and a half cup of water.").equals(Collections.singletonList(600));
+        assert seconds("Simmer 10 minutes and a half hour rest.").equals(Arrays.asList(600, 1800));
+        // Bare minutes before a range only if it is a range of minutes.
+        assert seconds("Vzhajaj 2 uri 25 do 28 °C.").equals(Collections.singletonList(7200));
+        assert seconds("Suši 5 ur 50 do 60 stopinj.").equals(Collections.singletonList(18000));
+        assert seconds("Po 2 urah 50 do 60 g sladkorja dodaj.").equals(Collections.singletonList(7200));
+        assert seconds("Peci 1 h 30 do zlate barve.").equals(Collections.singletonList(5400));
+        assert seconds("Peci 1 uro 15 do 20 minut.").equals(Collections.singletonList(4500));
+        assert seconds("Peci 1 uro 50 do 60 min.").equals(Collections.singletonList(6600));
         // A number that long is no duration.
         assert seconds("1234567 min").isEmpty();
         // Digits a double cannot be parsed from are just text, also where the regular expressions would take them.

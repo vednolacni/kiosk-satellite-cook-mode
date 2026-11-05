@@ -39,7 +39,7 @@ final class Hints {
         Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     /** A pan turned by 180 degrees is no oven. "Turn the oven down to 180 degrees" and "Obrni pečico na 180°" are. */
     private static final Pattern TURNED = Pattern.compile(
-        "(?<!\\p{L})(?:za|um|by)[ \\t]+$|(?<!\\p{L})(?:rotate|turn|obrni|zavrti)\\p{L}*[^.!?\\n]*?(?<![ \\t](?:to|at|na|pri))[ \\t]+$",
+        "(?<!\\p{L})(?:za|um|by)[ \\t]+$|(?<!\\p{L})(?:rotat(?:e|ing)|turn(?:ing|ed)?|obrn(?:i|ite|imo|emo)|zavrt(?:i|ite|imo))(?:[ \\t]+(?!(?:oven|pečic\\p{L}*|ofen|in|and|und|on|to|at|na|pri|do|until|bis|auf)(?!\\p{L}))\\p{L}+){0,4}[ \\t]+$",
         Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     private static final Pattern OVERNIGHT = Pattern.compile("čez noč|preko noči|overnight|über nacht|ueber nacht", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
     /** Below this it is warm milk, not an oven, and above the other no oven goes. */

@@ -56,6 +56,9 @@ interface Ui extends Awake.Scheduler {
         Map<String, String> imageHeaders(String url);
     }
 
+    /** A clock nobody can set, in milliseconds, or below zero when there is none. */
+    long elapsed();
+
     /** How a test of the sound went, for the plugin page. */
     interface Report {
         void result(boolean ok, String message);

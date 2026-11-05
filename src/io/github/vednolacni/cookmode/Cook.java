@@ -1354,6 +1354,7 @@ final class Cook implements Ui.Actions {
 
     /** One more minute: for the timers that ring, or else on the one that rings next. */
     private void addMinute() {
+        followClock();
         long now = clock.millis();
         boolean ringing = timers.ringing();
         for (Timers.Timer timer : timers.list(now)) {
@@ -1368,7 +1369,9 @@ final class Cook implements Ui.Actions {
     }
 
     @Override public synchronized void pauseTimer(int id) {
-        if (host != null && timers.pause(id, clock.millis())) timersChanged();
+        if (host == null) return;
+        followClock();
+        if (timers.pause(id, clock.millis())) timersChanged();
     }
 
     @Override public synchronized void resumeTimer(int id) {
@@ -1376,7 +1379,9 @@ final class Cook implements Ui.Actions {
     }
 
     @Override public synchronized void addToTimer(int id, int seconds) {
-        if (host != null && timers.add(id, seconds, clock.millis())) timersChanged();
+        if (host == null) return;
+        followClock();
+        if (timers.add(id, seconds, clock.millis())) timersChanged();
     }
 
     @Override public synchronized void cancelTimer(int id) {
@@ -1390,7 +1395,17 @@ final class Cook implements Ui.Actions {
     }
 
     @Override public synchronized List<Timers.Timer> timers() {
+        if (host != null) followClock();
         return timers.list(clock.millis());
+    }
+
+    /** Setting the tablet's clock moves no timer, and shows that one from before a restart ended long ago. */
+    private void followClock() {
+        int late = timers.steady(clock.millis(), ui.elapsed(), LATE_RING_MS);
+        if (late == 0) return;
+        missedTimers += late;
+        report();
+        timersChanged();
     }
 
     /** A timer started, moved, stopped or rang. */
@@ -1417,6 +1432,7 @@ final class Cook implements Ui.Actions {
     }
 
     private void postDue() {
+        followClock();
         ui.cancel(dueTask);
         long next = timers.nextDue();
         if (next >= 0) ui.post(dueTask, Math.min(DUE_CHECK_MS, Math.max(1, next - clock.millis())));
@@ -1427,6 +1443,7 @@ final class Cook implements Ui.Actions {
         synchronized (this) {
             if (host == null) return;
             try {
+                followClock();
                 List<Timers.Timer> rang = timers.due(clock.millis());
                 if (rang.isEmpty()) {
                     postDue();

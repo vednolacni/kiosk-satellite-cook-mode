@@ -147,7 +147,7 @@ final class TimerViews {
         showStrip(timers);
         boolean rowsMoved = showSheet(timers);
         showAlarm(timers);
-        // An alarm that comes up takes the very first touch, wherever it lands, so nothing may stand in its way.
+        // An alarm that comes up starts no wait of its own. It takes the first touch, wherever it lands, once a wait already running has ended.
         if (alarm.getVisibility() == View.VISIBLE) return;
         boolean stripMoved = stripWas != (strip.getVisibility() == View.VISIBLE);
         if (alarmWas || stripMoved || (rowsMoved && sheet.getVisibility() == View.VISIBLE)) underFinger.run();

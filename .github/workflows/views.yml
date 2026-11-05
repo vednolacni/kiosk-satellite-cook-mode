@@ -29,6 +29,11 @@ jobs:
           npm pack @mdi/svg@7.4.47 --silent
           tar xzf mdi-svg-7.4.47.tgz
           curl -fsSL -o Rubik.ttf 'https://github.com/google/fonts/raw/main/ofl/rubik/Rubik%5Bwght%5D.ttf'
+      # Robolectric fetches its Android images itself, and Maven Central can refuse a runner that asks too often.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ hashFiles('tests-views/build.gradle') }}
       - name: Run the views
         run: gradle -p tests-views test --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4

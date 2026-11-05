@@ -49,6 +49,10 @@ final class Durations {
     /** The fractions anyone writes for a time. Any other pair is two numbers. */
     private static final Set<String> FRACTIONS = new HashSet<>(Arrays.asList("1/2", "1/3", "2/3", "1/4", "3/4"));
 
+    /** A small number before a word or a spaced hyphen may close what comes before it: "Razreži na 4 in ½ ure mariniraj." */
+    private static final Pattern JOINED_LOOSELY = Pattern.compile("[0-9]{1,2}(?:[ \\t]+(?:and|in|und)[ \\t]+|[ \\t]+[-–][ \\t]*|[ \\t]*[-–][ \\t]+).+", FLAGS);
+    /** Forms of a unit that a fraction alone cannot take, so the number before it belongs to it. */
+    private static final Set<String> ONLY_AFTER_MANY = new HashSet<>(Arrays.asList("uri", "ur", "urah", "urami", "hours", "hrs", "stunden", "minuti", "minut", "minutah", "minutami", "minutes", "mins", "minuten", "seconds", "secs", "sekundi", "sekund", "sekundah", "sekundami", "sekunden"));
     private static final String[] HOUR_WORDS = {"hr", "hrs", "hour", "hours", "ura", "uro", "uri", "ure", "ur", "urah", "urami", "std", "stunde", "stunden"};
     private static final String[] MINUTE_WORDS = {"min", "mins", "minute", "minutes", "minuta", "minuto", "minuti", "minut", "minutah", "minutami", "minuten"};
     private static final String[] SECOND_WORDS = {"sec", "secs", "second", "seconds", "sek", "sekunda", "sekundo", "sekundi", "sekunde", "sekund", "sekundah", "sekundami", "sekunden"};
@@ -64,15 +68,27 @@ final class Durations {
         "(?<![\\p{L}\\p{N}.,/⁄:])(" + NUMBER + ")(?:[ \\t]*(?:-|–|—|to|do|bis)[ \\t]*(" + NUMBER + "))?[ \\t]*(" + HOURS + "|" + MINUTES + "|" + SECONDS + ")(?!\\p{L})", FLAGS);
     /** A shorter part on the same line, as in "1 uro in 30 minut". A full stop or a joining word before it is checked apart. */
     private static final Pattern SECOND_PART = Pattern.compile("(\\.)?[ \\t]*(?:(and|in|und)[ \\t]+)?(" + WHOLE + ")[ \\t]*(" + MINUTES + "|" + SECONDS + ")(?!\\p{L})", FLAGS);
-    /** "Peci 2 h. 30 min pred koncem dodaj sir": a time counted back from the end is a timer of its own. */
-    private static final Pattern FROM_THE_END = Pattern.compile("\\.?[ \\t]+(?:pred|before|prior|vor)(?!\\p{L})", FLAGS);
-    /** Half of the next word, not of the hour: "1 uro in pol litra juhe prilij". What is measured stands in the genitive, in -a or -e. */
-    private static final String NOT_A_NOUN = "(?![ \\t]+(?!(?:na|da|pa)(?!\\p{L}))\\p{L}*[ae](?!\\p{L}))";
+    /**
+     * "Peci 2 h. 30 min pred koncem dodaj sir": a time counted back from the end is a timer of its own. After a joining word
+     * only a named end splits it, since "1 hour and 30 minutes before serving" is one length. Past a full stop a new sentence
+     * in capitals says nothing about the time before it.
+     */
+    private static final String AFTER_A_TIME = "(?:[ \\t]+|\\.[ \\t]+(?=(?-i:[a-z])))";
+    private static final Pattern FROM_THE_END = Pattern.compile(AFTER_A_TIME + "(?:pred|before|prior|vor)(?!\\p{L})", FLAGS);
+    private static final Pattern BEFORE_THE_END = Pattern.compile(AFTER_A_TIME + "(?:pred[ \\t]+(?:koncem|iztekom|zaključkom)|before[ \\t]+(?:the[ \\t]+)?(?:end|finish)|prior[ \\t]+to[ \\t]+the[ \\t]+end|vor[ \\t]+(?:dem[ \\t]+)?(?:Ende|Schluss|Ablauf))(?!\\p{L})", FLAGS);
+    /**
+     * Half of the next word, not of the hour: "1 uro in pol litra juhe prilij". What is measured stands in the genitive, in
+     * -a or -e, or is cut short. Words that end the same way and measure nothing are listed. Any other verb gives the shorter
+     * time, which rings early and shows what it counted.
+     */
+    private static final String NOT_A_NOUN = "(?![ \\t]+(?:(?!(?:na|da|pa|za|če|ne|se|je|še|že|ga|vse|dlje|kasneje|pozneje|oziroma|počiva|vzhaja|kuha|peče|vre|krčka|ostane|miruje|marinira|\\p{L}+(?:ite|jte))(?!\\p{L}))\\p{L}*[ae]|l|dl|cl|ml|kg|dag|g|žl|kom)(?!\\p{L}))";
+    /** Half a minute only as the last thing said: "10 minutes and a half cup of water" is ten minutes. */
+    private static final Pattern CLAUSE_ENDS = Pattern.compile("[ \\t]*(?:[.,;:!?)]|\\r?\\n|$)");
     private static final Pattern AND_A_HALF = Pattern.compile("[ \\t]+(?:in[ \\t]+pol" + NOT_A_NOUN + "|and[ \\t]+a[ \\t]+half)(?!\\p{L})", FLAGS);
     /** The minutes of 1h30, which name no unit of their own. */
     private static final Pattern GLUED_MINUTES = Pattern.compile("([0-9]{1,2})(?![\\p{L}0-9])");
     /** The minutes of "1 h 30", only where nothing else can be meant: not "1 h 30 g sira", "1 h 30 °C" or a numbered list after a full stop. */
-    private static final Pattern BARE_MINUTES = Pattern.compile("[ \\t]+([0-5][0-9])(?=[ \\t]*(?:[.,;:!?)](?![0-9])|\\r?\\n|$)|[ \\t]+(?:pri|na|v|do|at|on|over|bei|auf|im)(?!\\p{L}))", FLAGS);
+    private static final Pattern BARE_MINUTES = Pattern.compile("[ \\t]+([0-5][0-9])(?=[ \\t]*(?:[.,;:!?)](?![0-9])|\\r?\\n|$)|[ \\t]+(?:pri|na|v|do(?![ \\t]*[0-9]++[ \\t]*+(?!min))|at|on|over|bei|auf|im)(?!\\p{L}))", FLAGS);
     /** "ob 18 h" and "at 7 h" say when, not how long. */
     private static final Pattern CLOCK_BEFORE = Pattern.compile("(?:^|[^\\p{L}])(?:ob|at|um)[ \\t]+$", FLAGS);
     /** "18.30 h" is half past six in the evening, and "1.30 h" may be a clock's way of writing an hour and a half, or not. */
@@ -182,6 +198,8 @@ final class Durations {
         }
         int first = unit(unit);
         int end = matcher.end();
+        boolean loose = JOINED_LOOSELY.matcher(matcher.group(1)).matches() || matcher.group(2) != null && JOINED_LOOSELY.matcher(matcher.group(2)).matches();
+        if (loose && !ONLY_AFTER_MANY.contains(unit.toLowerCase(Locale.ROOT))) return null;
         if (first == 3600 && CLOCK_TIME.matcher(number).matches()) return null;
         if (first == 3600 && CLOCK_BEFORE.matcher(text.substring(Math.max(0, start - 8), start)).find()) return null;
         if (end < text.length() && Character.isDigit(text.charAt(end)) && !unit.equals("h")) return null;
@@ -195,9 +213,10 @@ final class Durations {
         if (upper == null) {
             Matcher glued = unit.equals("h") ? lookingAt(GLUED_MINUTES, text, end) : null;
             Matcher half = first >= 60 ? lookingAt(AND_A_HALF, text, end) : null;
+            if (first == 60 && half != null && lookingAt(CLAUSE_ENDS, text, half.end()) == null) half = null;
             Matcher second = lookingAt(SECOND_PART, text, end);
             Matcher bare = first == 3600 ? lookingAt(BARE_MINUTES, text, end) : null;
-            boolean ownTime = second != null && (second.group(1) != null || second.group(2) != null) && lookingAt(FROM_THE_END, text, second.end()) != null;
+            boolean ownTime = second != null && (second.group(1) != null && lookingAt(FROM_THE_END, text, second.end()) != null || second.group(1) == null && second.group(2) != null && lookingAt(BEFORE_THE_END, text, second.end()) != null);
             if (glued != null) {
                 seconds += Integer.parseInt(glued.group(1)) * 60;
                 end = glued.end();
@@ -214,6 +233,8 @@ final class Durations {
                 end = bare.end(1);
             }
         }
+        // Past a day only a whole number before a plural counts: "48 ur", not an oven's "180 uro in pol".
+        if (seconds > MAX_SECONDS && (value != Math.floor(value) || !(unit.equalsIgnoreCase("h") || unit.equalsIgnoreCase("hr") || unit.equalsIgnoreCase("std") || ONLY_AFTER_MANY.contains(unit.toLowerCase(Locale.ROOT))))) return null;
         if (seconds > most) return null;
         int total = (int) Math.round(seconds);
         if (total <= 0) return null;

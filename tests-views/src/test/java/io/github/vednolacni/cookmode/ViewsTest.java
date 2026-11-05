@@ -166,6 +166,8 @@ public final class ViewsTest {
     private Strings s;
     private HttpServer server;
     private volatile boolean picturesFail;
+    private volatile java.util.concurrent.CountDownLatch picturesHeld;
+    private final List<String> picturesAsked = Collections.synchronizedList(new ArrayList<String>());
     private String prefix = "";
 
     @Before public void setUp() throws IOException {
@@ -175,12 +177,22 @@ public final class ViewsTest {
         activity.setContentView(content);
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
-            if (picturesFail) {
+            String name = exchange.getRequestURI().getPath().replaceAll("\\D", "");
+            picturesAsked.add(name);
+            boolean fail = picturesFail;
+            java.util.concurrent.CountDownLatch held = picturesHeld;
+            if (held != null) {
+                try {
+                    held.await(30, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException stopping) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            if (fail) {
                 exchange.sendResponseHeaders(500, -1);
                 exchange.close();
                 return;
             }
-            String name = exchange.getRequestURI().getPath().replaceAll("\\D", "");
             byte[] body = picture(name.isEmpty() ? 0 : Integer.parseInt(name));
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream out = exchange.getResponseBody()) {
@@ -695,7 +707,7 @@ public final class ViewsTest {
         Host again = new Host();
         host = again;
         net = new Net();
-        cook = new Cook(new AndroidUi(), clock, net, settings -> kitchen);
+        cook = new Cook(new StillUi(), clock, net, settings -> kitchen);
         cook.start(again, values);
         settle();
         assertNotNull("the card shows what is going on", again.overlays.get(Cook.DOCK));
@@ -888,7 +900,7 @@ public final class ViewsTest {
         Host again = new Host();
         host = again;
         net = new Net();
-        cook = new Cook(new AndroidUi(), clock, net, settings -> kitchen);
+        cook = new Cook(new StillUi(), clock, net, settings -> kitchen);
         cook.start(again, values);
         RecipeSource.SourceException away = new RecipeSource.SourceException(RecipeSource.SourceException.Kind.NETWORK, "Could not reach it");
 
@@ -1055,6 +1067,49 @@ public final class ViewsTest {
     }
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aPictureOnItsWayWhenTheServerComesBackIsAskedForOnceMore() {
+        begin("pictures-way", true, settings("English"));
+        picturesFail = true;
+        picturesHeld = new java.util.concurrent.CountDownLatch(1);
+        open();
+        // The server is back. What was already on its way still fails.
+        picturesFail = false;
+        cook.refresh();
+        idle();
+        settle();
+        picturesHeld.countDown();
+        picturesHeld = null;
+        settle();
+        assertFalse("a picture stayed away", picturesPending(content));
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aPictureAskedForAgainGoesWithWhatIsNew() {
+        begin("pictures-order", true, settings("English"));
+        Images images = new Images();
+        String base = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/";
+        picturesHeld = new java.util.concurrent.CountDownLatch(1);
+        // These two take both threads, and the rest wait in the queue.
+        for (int number : new int[] {101, 102}) images.load(new ImageView(activity), base + number + ".png", Collections.<String, String>emptyMap(), 100);
+        long until = System.currentTimeMillis() + 10_000;
+        while (picturesAsked.isEmpty() && System.currentTimeMillis() < until) Thread.yield();
+        for (int number : new int[] {1, 2, 3}) images.load(new ImageView(activity), base + number + ".png", Collections.<String, String>emptyMap(), 100);
+        images.newest();
+        images.load(new ImageView(activity), base + "4.png", Collections.<String, String>emptyMap(), 100);
+        images.newest();
+        images.load(new ImageView(activity), base + "3.png", Collections.<String, String>emptyMap(), 100);
+        picturesHeld.countDown();
+        picturesHeld = null;
+        until = System.currentTimeMillis() + 10_000;
+        while (picturesAsked.size() < 6 && System.currentTimeMillis() < until) Thread.yield();
+        List<String> asked = new ArrayList<>(picturesAsked);
+        assertTrue(asked.toString(), asked.indexOf("3") < asked.indexOf("2"));
+        assertTrue(asked.toString(), asked.indexOf("4") < asked.indexOf("2"));
+        assertTrue(asked.toString(), asked.indexOf("1") < asked.indexOf("2") + 1);
+        images.close();
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
     public void thePlanMovesOnAtMidnight() {
         begin("midnight", true, settings("English"));
         kitchen.nothingToday = true;
@@ -1070,6 +1125,13 @@ public final class ViewsTest {
 
     // Setting up.
 
+    /** These tests move the wall clock and the main thread's time apart, which on a tablet only setting the clock does. */
+    private static final class StillUi extends AndroidUi {
+        @Override public long elapsed() {
+            return -1;
+        }
+    }
+
     private void begin(String shots, boolean dark, Map<String, Object> values) {
         prefix = shots;
         theme = theme(dark);
@@ -1077,7 +1139,7 @@ public final class ViewsTest {
         net = new Net();
         host = new Host();
         kitchen = new Kitchen("http://127.0.0.1:" + server.getAddress().getPort() + "/picture");
-        cook = new Cook(new AndroidUi(), clock, net, settings -> kitchen);
+        cook = new Cook(new StillUi(), clock, net, settings -> kitchen);
         cook.start(host, values);
         s = Strings.of((String) values.get("language"));
     }

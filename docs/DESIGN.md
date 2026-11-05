@@ -16,7 +16,7 @@ Each row is something cooks run into at the stove, and how the plugin answers it
 | Read it from across the kitchen | One step at a time, the text filling the room the step leaves |
 | Know where you are | Step count, a progress line, the steps around it faded, "Ready around 18:30" |
 | Move with dirty hands | Big fixed Next button, swipes in any direction, gestures and claps through KS |
-| One press that lands twice | Steps move at most once in 350 ms, and a timer chip starts once. For 350 ms nothing takes a touch after a page, a question, the timer sheet or its rows, the strip or the keys have come or gone. Only an alarm coming up takes the very first touch |
+| One press that lands twice | Steps move at most once in 350 ms, and a timer chip starts once. For 350 ms nothing takes a touch after a page, a question, the timer sheet or its rows or the strip have come or gone, or after the keys have gone. Keys coming up start no such wait, and neither does an alarm, which takes the first touch once any wait already running has ended |
 | Enough for four, not two | Servings rescale ingredient amounts and the amounts inside the steps |
 | A number typed into a step | It does not scale, so the step says for how many servings its words were written |
 | Not be surprised at step 3 | Chips before starting: overnight, long waits, the oven's temperature |
@@ -24,12 +24,12 @@ Each row is something cooks run into at the stove, and how the plugin answers it
 | Timers without typing | Durations in the text are chips to tap, plus presets |
 | Several things at once | Up to six timers, named by their step, with pause and plus or minus a minute |
 | Hear the timer | The alarm tone or beeps, on the alarm or media stream, a test button, a warning when the volume is at zero, and each new ring gets its full time of sound |
-| A false clap | A command only silences a ringing timer. It stays on show until a second command or a touch. One more minute is the exception: it starts the timer again for a minute, and it rings again after that |
+| A false clap | A step, read or stop command only silences a ringing timer. It stays on show until a second command or a touch. One more minute starts it again for a minute, and it rings again after that |
 | A little longer | "+1 min" on the alarm, and as a command |
 | Not touch the screen to read | Read-aloud, on request or by itself at each step, with no card over the step |
 | A screen that stays on | The screensaver held back while a recipe is up, an idle limit for a forgotten one |
 | Leave and come back | The place and the timers stay until End cooking, and a small card shows them meanwhile |
-| The kiosk restarts mid-braise | The step and the timers come back from a setting, unless the kiosk stayed off for 12 hours. A timer that ended less than half an hour ago rings, also one that was ringing, and the plugin's page mentions an older one. If the server is not up yet, a card and the first page hold the place, and its recipe is asked for again every minute |
+| The kiosk restarts mid-braise | The step comes back from a setting, unless the kiosk stayed off for about 12 hours, and the timers however long it was off. A timer that ended less than half an hour ago rings, also one that was ringing, and the plugin's page mentions an older one. If the server is not up yet, a card and the first page hold the place, and its recipe is asked for again every minute |
 | Not lose a place by accident | Opening another recipe, or ending one past its first step, asks first, and the first one comes back if the other cannot be read |
 | Close the last page | The meal is ready, so that ends cooking. Only a timer's card stays |
 | Imported recipes with one huge step | Long steps split into paragraphs |
@@ -75,6 +75,7 @@ Worth adding later is in [What comes next](#what-comes-next).
 | Home Assistant turns a state over 255 characters into `unknown` | Text sensors stop at 255 |
 | Before 2026.11.1 a kiosk refuses to announce while it announces, with no way to stop it | The newest text waits and is tried every 1.5 seconds for two minutes, and the plugin's page says if it gives up. From 2026.11.1 the stop action and taking over do the job |
 | Plugin views sit under the screensaver, and plugins cannot pass `hold` to a page | `Awake` reports activity before each deadline, and leaves alone a screensaver that was asked for |
+| A tablet with no battery can start with its clock far behind, and learn the time later | A timer started here also counts on a clock nobody can set, so setting the wall clock does not move it. One from before a restart waits for the clock to be set, and then rings or is only mentioned, by how long ago it ended |
 | Back closes an overlay | The pages have their own back buttons, and reopening returns to the same place. On the last page that ends cooking |
 | Several fast taps anywhere are Kiosk Mode's exit gesture | Plus and minus repeat while held instead of asking for fast taps. Typing on the keys is the one exception, which the README notes |
 | A kiosk may have no keyboard, and one resizes the overlay | The search draws its own keys |
@@ -95,7 +96,7 @@ With nobody touching the tablet for **Let the screen rest after**, the hold ends
 A command comes from a gesture, a clap, a key or Home Assistant, none of which the cook can see land. So:
 
 1. The same command within 700 ms is an echo and is dropped.
-2. While a timer rings, a command only silences it. Another one clears it. A touch on the alarm clears it at once. One more minute is the exception: it starts the timer again for a minute.
+2. While a timer rings, a step, read or stop command only silences it. Another one clears it. A touch on the alarm clears it at once. One more minute starts it again for a minute. The panel commands, Cook today's meal and End cooking do what they say and leave the ring alone.
 3. With the panel closed or under a screensaver, a step command only brings it into view, so nothing moves unseen. Toggle shows it there too, rather than closing what nobody sees.
 4. Next means the obvious thing for the page: today's meal, start cooking, or the next step.
 

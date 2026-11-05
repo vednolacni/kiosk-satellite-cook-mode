@@ -46,11 +46,29 @@ final class Images {
             return Math.max(1, bitmap.getByteCount() / 1024);
         }
     };
-    /** The views waiting for each picture being fetched. Main thread only. */
-    private final Map<String, List<ImageView>> waiting = new HashMap<>();
+    /** Each picture being fetched. Main thread only. */
+    private final Map<String, Job> jobs = new HashMap<>();
     private long batch;
     private long asked;
     private volatile boolean closed;
+
+    /** One picture on its way, and who waits for it. */
+    private static final class Job {
+        final String url;
+        final Map<String, String> headers;
+        final int width;
+        final List<ImageView> views = new ArrayList<>();
+        Fetch fetch;
+        long batch;
+        /** Asked for while on its way, perhaps because the server has just come back. */
+        boolean askedAgain;
+
+        Job(String url, Map<String, String> headers, int width) {
+            this.url = url;
+            this.headers = headers;
+            this.width = width;
+        }
+    }
 
     /** What is asked for from here on goes before everything still waiting. Main thread only. */
     void newest() {
@@ -74,31 +92,47 @@ final class Images {
             return;
         }
         view.setImageDrawable(null);
-        List<ImageView> others = waiting.get(key);
-        if (others != null) {
-            others.add(view);
+        Job job = jobs.get(key);
+        if (job != null) {
+            job.views.add(view);
+            job.askedAgain = true;
+            // Not started yet, so it goes with what is being asked for now.
+            if (job.batch != batch && pool.remove(job.fetch)) start(key, job);
             return;
         }
-        List<ImageView> views = new ArrayList<>();
-        views.add(view);
-        waiting.put(key, views);
+        job = new Job(url, headers, width);
+        job.views.add(view);
+        jobs.put(key, job);
+        start(key, job);
+    }
+
+    private void start(String key, Job job) {
+        job.batch = batch;
+        job.fetch = new Fetch(batch, asked++, () -> {
+            Bitmap bitmap = fetch(job.url, job.headers, job.width);
+            if (closed) return;
+            if (bitmap != null) cache.put(key, bitmap);
+            main.post(() -> Parts.guard(() -> finished(key, job, bitmap)));
+        });
         try {
-            pool.execute(new Fetch(batch, asked++, () -> {
-                Bitmap bitmap = fetch(url, headers, width);
-                if (closed) return;
-                if (bitmap != null) cache.put(key, bitmap);
-                main.post(() -> Parts.guard(() -> finished(key, url, bitmap)));
-            }));
+            pool.execute(job.fetch);
         } catch (RejectedExecutionException shutDown) {
             // The plugin is stopping.
-            waiting.remove(key);
+            jobs.remove(key);
         }
     }
 
-    private void finished(String key, String url, Bitmap bitmap) {
-        List<ImageView> views = waiting.remove(key);
-        if (views == null || bitmap == null) return;
-        for (ImageView view : views) if (url.equals(view.getTag())) view.setImageBitmap(bitmap);
+    private void finished(String key, Job job, Bitmap bitmap) {
+        if (jobs.get(key) != job) return;
+        if (bitmap == null && job.askedAgain) {
+            // This try may be from before the server came back. Once more, and not for ever.
+            job.askedAgain = false;
+            start(key, job);
+            return;
+        }
+        jobs.remove(key);
+        if (bitmap == null) return;
+        for (ImageView view : job.views) if (job.url.equals(view.getTag())) view.setImageBitmap(bitmap);
     }
 
     /** Stop fetching and drop the cache. */
@@ -107,7 +141,7 @@ final class Images {
         pool.shutdownNow();
         http.cancelAll();
         cache.evictAll();
-        waiting.clear();
+        jobs.clear();
     }
 
     private Bitmap fetch(String url, Map<String, String> headers, int width) {
