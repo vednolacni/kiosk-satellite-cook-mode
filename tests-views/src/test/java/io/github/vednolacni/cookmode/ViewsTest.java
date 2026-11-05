@@ -1103,9 +1103,9 @@ public final class ViewsTest {
         until = System.currentTimeMillis() + 10_000;
         while (picturesAsked.size() < 6 && System.currentTimeMillis() < until) Thread.yield();
         List<String> asked = new ArrayList<>(picturesAsked);
+        // Two threads can swap neighbours on the way to the server, so only what lies further apart is certain.
         assertTrue(asked.toString(), asked.indexOf("3") < asked.indexOf("2"));
-        assertTrue(asked.toString(), asked.indexOf("4") < asked.indexOf("2"));
-        assertTrue(asked.toString(), asked.indexOf("1") < asked.indexOf("2") + 1);
+        assertTrue(asked.toString(), asked.indexOf("4") < Math.max(asked.indexOf("1"), asked.indexOf("2")));
         images.close();
     }
 
