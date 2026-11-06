@@ -1402,9 +1402,13 @@ final class Cook implements Ui.Actions {
     /** Setting the tablet's clock moves no timer, and shows that one from before a restart ended long ago. */
     private void followClock() {
         int late = timers.steady(clock.millis(), ui.elapsed(), LATE_RING_MS);
-        if (late == 0) return;
-        missedTimers += late;
-        report();
+        // A moved end must be saved now: a restart before the next save would read the end from before the clock was set.
+        boolean moved = timers.takeMoved();
+        if (late == 0 && !moved) return;
+        if (late > 0) {
+            missedTimers += late;
+            report();
+        }
         timersChanged();
     }
 

@@ -42,6 +42,8 @@ final class Timers {
     static final int MAX = 6;
     /** How far the wall clock must stray from the steady one to count as set. Android itself leaves smaller corrections alone. */
     private static final long CLOCK_SET_MS = 5_000L;
+    /** 2026-11-01. No clock that was ever set reads earlier than this plugin, so an end before it was taken on a clock at its floor. */
+    static final long SET_CLOCKS_FROM = 1_793_491_200_000L;
 
     private static final class Entry {
         final int id;
@@ -72,6 +74,8 @@ final class Timers {
 
     private final List<Entry> entries = new ArrayList<>();
     private int nextId = 1;
+    /** A timer was moved onto the steady clock since this was last asked, so what is saved is out of date. */
+    private boolean moved;
 
     /** Start a timer and return its id, or 0 when MAX timers already exist. */
     int start(String label, int seconds, String recipe, int step, long now) {
@@ -116,8 +120,11 @@ final class Timers {
             }
             long bySteady = entry.steadyEnd - elapsed;
             if (Math.abs(byWall - bySteady) < CLOCK_SET_MS) continue;
-            if (!entry.restored) {
+            // An end from before a restart that was taken on a clock at its floor says nothing on a clock that is right.
+            if (!entry.restored || entry.endsAt < SET_CLOCKS_FROM) {
                 entry.endsAt = now + bySteady;
+                entry.restored = false;
+                moved = true;
                 continue;
             }
             entry.restored = false;
@@ -128,6 +135,13 @@ final class Timers {
             }
         }
         return gone;
+    }
+
+    /** Whether steady moved a timer since the last time this was asked. */
+    boolean takeMoved() {
+        boolean was = moved;
+        moved = false;
+        return was;
     }
 
     boolean pause(int id, long now) {

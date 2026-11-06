@@ -1768,6 +1768,58 @@ public final class CookTest {
         ui.run(Cook.DUE_CHECK_MS);
         assert ui.alarm;
 
+        // Moved by the set, it is saved at once, so a restart right after it finds the right end.
+        fresh(settings());
+        net.runAll();
+        right = clock.now;
+        ui.elapsed = 5_000;
+        clock.now = right.minusSeconds(year);
+        cook.startTimer("Braise", 2 * 3600);
+        ui.run(Cook.SAVE_AFTER_MS);
+        ui.elapsed += 120_000;
+        clock.now = right.plusSeconds(120);
+        assert cook.timers().get(0).left == 2 * 3600 - 120;
+        ui.run(Cook.SAVE_AFTER_MS);
+        values = settings();
+        values.put("resumeState", host.saved.get("resumeState"));
+        cook.stop();
+        again = new Host();
+        againUi = new FakeUi();
+        againUi.elapsed = 1_000;
+        againCook = new Cook(againUi, clock, new Net(), settings -> source);
+        againCook.start(again, values);
+        assert againCook.timers().size() == 1 && againCook.timers().get(0).left == 2 * 3600 - 120 : againCook.timers();
+        againCook.stop();
+
+        // Started on a clock at its floor and restored before the set: it counts what it had, and is not taken for one that ended long ago.
+        fresh(settings());
+        net.runAll();
+        right = clock.now;
+        ui.elapsed = 5_000;
+        clock.now = right.minusSeconds(year);
+        cook.startTimer("Pasta", 600);
+        ui.run(Cook.SAVE_AFTER_MS);
+        values = settings();
+        values.put("resumeState", host.saved.get("resumeState"));
+        cook.stop();
+        clock.now = clock.now.plusSeconds(60);
+        again = new Host();
+        againUi = new FakeUi();
+        againUi.elapsed = 1_000;
+        againCook = new Cook(againUi, clock, new Net(), settings -> source);
+        againCook.start(again, values);
+        assert againCook.timers().get(0).left == 540;
+        againUi.elapsed += 60_000;
+        clock.now = right.plusSeconds(120);
+        againUi.run(Cook.DUE_CHECK_MS);
+        assert againCook.timers().size() == 1 && againCook.timers().get(0).left == 480 && !againUi.alarm : againCook.timers();
+        assert !again.status.contains("ended long ago") : again.status;
+        againUi.elapsed += 480_000;
+        clock.now = clock.now.plusSeconds(480);
+        againUi.run(Cook.DUE_CHECK_MS);
+        assert againUi.alarm && again.triggers.contains("timerDone");
+        againCook.stop();
+
         // A tablet that was asleep has lost no time on either clock: what ended meanwhile rings when it wakes, however late.
         fresh(settings());
         net.runAll();
