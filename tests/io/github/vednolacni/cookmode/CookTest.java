@@ -238,7 +238,44 @@ public final class CookTest {
         readingBusy();
         clockBehind();
         longRest();
+        norish();
         System.out.println("CookTest passed");
+    }
+
+    static void norish() {
+        // Norish: the panel names it, nothing offers to record a meal, and a key that asked too much waits.
+        Map<String, Object> values = settings();
+        values.put("recipeApp", "Norish");
+        values.put("markCooked", "Always");
+        fresh(values);
+        net.runAll();
+        cook.execute("openCookMode");
+        net.runAll();
+        assert "Open in Norish".equals(ui.model.strings.openInApp) && "Newest".equals(ui.model.strings.recent);
+        source.fail = new RecipeSource.SourceException(RecipeSource.SourceException.Kind.LIMIT, "Norish asks to wait 31 minutes.");
+        cook.refresh();
+        net.runAll();
+        assert ui.model.strings.problemLimit.equals(ui.model.banner) && host.statusError && "Norish asks to wait 31 minutes.".equals(host.status) : ui.model.banner;
+        source.fail = null;
+        cook.refresh();
+        net.runAll();
+        assert ui.model.banner == null && !host.statusError;
+        cook.openRecipe(new RecipeSource.Summary("7", "Pancakes", "", 30));
+        net.runAll();
+        cook.startCooking();
+        cook.next();
+        cook.next();
+        net.runAll();
+        assert ui.model.page == Model.Page.FINISH && !ui.model.canLogCooked && !ui.model.logged;
+        for (String call : source.calls) assert !call.startsWith("cooked") && !call.startsWith("viewed") : call;
+        // Tandoor at the same address is another server, where the recipe in hand means nothing.
+        Map<String, Object> tandoor = new LinkedHashMap<>(values);
+        tandoor.put("recipeApp", "Tandoor");
+        cook.configure(tandoor);
+        net.runAll();
+        assert ui.model.page == Model.Page.HOME && ui.model.recipe == null && !cook.cooking() && "Open in Tandoor".equals(ui.model.strings.openInApp);
+        assert host.triggers.contains("cookingFinished");
+        cook.close();
     }
 
     static void startAndHome() {

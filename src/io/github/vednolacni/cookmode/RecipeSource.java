@@ -9,16 +9,17 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * A recipe app the plugin can cook from. Tandoor ships first. Mealie, Norish, KitchenOwl and Grocy fit the same
- * shape: see docs/DESIGN.md for how each maps. Every method blocks on the network, so the plugin calls them only on
- * its own network thread, and each throws SourceException with a message fit for the user.
+ * A recipe app the plugin can cook from: Tandoor and Norish. Mealie, KitchenOwl and Grocy fit the same shape: see
+ * docs/DESIGN.md for how each maps. Every method blocks on the network, so the plugin calls them only on its own
+ * network thread, and each throws SourceException with a message fit for the user.
  */
 interface RecipeSource {
     /** Why a call failed, with a message the plugin can show as it is. */
     final class SourceException extends Exception {
         private static final long serialVersionUID = 1L;
 
-        enum Kind { AUTH, READ_ONLY, HOST, NOT_API, NOT_FOUND, PRIVATE, NETWORK, LOCAL_NAME, TLS, SERVER, PARSE, UNSUPPORTED }
+        /** LIMIT: the app has had too many requests with this key for now, and the source sends none until it may. */
+        enum Kind { AUTH, READ_ONLY, HOST, NOT_API, NOT_FOUND, PRIVATE, NETWORK, LOCAL_NAME, TLS, SERVER, PARSE, UNSUPPORTED, LIMIT }
 
         final Kind kind;
 
@@ -119,10 +120,16 @@ interface RecipeSource {
         }
     }
 
-    /** How the recipe list is ordered. */
+    /** The source for the app the settings name. */
+    static RecipeSource of(Settings settings) {
+        if (settings.app == Settings.App.NORISH) return new NorishSource(settings.serverUrl, settings.apiToken, new Http());
+        return new TandoorSource(settings.serverUrl, settings.apiToken, new Http());
+    }
+
+    /** How the recipe list is ordered. RECENT is what the app knows as recent: viewed in Tandoor, added in Norish. */
     enum Order { NAME, RECENT }
 
-    /** Check the address and the token. Returns what Test connection reports, such as "Tandoor 2.7.2, 140 recipes". */
+    /** Check the address and the token. Returns what Test connection reports, such as "Connected to Tandoor 2.7.2, 140 recipes." */
     String probe() throws SourceException;
 
     /** The meals planned from first to last, both included, in date and slot order. */

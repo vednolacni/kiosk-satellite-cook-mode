@@ -33,7 +33,7 @@ Each row is something cooks run into at the stove, and how the plugin answers it
 | Not lose a place by accident | Opening another recipe, or ending one past its first step, asks first, and the first one comes back if the other cannot be read |
 | Close the last page | The meal is ready, so that ends cooking. Only a timer's card stays |
 | Imported recipes with one huge step | Long steps split into paragraphs |
-| Record what was cooked | The cook log, asked, always or never |
+| Record what was cooked | Tandoor's cook log, asked, always or never. Norish keeps none |
 
 Worth adding later is in [What comes next](#what-comes-next).
 
@@ -51,13 +51,14 @@ Worth adding later is in [What comes next](#what-comes-next).
         |              |                 |
         v              v                 v
    Timers, Awake,   Ui: AndroidUi,    RecipeSource:
-   Pages, StepText  CookView, screens TandoorSource
+   Pages, StepText  CookView, screens TandoorSource,
+                                      NorishSource
 ```
 
 - **`Cook`** owns all state. Every way in holds its lock, and nothing holds it across a network call. Answers carry a generation number, so a late answer to an old question is dropped.
 - **`Model`** is what the views show, worked out by the controller, so the views only lay it out.
 - **`Screen`** classes stay while their page does and change in place. Rebuilding under a finger would swallow its tap, so only the words change when a step does, and a held plus button keeps working. The first page stays across visits, so coming back is instant and the lists are where they were. More of the same recipes only adds rows, and an answer with nothing new changes nothing.
-- **`RecipeSource`** is the only thing that knows a recipe app. Everything past it uses `Recipe`, `Planned` and `Summary`.
+- **`RecipeSource`** is the only thing that knows a recipe app. Everything past it uses `Recipe`, `Planned` and `Summary`. A recipe's ingredients sit in its steps, as Tandoor keeps them, or in a list of its own, as Norish does, whose steps then hold their share of its lines. `Strings` names the chosen app in what the views say.
 - **`Snapshot`** is what a restart must not lose, in one setting of at most 512 characters. Labels shorten, then the furthest timers go. It names its device, because fleet sync can copy it to another kiosk. It is a `secret` setting, because a plain one would count as a change to a synced plugin at every step. That holds unless a profile includes Plugin secrets, where the leader's value also replaces a follower's. It is written again every half hour while a recipe is being cooked, so its time says when the kiosk was last up, not when a step last changed.
 - Everything except the views runs on a plain JVM, so most tests need no device. `tools/test.py` still needs an installed Android platform to compile against. The views have their own tests under Robolectric.
 
@@ -111,24 +112,39 @@ A command comes from a gesture, a clap, a key or Home Assistant, none of which t
 - `/media/` is public. `GET /api/server-settings/current/` is public and tells the version from 2.0.
 - A step's time is in minutes, a header ingredient has its text in `note`, and `step_recipe_data` holds a sub-recipe. A step with nothing else than that is no page of its own, as on Tandoor's own page.
 
+### Norish, as verified in its source
+
+Read at 0.26.1-beta, with 0.26.0 and 0.25.1 where they differ, to learn the contract only. No Norish code is in the plugin.
+
+- `x-api-key: <key>`, 64 letters. A shorter one counts as no key. Its docs also name `Authorization: Bearer`, which 0.26.1 reads as no key, so it is never sent. A key is its user, with no scopes: it can also change recipes, and an admin's key reaches the admin routes.
+- Errors are JSON, `{message, code, data: {httpStatus, path}}`. A 401 means no key or a bad one, and also a database or cache that failed during the check, so a 401 asks `/api/v1/health/ready` without the key, and a 503 there is the server's trouble, not the key's. A 404 with `data.path` is a recipe that is gone or that the key's user may not see, which Norish does not tell apart. A 404 without it is a path Norish does not have. Anything not JSON came from something in front of it. The JDK leaves out the body of a refused POST, so an empty 401 or 429 counts as Norish's own.
+- 500 counted requests per key in a fixed hour from the first one, pictures included. Over it a 429 with `Retry-After`, and the source sends nothing with that key until it has passed. Pictures over the limit answer 404, like a wrong key.
+- `/api/v1/health/ready` from 0.26 and `/api/v1/health` in 0.25, with `versions.root`, take no key and are never sent one. A key sent there would be checked and counted.
+- `GET /api/v1/planned-recipes/week?include=notes` and `/month?include=notes`: Monday to Sunday and the calendar month in the server's time zone, UTC unless the admin sets `TZ`. There is no other range, so both are read and each meal goes by its own date. Days past the later of the two ends are missing, not empty. Notes, `itemType` and `title` come from 0.26.1, and an item without a type is a recipe. A plan entry has no servings, time or colour of its own, and the slots are Breakfast, Lunch, Dinner and Snack, which `Strings` translates.
+- `POST /api/v1/recipes/search {cursor, limit, search, sortMode}`. The cursor is an offset, and `nextCursor` is null on the last page. Words match as prefixes joined by OR, lowercased but not folded, so `ricet` does not find Ričet. The list is `titleAsc`, and recent is `dateDesc`, the newest added, since Norish records no views.
+- `GET /api/v1/recipes/{uuid}`, with the id checked against Norish's UUID rule first. Both measuring systems arrive at once, and only the recipe's own `systemUsed` shows. The ingredient list belongs to the recipe, a line starting with `#` is a heading, `amount` is a number or null, and `unit` is an id such as `tablespoon`, or the text as typed. Steps are Markdown, a step starting with `#` is a heading that titles the steps after it, and `stepIngredients` name a line by its `order` in the same system, with the `share` of it the step uses. All of a line is the line itself, so ticking it in a step ticks it in the list. Prep and cook are the work, and the rest of the total is the wait.
+- Norish has no Slovenian, so `Units` names its 68 unit ids in English and Slovenian, with Slovenian's count forms. An id it does not know shows as Norish sent it.
+- Pictures are paths under the server's address, base path included, served by the web app, which wants the key too. Without one it redirects to its login page. Their names come from their content, so an address never changes what it shows.
+- No cook log and no view log. `/recipes/{id}` is the recipe's page, and paths take no trailing slash, unlike Tandoor's.
+
 ## Other recipe apps
 
-A new app is one class implementing `RecipeSource`, one more choice in the settings and a test against its answers. Nothing else changes. What each offers, read from their API documentation and source:
+A new app is one class implementing `RecipeSource`, one more choice in the settings and a test against its answers. Nothing else changes. What the others offer, read from their API documentation and source:
 
-| | Mealie | Norish | KitchenOwl | Grocy |
-| --- | --- | --- | --- | --- |
-| **Auth** | `Bearer` token | `x-api-key` | `Bearer` token | `GROCY-API-KEY` |
-| **Meal plan** | `/api/households/mealplans?start_date&end_date&perPage=-1` | `/api/v1/planned-recipes/{today\|week\|month}` | `/api/household/{hid}/planner` | `/api/objects/meal_plan` |
-| **Recipes** | `/api/recipes` | `POST /api/v1/recipes/search` | Per household | `/api/objects/recipes` |
-| **A recipe** | `/api/recipes/{slugOrId}` | `/api/v1/recipes/{uuid}` | `/api/recipe/{id}` | `/api/objects/recipes/{id}` |
-| **Steps** | `recipeInstructions`, each with text | Steps | One Markdown description | One HTML description |
-| **Step format** | `MARKDOWN` | `MARKDOWN` | `MARKDOWN`, split by `Pages` | `PLAIN` after stripping tags, split by `Pages` |
-| **Scaling** | `recipeScale` and ingredient quantities | Servings and quantities | Yields | Desired servings |
-| **Step times** | None, so timers come from the words | Check | None | None |
-| **Pictures** | Public: `/api/media/recipes/{id}/images/original.webp` | Need the key, so `imageHeaders` sends it | Check | Need the key |
-| **Recording cooked** | Timeline events and last made | None: `cooked` throws `UNSUPPORTED` and the button hides | None | `consume` affects stock, so opt-in only |
+| | Mealie | KitchenOwl | Grocy |
+| --- | --- | --- | --- |
+| **Auth** | `Bearer` token | `Bearer` token | `GROCY-API-KEY` |
+| **Meal plan** | `/api/households/mealplans?start_date&end_date&perPage=-1` | `/api/household/{hid}/planner` | `/api/objects/meal_plan` |
+| **Recipes** | `/api/recipes` | Per household | `/api/objects/recipes` |
+| **A recipe** | `/api/recipes/{slugOrId}` | `/api/recipe/{id}` | `/api/objects/recipes/{id}` |
+| **Steps** | `recipeInstructions`, each with text | One Markdown description | One HTML description |
+| **Step format** | `MARKDOWN` | `MARKDOWN`, split by `Pages` | `PLAIN` after stripping tags, split by `Pages` |
+| **Scaling** | `recipeScale` and ingredient quantities | Yields | Desired servings |
+| **Step times** | None, so timers come from the words | None | None |
+| **Pictures** | Public: `/api/media/recipes/{id}/images/original.webp` | Check | Need the key |
+| **Recording cooked** | Timeline events and last made | None | `consume` affects stock, so opt-in only |
 
-Norish has rate limits, so its adapter should cache more. Grocy's `consume` changes stock, which goes further than a cook log and needs its own setting.
+Grocy's `consume` changes stock, which goes further than a cook log and needs its own setting.
 
 ## What comes next
 
@@ -151,10 +167,11 @@ Roughly in order of how much they would help.
 5. **Smarter choice of today's meal.** By the meal type's name when it has no time, and leading with tomorrow in the evening, so there is time to thaw or soak.
 6. **Pages instead of a scrolling grid**, if scrolling proves slow on a weak panel: six big cards and arrows, which also suits wet hands.
 7. **Bluetooth page turners** through `device.key`.
-8. **Mealie**, as the second source.
-9. **Opening today's recipes before they are asked for**, so they open at once and survive Wi-Fi dropping.
-10. **A shopping list** from a recipe or the week's plan, to Tandoor's list and Home Assistant's `todo`.
-11. **Pictures in steps.** Tandoor steps can carry their own file.
-12. **Sub-recipes** as their own section, instead of only their ingredients.
-13. **Timers through Kiosk Satellite**, if it ever exposes them, so voice timers and these share one list.
-14. **Requests upstream:** a session-scoped screensaver hold for plugins, an event when a link page closes, documented keyboard behavior in overlays, and a sound and speech API, so the plugin need not bring its own.
+8. **Mealie**, as the third source.
+9. **Pictures kept on the tablet.** Norish counts every picture against a key's 500 requests an hour, and its picture addresses never change what they show, so a cache on the tablet would make each one cost a request only once.
+10. **Opening today's recipes before they are asked for**, so they open at once and survive Wi-Fi dropping.
+11. **A shopping list** from a recipe or the week's plan, to the app's own list and Home Assistant's `todo`.
+12. **Pictures in steps.** Tandoor and Norish steps can carry their own.
+13. **Sub-recipes** as their own section, instead of only their ingredients. Norish links another recipe from a step's words.
+14. **Timers through Kiosk Satellite**, if it ever exposes them, so voice timers and these share one list.
+15. **Requests upstream:** a session-scoped screensaver hold for plugins, an event when a link page closes, documented keyboard behavior in overlays, and a sound and speech API, so the plugin need not bring its own.

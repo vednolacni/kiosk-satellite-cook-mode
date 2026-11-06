@@ -25,7 +25,7 @@ import me.jxl.kiosk.plugins.PluginHost;
  * network call.
  */
 final class Cook implements Ui.Actions {
-    /** Makes the source for the settings. Only Tandoor today. */
+    /** Makes the source for the settings' app. */
     interface Sources {
         RecipeSource create(Settings settings);
     }
@@ -349,7 +349,7 @@ final class Cook implements Ui.Actions {
     synchronized void configure(Map<String, Object> values) {
         Settings previous = settings;
         settings = new Settings(values);
-        strings = Strings.of(settings.language);
+        strings = Strings.of(settings.language, settings.app);
         if (host == null) return;
         ui.sound(settings.tone, settings.mediaStream, settings.ringMinutes);
         if (previous != null && !settings.kioskNode.equals(previous.kioskNode)) assistantNode = "";
@@ -371,7 +371,7 @@ final class Cook implements Ui.Actions {
             // What is on its way came through the connection just closed, which is no failure of anything.
             recipeGeneration++;
             recipeLoading = false;
-            if (previous != null && !settings.serverUrl.equals(previous.serverUrl)) {
+            if (previous != null && settings.otherServer(previous)) {
                 // The recipe in hand means nothing on another server.
                 endSession();
                 page = Model.Page.HOME;
@@ -636,6 +636,7 @@ final class Cook implements Ui.Actions {
             case NOT_API: banner = strings.problemNotApi; break;
             case LOCAL_NAME: banner = strings.problemLocalName; break;
             case TLS: banner = strings.problemTls; break;
+            case LIMIT: banner = strings.problemLimit; break;
             default: banner = strings.problemOther;
         }
     }
@@ -908,7 +909,7 @@ final class Cook implements Ui.Actions {
                 }
                 changed();
             }
-            // Tandoor's recently viewed list. A read-only token cannot, which costs nothing here.
+            // The app's recently viewed list, where it keeps one. A read-only token cannot, which costs nothing here.
             if (read != null && tell) {
                 try {
                     current.viewed(id);
@@ -1803,7 +1804,7 @@ final class Cook implements Ui.Actions {
         for (RecipeSource.Planned meal : plan) {
             if (!meal.date.equals(today)) continue;
             if (meals.length() > 0) meals.append("; ");
-            if (!meal.slot.isEmpty()) meals.append(meal.slot).append(": ");
+            if (!meal.slot.isEmpty()) meals.append(strings.slot(meal.slot)).append(": ");
             meals.append(meal.title);
         }
         if (differs("today_meals", meals.toString())) host.publishTextSensor("today_meals", "Today's meals", clip(meals.toString()));

@@ -307,7 +307,7 @@ final class HomeScreen implements Screen {
         boolean first = true;
         for (Model.Day day : model.days) {
             plan.addView(parts.text(day.label, first ? 18 : 15, 700, first ? "primary" : "onSurfaceVariant", 1), parts.wide(first ? 12 : 22));
-            for (RecipeSource.Planned meal : day.meals) plan.addView(mealRow(meal, first), parts.wide(first ? 10 : 6));
+            for (RecipeSource.Planned meal : day.meals) plan.addView(mealRow(meal, first, model.strings), parts.wide(first ? 10 : 6));
             if (first && day.meals.isEmpty()) {
                 String empty = model.planLoading ? model.strings.loading : model.strings.nothingToday;
                 plan.addView(parts.text(empty, 16, 400, "onSurfaceVariant", 0), parts.wide(8));
@@ -339,7 +339,7 @@ final class HomeScreen implements Screen {
         return card;
     }
 
-    private View mealRow(RecipeSource.Planned meal, boolean today) {
+    private View mealRow(RecipeSource.Planned meal, boolean today, Strings strings) {
         LinearLayout row = parts.row();
         row.setBackground(parts.ripple(parts.theme().color("surfaceContainerHigh"), parts.theme().radiusRow()));
         row.setPadding(parts.px(10), parts.px(10), parts.px(14), parts.px(10));
@@ -355,7 +355,7 @@ final class HomeScreen implements Screen {
         }
         LinearLayout words = parts.column();
         if (!meal.slot.isEmpty()) {
-            TextView slot = parts.text(meal.slot, 13, 600, "onSurfaceVariant", 1);
+            TextView slot = parts.text(strings.slot(meal.slot), 13, 600, "onSurfaceVariant", 1);
             if (meal.color != 0) slot.setTextColor(meal.color);
             words.addView(slot, parts.wide());
         }

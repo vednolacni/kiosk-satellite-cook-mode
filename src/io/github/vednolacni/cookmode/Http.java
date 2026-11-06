@@ -9,6 +9,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,10 +35,17 @@ final class Http {
     static final class Response {
         final int status;
         final byte[] body;
+        /** The answer's headers by lower-case name, each with its first value. */
+        private final Map<String, String> headers;
 
         Response(int status, byte[] body) {
+            this(status, body, Collections.<String, String>emptyMap());
+        }
+
+        Response(int status, byte[] body, Map<String, String> headers) {
             this.status = status;
             this.body = body;
+            this.headers = headers;
         }
 
         boolean ok() {
@@ -44,6 +54,12 @@ final class Http {
 
         String text() {
             return new String(body, StandardCharsets.UTF_8);
+        }
+
+        /** A header's value, or an empty string. */
+        String header(String name) {
+            String value = headers.get(name.toLowerCase(Locale.ROOT));
+            return value == null ? "" : value;
         }
     }
 
@@ -85,8 +101,15 @@ final class Http {
                     target = next;
                     continue;
                 }
+                Map<String, String> answered = new HashMap<>();
+                for (Map.Entry<String, List<String>> field : connection.getHeaderFields().entrySet()) {
+                    // The status line comes under a null name.
+                    if (field.getKey() == null || field.getValue() == null || field.getValue().isEmpty()) continue;
+                    String name = field.getKey().toLowerCase(Locale.ROOT);
+                    if (!answered.containsKey(name)) answered.put(name, field.getValue().get(0));
+                }
                 InputStream in = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-                return new Response(status, in == null ? new byte[0] : read(in, limit));
+                return new Response(status, in == null ? new byte[0] : read(in, limit), answered);
             } finally {
                 open.remove(connection);
                 connection.disconnect();

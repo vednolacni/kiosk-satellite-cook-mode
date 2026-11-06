@@ -28,7 +28,7 @@ public final class CookModePlugin implements KioskPlugin {
             thread.setDaemon(true);
             return thread;
         });
-        cook = new Cook(new AndroidUi(), Clock.systemDefaultZone(), net, values -> new TandoorSource(values.serverUrl, values.apiToken, new Http()));
+        cook = new Cook(new AndroidUi(), Clock.systemDefaultZone(), net, RecipeSource::of);
         cook.start(host, settings);
     }
 

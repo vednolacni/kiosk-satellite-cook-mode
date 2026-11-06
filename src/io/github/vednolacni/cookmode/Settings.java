@@ -7,6 +7,16 @@ import java.util.Map;
 
 /** The validated settings KS passes to start and configure, read once into plain fields. */
 final class Settings {
+    /** The recipe app, with its name as the views say it. */
+    enum App {
+        TANDOOR("Tandoor"), NORISH("Norish");
+
+        final String title;
+
+        App(String title) {
+            this.title = title;
+        }
+    }
     enum Voice { OFF, TABLET, HOME_ASSISTANT }
     enum MarkCooked { ASK, ALWAYS, NEVER }
     enum Tone { ALARM, BEEPS, SILENT }
@@ -14,6 +24,7 @@ final class Settings {
     private static final String KS_ACCENTS = "àáâãäåèéêëìíîïòóôõöùúûüñçýÿ";
     private static final String KS_PLAIN = "aaaaaaeeeeiiiiooooouuuuncyy";
 
+    final App app;
     final String serverUrl;
     final String apiToken;
     final int planDays;
@@ -40,7 +51,8 @@ final class Settings {
     final String dockCorner;
 
     Settings(Map<String, Object> values) {
-        serverUrl = TandoorSource.normalize(text(values.get("serverUrl")));
+        app = "Norish".equals(text(values.get("recipeApp"))) ? App.NORISH : App.TANDOOR;
+        serverUrl = app == App.NORISH ? NorishSource.normalize(text(values.get("serverUrl"))) : TandoorSource.normalize(text(values.get("serverUrl")));
         // A line break pasted along with it would fail in the request's header, with the token in the error's words.
         String token = text(values.get("apiToken")).replaceAll("\\p{Cntrl}", "");
         apiToken = token.regionMatches(true, 0, "Bearer ", 0, 7) ? token.substring(7).trim() : token;
@@ -66,7 +78,9 @@ final class Settings {
         }
         kioskNode = node(text(values.get("kioskNode")));
         autoRead = Boolean.TRUE.equals(values.get("autoRead"));
-        switch (text(values.get("markCooked"))) {
+        // Norish keeps no cook log, so nothing asks to record one.
+        String mark = app == App.NORISH ? "Never" : text(values.get("markCooked"));
+        switch (mark) {
             case "Always": markCooked = MarkCooked.ALWAYS; break;
             case "Never": markCooked = MarkCooked.NEVER; break;
             default: markCooked = MarkCooked.ASK;
@@ -99,15 +113,21 @@ final class Settings {
 
     /** What keeps the plugin from working, for its status, or null when nothing does. */
     String problem() {
-        if (serverUrl.isEmpty()) return "Set the Tandoor address under Recipe server.";
-        if (!serverUrl.startsWith("http://") && !serverUrl.startsWith("https://")) return "The Tandoor address must start with http:// or https://.";
+        if (serverUrl.isEmpty()) return "Set the " + app.title + " address under Recipe server.";
+        if (!serverUrl.startsWith("http://") && !serverUrl.startsWith("https://")) return "The " + app.title + " address must start with http:// or https://.";
+        if (apiToken.isEmpty() && app == App.NORISH) return "Set the API key under Recipe server. Create it in Norish under Settings > User > API keys.";
         if (apiToken.isEmpty()) return "Set the API token under Recipe server. Create it in Tandoor under Settings > API with the scope \"read write\".";
         return null;
     }
 
-    /** Whether the same server and token, so what was read still holds. */
+    /** Whether the same app, server and token, so what was read still holds. */
     boolean sameServer(Settings other) {
-        return other != null && serverUrl.equals(other.serverUrl) && apiToken.equals(other.apiToken);
+        return other != null && app == other.app && serverUrl.equals(other.serverUrl) && apiToken.equals(other.apiToken);
+    }
+
+    /** Whether another app or address, where the recipe in hand means nothing. */
+    boolean otherServer(Settings other) {
+        return other == null || app != other.app || !serverUrl.equals(other.serverUrl);
     }
 
     /** A node as it may be typed: ks-kitchen, ks_kitchen or the whole action esphome.ks_kitchen_announce. */

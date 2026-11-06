@@ -25,8 +25,14 @@ final class Recipe {
         final String note;
         /** The line as the recipe first had it, shown when there is no food name. */
         final String raw;
+        /** A unit an app keeps as an id, such as Norish's tablespoon, which Units names in the view's language. Empty otherwise. */
+        final String unitKey;
 
         Ingredient(boolean header, double amount, String unit, String unitPlural, String food, String foodPlural, String note, String raw) {
+            this(header, amount, unit, unitPlural, food, foodPlural, note, raw, "");
+        }
+
+        Ingredient(boolean header, double amount, String unit, String unitPlural, String food, String foodPlural, String note, String raw, String unitKey) {
             this.header = header;
             this.amount = amount;
             this.unit = unit;
@@ -35,6 +41,7 @@ final class Recipe {
             this.foodPlural = foodPlural;
             this.note = note;
             this.raw = raw;
+            this.unitKey = unitKey;
         }
 
         static Ingredient header(String title) {
@@ -50,9 +57,18 @@ final class Recipe {
             return hasAmount() ? Amounts.format(amount * factor, decimalComma) : "";
         }
 
-        /** The amount and its unit for these servings, such as 200 g, or an empty string. */
+        /**
+         * The amount and its unit for these servings, such as 200 g, or an empty string. A unit kept as an id is named in
+         * Slovenian where amounts take a decimal comma, since only Slovenian does here. Words such as "to taste" stand
+         * without an amount.
+         */
         String measure(double factor, boolean decimalComma) {
             String amount = amountText(factor, decimalComma);
+            if (!unitKey.isEmpty()) {
+                String words = Units.words(unitKey, decimalComma);
+                if (!words.isEmpty()) return amount.isEmpty() ? words : amount + " " + words;
+                return amount.isEmpty() ? "" : amount + " " + Units.name(unitKey, this.amount * factor, amount, decimalComma);
+            }
             if (amount.isEmpty()) return "";
             String unitName = plural(factor) && !unitPlural.isEmpty() ? unitPlural : unit;
             return unitName.isEmpty() ? amount : amount + " " + unitName;
@@ -82,10 +98,11 @@ final class Recipe {
             return sameUnit ? rest.substring(word.length()).trim() : rest;
         }
 
-        /** The whole line: "200 g flour, sifted". */
+        /** The whole line: "200 g flour, sifted", or "salt, to taste" when words stand for the amount. */
         String line(double factor, boolean decimalComma) {
             String measure = measure(factor, decimalComma);
             String name = name(factor);
+            if (!hasAmount() && !measure.isEmpty()) return name.isEmpty() ? measure : name + ", " + measure;
             return measure.isEmpty() ? name : measure + " " + name;
         }
 
@@ -131,8 +148,15 @@ final class Recipe {
     /** Where the recipe came from, such as a blog, or an empty string. */
     final String sourceUrl;
     final List<Step> steps;
+    /** The recipe's own list, for apps that keep one apart from the steps, as Norish does. Empty when the steps hold them. */
+    private final List<Ingredient> list;
 
     Recipe(String id, String name, String description, String image, double servings, String servingsText, int workingMinutes, int waitingMinutes, String webUrl, String sourceUrl, List<Step> steps) {
+        this(id, name, description, image, servings, servingsText, workingMinutes, waitingMinutes, webUrl, sourceUrl, steps, Collections.<Ingredient>emptyList());
+    }
+
+    Recipe(String id, String name, String description, String image, double servings, String servingsText, int workingMinutes, int waitingMinutes, String webUrl, String sourceUrl, List<Step> steps,
+           List<Ingredient> list) {
         this.id = id;
         this.name = name;
         this.description = description;
@@ -144,10 +168,15 @@ final class Recipe {
         this.webUrl = webUrl;
         this.sourceUrl = sourceUrl;
         this.steps = Collections.unmodifiableList(new ArrayList<>(steps));
+        this.list = Collections.unmodifiableList(new ArrayList<>(list));
     }
 
-    /** Every ingredient in order, with a header before each step's lines when several steps have their own. */
+    /**
+     * Every ingredient in order: the recipe's own list when it has one, else each step's lines, with a header before them
+     * when several steps have their own.
+     */
     List<Ingredient> ingredients() {
+        if (!list.isEmpty()) return new ArrayList<>(list);
         List<Ingredient> all = new ArrayList<>();
         int stepsWithIngredients = 0;
         for (Step step : steps) if (!step.ingredients.isEmpty()) stepsWithIngredients++;

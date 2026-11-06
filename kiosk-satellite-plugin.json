@@ -7,7 +7,7 @@
   "minAndroidSdk": 26,
   "minAppVersion": "2026.10.42",
   "entryClass": "io.github.vednolacni.cookmode.CookModePlugin",
-  "description": "A real cook mode for the kitchen tablet. Connects straight to your Tandoor server: today's meal one tap away, every recipe to browse and search, pictures, one big step at a time, servings that rescale, timers from the recipe's own words, read-aloud, and a screen that stays on while you cook. No Home Assistant integration needed.",
+  "description": "A real cook mode for the kitchen tablet. Connects straight to your Tandoor or Norish server: today's meal one tap away, every recipe to browse and search, pictures, one big step at a time, servings that rescale, timers from the recipe's own words, read-aloud, and a screen that stays on while you cook. No Home Assistant integration needed.",
   "author": "vednolacni",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -20,20 +20,32 @@
   ],
   "settings": [
     {
+      "key": "recipeApp",
+      "type": "select",
+      "title": "Recipe app",
+      "default": "Tandoor",
+      "options": [
+        "Tandoor",
+        "Norish"
+      ],
+      "group": "Recipe server",
+      "description": "Tandoor: create the token under Settings > API with the scope \"read write\". Norish: create the key under Settings > User > API keys. A Norish key can also change recipes, so a household member of its own for the tablets is safest, and each tablet needs its own key, since Norish allows a key 500 requests an hour."
+    },
+    {
       "key": "serverUrl",
       "type": "string",
-      "title": "Tandoor address",
+      "title": "Server address",
       "default": "",
       "group": "Recipe server",
-      "description": "The address you open Tandoor with in a browser, such as http://192.168.1.20:8080."
+      "description": "The address you open the recipe app with in a browser, such as http://192.168.1.20:8080. A Norish under a base path keeps it, such as https://home.example/norish."
     },
     {
       "key": "apiToken",
       "type": "secret",
-      "title": "API token",
+      "title": "API token or key",
       "default": "",
       "group": "Recipe server",
-      "description": "In Tandoor, open Settings > API and create a token with the scope \"read write\". Copy it right after saving: Tandoor shows it only briefly. It stays in Kiosk Satellite and goes only to the address above. Fleet Management copies it only if a profile includes Plugin secrets. A configuration export does not hold plugin settings, so a replaced tablet needs it again."
+      "description": "Copy it right after creating it: Tandoor shows it only briefly, and Norish only once. It stays in Kiosk Satellite and goes only to the address above. Fleet Management copies it only if a profile includes Plugin secrets. A configuration export does not hold plugin settings, so a replaced tablet needs it again."
     },
     {
       "key": "planDays",
@@ -87,6 +99,10 @@
         "Never"
       ],
       "group": "Cooking",
+      "visibleWhen": {
+        "key": "recipeApp",
+        "equals": "Tandoor"
+      },
       "description": "After the last step, add it to Tandoor's cook log. Never also keeps opened recipes out of Tandoor's recently viewed list."
     },
     {
@@ -264,7 +280,7 @@
       "title": "Test connection",
       "label": "Test",
       "group": "Recipe server",
-      "description": "Checks the address and the token, and tells which Tandoor answered.",
+      "description": "Checks the address and the token or key, and tells what answered.",
       "visibleWhen": {
         "key": "serverUrl",
         "notEmpty": true

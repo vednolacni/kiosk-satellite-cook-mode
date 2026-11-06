@@ -780,6 +780,114 @@ public final class ViewsTest {
         idle();
     }
 
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void cookingFromNorish() throws Exception {
+        // Norish's own answers through the real source: its slots and units in Slovenian, its own list of ingredients
+        // with the steps' shares of it, the key on its pictures, and nothing to record at the end.
+        String key = "aBcDeFgHiJkLmNoPaBcDeFgHiJkLmNoPaBcDeFgHiJkLmNoPaBcDeFgHiJkLmNoP";
+        String jota = "5c0f3a2e-8b1d-4e6a-9f7c-2d4b6a8e1f03";
+        String picture = "/recipes/" + jota + "/1.png";
+        String plan = ("[{'id':'e1','date':'2026-11-02','slot':'Lunch','sortOrder':0,'itemType':'recipe','recipeId':'" + jota + "','title':null,'recipeName':'Jota',"
+            + "'recipeImage':'" + picture + "','servings':4,'calories':null},{'id':'e2','date':'2026-11-02','slot':'Dinner','sortOrder':0,'itemType':'note','recipeId':null,"
+            + "'title':'Solata z vrta','recipeName':null,'recipeImage':null,'servings':null,'calories':null}]").replace('\'', '"');
+        String list = ("{'recipes':[{'id':'" + jota + "','name':'Jota','totalMinutes':80,'image':'" + picture + "'}],'total':1,'nextCursor':null}").replace('\'', '"');
+        String recipe = ("{'id':'" + jota + "','name':'Jota','description':'Kraška enolončnica.','url':null,'servings':4,'prepMinutes':20,'cookMinutes':60,'totalMinutes':null,"
+            + "'systemUsed':'metric','recipeIngredients':["
+            + "{'amount':null,'unit':null,'order':0,'systemUsed':'metric','ingredientName':'# Enolončnica'},"
+            + "{'amount':500,'unit':'gram','order':1,'systemUsed':'metric','ingredientName':'kislo zelje, oprano'},"
+            + "{'amount':2,'unit':'tablespoon','order':2,'systemUsed':'metric','ingredientName':'mast ali olje'},"
+            + "{'amount':0.333,'unit':'teaspoon','order':3,'systemUsed':'metric','ingredientName':'mleta kumina'},"
+            + "{'amount':null,'unit':'to_taste','order':4,'systemUsed':'metric','ingredientName':'sol'}],'steps':["
+            + "{'step':'# Priprava','systemUsed':'metric','order':0,'stepIngredients':[]},"
+            + "{'step':'Zelje skuhaj, približno **60 minut**.','systemUsed':'metric','order':1,'stepIngredients':[{'ingredientOrder':1,'share':1,'order':0}]},"
+            + "{'step':'Na polovici masti prepraži kumino in vse združi.','systemUsed':'metric','order':2,"
+            + "'stepIngredients':[{'ingredientOrder':2,'share':0.5,'order':0},{'ingredientOrder':3,'share':1,'order':1}]}],"
+            + "'images':[{'image':'" + picture + "','order':0}]}").replace('\'', '"');
+        List<String> pictureKeys = Collections.synchronizedList(new ArrayList<String>());
+        HttpServer norish = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        norish.createContext("/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            String sent = exchange.getRequestHeaders().getFirst("x-api-key");
+            byte[] body;
+            int status = 200;
+            if (path.equals("/norish" + picture)) {
+                pictureKeys.add(String.valueOf(sent));
+                body = picture(1);
+            } else {
+                String answer;
+                if (path.equals("/norish/api/v1/health/ready")) answer = "{\"status\":\"ok\"}";
+                else if (!key.equals(sent)) answer = null;
+                else if (path.startsWith("/norish/api/v1/planned-recipes/")) answer = plan;
+                else if (path.equals("/norish/api/v1/recipes/search")) answer = list;
+                else if (path.equals("/norish/api/v1/recipes/" + jota)) answer = recipe;
+                else answer = "{\"message\":\"Not found\",\"code\":\"NOT_FOUND\",\"data\":{\"httpStatus\":404}}";
+                if (answer == null) {
+                    status = 401;
+                    answer = "{\"message\":\"You must be logged in to access this resource\",\"code\":\"UNAUTHORIZED\"}";
+                } else if (answer.contains("NOT_FOUND")) {
+                    status = 404;
+                }
+                body = answer.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            }
+            exchange.sendResponseHeaders(status, body.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        norish.start();
+        try {
+            Map<String, Object> values = settings("Slovenščina");
+            values.put("recipeApp", "Norish");
+            values.put("serverUrl", "http://127.0.0.1:" + norish.getAddress().getPort() + "/norish/");
+            values.put("apiToken", key);
+            prefix = "norish";
+            theme = theme(false);
+            clock = new TestClock();
+            net = new Net();
+            host = new Host();
+            cook = new Cook(new StillUi(), clock, net, RecipeSource::of);
+            cook.start(host, values);
+            s = Strings.of("Slovenščina", Settings.App.NORISH);
+            open();
+            assertNotNull(find("Kosilo"));
+            assertNotNull(find("Večerja"));
+            assertNotNull(find("Solata z vrta"));
+            assertNotNull(find("Najnovejši"));
+            shot("1-home");
+
+            tap(find("Jota"));
+            assertNotNull(find(s.startCooking));
+            assertNotNull(find("Enolončnica"));
+            assertNotNull(find("2 žlici"));
+            assertNotNull(find("mast ali olje"));
+            assertNotNull(find("⅓ žličke"));
+            assertNotNull(find("po okusu"));
+            assertNotNull(find("Odpri v Norishu"));
+            shot("2-recipe");
+
+            tap(find(s.startCooking));
+            assertNotNull(find(s.stepWord + " 1 · Priprava"));
+            TextView cabbage = find("500 g kislo zelje, oprano");
+            assertNotNull(cabbage);
+            tap(cabbage);
+            assertTrue((find("500 g kislo zelje, oprano").getPaintFlags() & Paint.STRIKE_THRU_TEXT_FLAG) != 0);
+            shot("3-step");
+            tap(find(s.nextStep));
+            assertNotNull(find(s.stepWord + " 2 · Priprava"));
+            assertNotNull(find("1 žlica mast ali olje"));
+            assertNotNull(find("⅓ žličke mleta kumina"));
+            tap(find(s.finish));
+            assertNotNull(find(s.enjoy));
+            assertNull("Norish keeps no cook log", find(s.logCooked));
+            shot("4-finish");
+
+            assertFalse(pictureKeys.isEmpty());
+            for (String sent : new ArrayList<>(pictureKeys)) assertEquals(key, sent);
+        } finally {
+            norish.stop(0);
+        }
+    }
+
     @Test @Config(qualifiers = "w600dp-h960dp-port-tvdpi")
     public void aPressThatLandsTwiceOnStartCookingStaysOnTheFirstStep() {
         begin("double-start", true, settings("English"));
@@ -1141,7 +1249,7 @@ public final class ViewsTest {
         kitchen = new Kitchen("http://127.0.0.1:" + server.getAddress().getPort() + "/picture");
         cook = new Cook(new StillUi(), clock, net, settings -> kitchen);
         cook.start(host, values);
-        s = Strings.of((String) values.get("language"));
+        s = Strings.of((String) values.get("language"), Settings.App.TANDOOR);
     }
 
     private void open() {
