@@ -130,6 +130,7 @@ public final class NorishTest {
             failures();
             waiting();
             words();
+            saved();
         } finally {
             http.stop(0);
         }
@@ -377,6 +378,23 @@ public final class NorishTest {
         assert "1 cup".equals(new Recipe.Ingredient(false, 1, "cup", "", "moka", "", "", "moka", "cup").measure(1, false));
         assert "2 cups".equals(new Recipe.Ingredient(false, 1, "cup", "", "moka", "", "", "moka", "cup").measure(2, false));
         assert "¾ cup".equals(new Recipe.Ingredient(false, 0.75, "cup", "", "moka", "", "", "moka", "cup").measure(1, false));
+    }
+
+    static void saved() {
+        // Norish's ids are long. Six timers of the recipe being cooked still survive a restart with their names.
+        List<Snapshot.SavedTimer> timers = new ArrayList<>();
+        for (int i = 0; i < 6; i++) timers.add(new Snapshot.SavedTimer("Korak " + (i + 1) + " · dušenje na majhnem ognju", 600 + i, false, 1_793_491_200_000L + i, JOTA, i));
+        timers.add(new Snapshot.SavedTimer("Kruh", 900, true, 300_000, KRUH, 0));
+        Snapshot snapshot = new Snapshot("Letna kuhinja", 1_793_491_200_000L, JOTA, "Jota s kislim zeljem in fižolom po kraško", 4, 2, 1_793_491_100_000L, timers);
+        String text = snapshot.encode();
+        assert text.length() <= Snapshot.MAX_LENGTH && !text.isEmpty() : text.length();
+        Snapshot back = Snapshot.decode(text);
+        assert back != null && JOTA.equals(back.recipe) && back.timers.size() >= 6 : back == null ? "none" : back.timers.size();
+        for (int i = 0; i < 6; i++) assert JOTA.equals(back.timers.get(i).recipe) && back.timers.get(i).step == i;
+        if (back.timers.size() > 6) assert KRUH.equals(back.timers.get(6).recipe);
+        // Without a recipe being cooked, a timer keeps its own id.
+        Snapshot alone = Snapshot.decode(new Snapshot("Letna kuhinja", 1L, "", "", 0, 0, 0, Collections.singletonList(timers.get(0))).encode());
+        assert alone != null && JOTA.equals(alone.timers.get(0).recipe) && "".equals(alone.recipe);
     }
 
     // The server.

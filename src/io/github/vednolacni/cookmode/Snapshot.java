@@ -20,6 +20,11 @@ final class Snapshot {
     private static final int[] LABEL_LENGTHS = {60, 30, 16};
     /** Enough of the recipe's name to show while the recipe itself is not back yet. */
     private static final int NAME_LENGTH = 40;
+    /**
+     * A timer's recipe when it is the one being cooked. Norish's ids are 36 characters, which six timers repeating it
+     * would spend on the id alone.
+     */
+    private static final String SAME_RECIPE = "=";
 
     static final class SavedTimer {
         final String label;
@@ -89,7 +94,8 @@ final class Snapshot {
         List<Object> saved = new ArrayList<>();
         for (SavedTimer timer : timers.subList(0, timerCount)) {
             String label = timer.label.length() > labelLength ? timer.label.substring(0, labelLength) : timer.label;
-            saved.add(Arrays.<Object>asList(label, timer.total, timer.paused ? 1 : 0, timer.value, timer.recipe, timer.step));
+            String named = !recipe.isEmpty() && timer.recipe.equals(recipe) ? SAME_RECIPE : timer.recipe;
+            saved.add(Arrays.<Object>asList(label, timer.total, timer.paused ? 1 : 0, timer.value, named, timer.step));
         }
         values.put("m", saved);
         return Json.write(values);
@@ -101,14 +107,16 @@ final class Snapshot {
         try {
             Map<String, Object> values = Json.object(Json.parse(text));
             if (Json.integer(values.get("v"), 0) != VERSION) return null;
+            String recipe = Json.text(values.get("r"));
             List<SavedTimer> timers = new ArrayList<>();
             for (Object item : Json.list(values.get("m"))) {
                 List<Object> timer = Json.list(item);
                 if (timer.size() < 6) continue;
+                String named = Json.text(timer.get(4));
                 timers.add(new SavedTimer(Json.text(timer.get(0)), (int) Json.integer(timer.get(1), 0), Json.integer(timer.get(2), 0) == 1,
-                    Json.integer(timer.get(3), 0), Json.text(timer.get(4)), (int) Json.integer(timer.get(5), -1)));
+                    Json.integer(timer.get(3), 0), named.equals(SAME_RECIPE) ? recipe : named, (int) Json.integer(timer.get(5), -1)));
             }
-            return new Snapshot(Json.text(values.get("d")), Json.integer(values.get("t"), 0), Json.text(values.get("r")), Json.text(values.get("n")), Json.number(values.get("s"), 0),
+            return new Snapshot(Json.text(values.get("d")), Json.integer(values.get("t"), 0), recipe, Json.text(values.get("n")), Json.number(values.get("s"), 0),
                 (int) Json.integer(values.get("p"), 0), Json.integer(values.get("b"), 0), timers);
         } catch (IllegalArgumentException unreadable) {
             return null;
