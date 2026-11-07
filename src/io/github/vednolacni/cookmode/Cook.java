@@ -54,6 +54,8 @@ final class Cook implements Ui.Actions {
     static final int DEVICE_TRIES = 6;
     /** How often a session from before a restart asks for its recipe again. The server may be starting up too. */
     static final long RESUME_AGAIN_MS = 60_000L;
+    /** The same after the server answered with an error, which Norish counts against its key. */
+    static final long RESUME_SLOWLY_MS = 15 * 60_000L;
     /** A kiosk before 2026.11.1 refuses to read while it is reading. How often to try the newest text, and how many times. */
     static final long SPEECH_AGAIN_MS = 1_500L;
     static final int SPEECH_TRIES = 80;
@@ -930,7 +932,9 @@ final class Cook implements Ui.Actions {
             updateDock();
         } else if (resume != null) {
             ui.cancel(resumeTask);
-            ui.post(resumeTask, RESUME_AGAIN_MS);
+            // A server that is not up yet costs nothing to ask again soon. One that answers with an error may well count it.
+            boolean answered = problem != null && (problem.kind == RecipeSource.SourceException.Kind.SERVER || problem.kind == RecipeSource.SourceException.Kind.PARSE);
+            ui.post(resumeTask, answered ? RESUME_SLOWLY_MS : RESUME_AGAIN_MS);
         } else if (stash != null) {
             comeBack();
         } else if (waitingAside != null) {

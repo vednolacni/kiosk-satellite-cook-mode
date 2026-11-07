@@ -24,6 +24,8 @@ public final class NorishTest {
     static final String RICET = "6d1e4b3f-9c2e-4f7b-8a0d-3e5c7b9f2a14";
     static final String KRUH = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
     static final String MISSING = "0e1f2a3b-4c5d-4e6f-8a7b-9c0d1e2f3a4b";
+    /** The same recipe, shown in US measures. */
+    static final String US = "7e000000-0000-4000-8000-000000000001";
     static final LocalDate TODAY = LocalDate.of(2026, 11, 6);
     static final List<String> requests = Collections.synchronizedList(new ArrayList<String>());
     /** What the server saw that Norish would refuse or that must never be sent. */
@@ -41,8 +43,8 @@ public final class NorishTest {
         + "'calories':410,'fat':'14.50','carbs':'48.00','protein':'21.25','originCountry':'SI','createdAt':'2026-10-12T16:03:27.418Z','categories':['Lunch'],'version':2,"
         + "'recipeIngredients':["
         + "{'id':'a1','joined':null,'amount':null,'unit':null,'order':0,'systemUsed':'metric','version':1,'ingredientName':'# Enolončnica','ingredientId':null,'foods':[]},"
-        + "{'id':'a2','joined':null,'amount':500,'unit':'gram','order':1,'systemUsed':'metric','version':1,'ingredientName':'kislo zelje, oprano','ingredientId':'f1','foods':[]},"
         + "{'id':'a3','joined':null,'amount':1.102,'unit':'pound','order':1,'systemUsed':'us','version':1,'ingredientName':'kislo zelje, oprano','ingredientId':'f1','foods':[]},"
+        + "{'id':'a2','joined':null,'amount':500,'unit':'gram','order':1,'systemUsed':'metric','version':1,'ingredientName':'kislo zelje, oprano','ingredientId':'f1','foods':[]},"
         + "{'id':'a4','joined':'alternatives','amount':2,'unit':'tablespoon','order':2,'systemUsed':'metric','version':1,'ingredientName':'mast ali olje','ingredientId':'f2','foods':[]},"
         + "{'id':'a5','joined':null,'amount':0.333,'unit':'teaspoon','order':3,'systemUsed':'metric','version':1,'ingredientName':'mleta **kumina**','ingredientId':'f3','foods':[]},"
         + "{'id':'a6','joined':null,'amount':null,'unit':'to_taste','order':4,'systemUsed':'metric','version':1,'ingredientName':'sol','ingredientId':'f4','foods':[]},"
@@ -261,6 +263,13 @@ public final class NorishTest {
         Recipe.Ingredient late = serve.ingredients.get(0);
         assert early != late && early != list.get(4) && late != list.get(4) && "sol, po okusu".equals(early.line(1, true));
 
+        // The same recipe in US measures: its own lines, its own steps, and each step's lines from them.
+        Recipe us = norish.recipe(US);
+        List<String> usLines = new ArrayList<>();
+        for (Recipe.Ingredient ingredient : us.ingredients()) usLines.add(ingredient.line(1, false));
+        assert usLines.equals(Collections.singletonList("1.1 lb kislo zelje, oprano")) : usLines;
+        assert us.steps.size() == 1 && "Cabbage and beans cook apart.".equals(Instructions.render(us.steps.get(0), 1, false)) && us.steps.get(0).ingredients.get(0) == us.ingredients().get(0);
+
         // Nothing to record, and nothing sent for it.
         int before = requests.size();
         norish.viewed(JOTA);
@@ -367,6 +376,19 @@ public final class NorishTest {
         RecipeSource.SourceException gateway = failure(() -> new NorishSource(server + "/gateway", KEY, new Http()).probe());
         assert gateway.kind == RecipeSource.SourceException.Kind.SERVER && gateway.getMessage().contains("HTTP 502") : gateway.kind + " " + gateway.getMessage();
         assert kind(() -> new NorishSource(server + "/gateway", KEY, new Http()).recipe(JOTA)) == RecipeSource.SourceException.Kind.SERVER;
+        // A sign-in service in front of Norish sends every call to its own host, where the key never goes.
+        NorishSource sso = new NorishSource(server + "/sso", KEY, new Http());
+        for (Call call : new Call[] {sso::probe, () -> sso.mealPlan(TODAY, TODAY), () -> sso.recipe(JOTA), () -> sso.recipes("", RecipeSource.Order.NAME, 1)}) {
+            RecipeSource.SourceException refused = failure(call);
+            assert refused.kind == RecipeSource.SourceException.Kind.NOT_API && refused.getMessage().contains("login page") : refused.kind + " " + refused.getMessage();
+        }
+        // Its own 401 page is no word from Norish. The JDK drops the body of a refused POST, which Android keeps, so here
+        // only the reads can tell.
+        NorishSource gate = new NorishSource(server + "/gate", KEY, new Http());
+        for (Call call : new Call[] {gate::probe, () -> gate.mealPlan(TODAY, TODAY), () -> gate.recipe(JOTA)}) {
+            RecipeSource.SourceException refused = failure(call);
+            assert refused.kind == RecipeSource.SourceException.Kind.NOT_API && refused.getMessage().contains("login page") : refused.kind + " " + refused.getMessage();
+        }
         // An empty 401 to a GET comes from a password prompt in front of Norish, not from Norish.
         RecipeSource.SourceException prompt = failure(() -> new NorishSource(server + "/basic", KEY, new Http()).recipe(JOTA));
         assert prompt.kind == RecipeSource.SourceException.Kind.NOT_API && prompt.getMessage().contains("password") : prompt.kind + " " + prompt.getMessage();
@@ -530,6 +552,13 @@ public final class NorishTest {
                 else if (rest.startsWith("/api/v1/health")) send(exchange, 404, NO_ROUTE, null);
                 else send(exchange, 401, UNAUTHORIZED, null);
                 return;
+            case "/sso":
+                exchange.getResponseHeaders().add("Location", "https://auth.invalid/?rd=" + path);
+                send(exchange, 302, "", null);
+                return;
+            case "/gate":
+                send(exchange, 401, "<html><body>Sign in to continue</body></html>", null);
+                return;
             case "/gateway":
                 send(exchange, 502, "<html><body><h1>502 Bad Gateway</h1></body></html>", null);
                 return;
@@ -583,6 +612,7 @@ public final class NorishTest {
         if (recipe) {
             String id = rest.substring("/api/v1/recipes/".length());
             if (id.equals(JOTA)) send(exchange, 200, RECIPE, null);
+            else if (id.equals(US)) send(exchange, 200, RECIPE.replace("\"systemUsed\":\"metric\",\"originalSystem\"", "\"systemUsed\":\"us\",\"originalSystem\""), null);
             else send(exchange, 404, json("{'message':'Recipe not found','code':'NOT_FOUND','data':{'code':'NOT_FOUND','httpStatus':404,'path':'recipeGet'}}"), null);
             return;
         }

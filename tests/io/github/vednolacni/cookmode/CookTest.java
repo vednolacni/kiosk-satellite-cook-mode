@@ -1188,6 +1188,15 @@ public final class CookTest {
         assert newUi.posted(Cook.RESUME_AGAIN_MS);
         newUi.run(Cook.SAVE_AFTER_MS);
         assert "7".equals(Snapshot.decode((String) again.saved.get("resumeState")).recipe);
+        // A server that answers with an error, which Norish counts against its key, is asked again only now and then.
+        source.fail = new RecipeSource.SourceException(RecipeSource.SourceException.Kind.SERVER, "Norish answered HTTP 500: Failed to parse FullRecipeDTO.");
+        newUi.run(Cook.RESUME_AGAIN_MS);
+        newNet.runAll();
+        assert newUi.posted(Cook.RESUME_SLOWLY_MS) && !newUi.posted(Cook.RESUME_AGAIN_MS) && newUi.model.resumeAt == 2;
+        source.fail = down();
+        newUi.run(Cook.RESUME_SLOWLY_MS);
+        newNet.runAll();
+        assert newUi.posted(Cook.RESUME_AGAIN_MS) && !newUi.posted(Cook.RESUME_SLOWLY_MS);
 
         // Opened meanwhile: a card on the home page, and the same recipe leads back instead of starting over.
         newCook.execute("openCookMode");

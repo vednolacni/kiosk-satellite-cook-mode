@@ -179,6 +179,11 @@ public final class ViewsTest {
         server.createContext("/", exchange -> {
             String name = exchange.getRequestURI().getPath().replaceAll("\\D", "");
             picturesAsked.add(name);
+            if ("404".equals(name)) {
+                exchange.sendResponseHeaders(404, -1);
+                exchange.close();
+                return;
+            }
             boolean fail = picturesFail;
             java.util.concurrent.CountDownLatch held = picturesHeld;
             if (held != null) {
@@ -1218,6 +1223,47 @@ public final class ViewsTest {
         assertTrue(asked.toString(), asked.indexOf("3") < asked.indexOf("2"));
         assertTrue(asked.toString(), asked.indexOf("4") < Math.max(asked.indexOf("1"), asked.indexOf("2")));
         images.close();
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aPictureIsFetchedOnceForEverySizeAndOneThatDoesNotExistIsLeftBe() {
+        begin("pictures-once", true, settings("English"));
+        Images images = new Images();
+        String base = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/";
+        ImageView small = new ImageView(activity);
+        images.load(small, base + "7.png", Collections.<String, String>emptyMap(), 100);
+        waitUntil(() -> small.getDrawable() != null);
+        // Another size, as on another page or after the panel opens again, comes from the bytes already here.
+        ImageView large = new ImageView(activity);
+        images.load(large, base + "7.png", Collections.<String, String>emptyMap(), 400);
+        waitUntil(() -> large.getDrawable() != null);
+        assertNotNull(large.getDrawable());
+        assertEquals(picturesAsked.toString(), 1, Collections.frequency(picturesAsked, "7"));
+        // A picture the server says does not exist is asked for once, also when asked again while on its way.
+        ImageView gone = new ImageView(activity);
+        images.load(gone, base + "404.png", Collections.<String, String>emptyMap(), 100);
+        images.load(gone, base + "404.png", Collections.<String, String>emptyMap(), 100);
+        waitUntil(() -> picturesAsked.contains("404"));
+        later(500);
+        images.load(new ImageView(activity), base + "404.png", Collections.<String, String>emptyMap(), 100);
+        later(500);
+        assertEquals(picturesAsked.toString(), 1, Collections.frequency(picturesAsked, "404"));
+        assertNull(gone.getDrawable());
+        images.close();
+    }
+
+    /** Wait for the picture threads, letting the main thread run what they post. */
+    private void waitUntil(java.util.function.BooleanSupplier done) {
+        long until = System.currentTimeMillis() + 10_000;
+        while (!done.getAsBoolean() && System.currentTimeMillis() < until) {
+            idle();
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException interrupted) {
+                throw new AssertionError(interrupted);
+            }
+        }
+        idle();
     }
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")

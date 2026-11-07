@@ -45,7 +45,7 @@
       "title": "API token or key",
       "default": "",
       "group": "Recipe server",
-      "description": "Copy it right after creating it: Tandoor shows it only briefly, and Norish only once. It stays in Kiosk Satellite and goes only to the address above. Fleet Management copies it only if a profile includes Plugin secrets. A configuration export does not hold plugin settings, so a replaced tablet needs it again."
+      "description": "Copy it right after creating it: Tandoor shows it only briefly, Norish only once. It goes only to the address above. A Fleet Management profile with Plugin secrets copies it to every tablet, so with Norish, which allows a key 500 requests an hour, keep Cook Mode out of such a profile. A configuration export does not hold it, so a replaced tablet needs it again."
     },
     {
       "key": "planDays",

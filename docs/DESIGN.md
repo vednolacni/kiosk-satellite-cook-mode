@@ -168,7 +168,7 @@ Roughly in order of how much they would help.
 6. **Pages instead of a scrolling grid**, if scrolling proves slow on a weak panel: six big cards and arrows, which also suits wet hands.
 7. **Bluetooth page turners** through `device.key`.
 8. **Mealie**, as the third source.
-9. **Pictures kept on the tablet.** Norish counts every picture against a key's 500 requests an hour, and its picture addresses never change what they show, so a cache on the tablet would make each one cost a request only once.
+9. **Pictures kept on the tablet.** Norish counts every picture against a key's 500 requests an hour. `Images` keeps their bytes by address while the plugin runs, so each costs a request once per run, and leaves a missing one be for a quarter of an hour. Norish's picture addresses never change what they show, so a cache on the tablet's storage would make each one cost a request once for good.
 10. **Opening today's recipes before they are asked for**, so they open at once and survive Wi-Fi dropping.
 11. **A shopping list** from a recipe or the week's plan, to the app's own list and Home Assistant's `todo`.
 12. **Pictures in steps.** Tandoor and Norish steps can carry their own.
