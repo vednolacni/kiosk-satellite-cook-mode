@@ -29,6 +29,8 @@ public final class NorishTest {
     /** What the server saw that Norish would refuse or that must never be sent. */
     static final List<String> wrong = Collections.synchronizedList(new ArrayList<String>());
     static String server;
+    /** How many answers the tired 0.25 server has given its key. */
+    static final java.util.concurrent.atomic.AtomicInteger tiredAnswers = new java.util.concurrent.atomic.AtomicInteger();
 
     static String json(String quoted) {
         return quoted.replace('\'', '"');
@@ -46,16 +48,19 @@ public final class NorishTest {
         + "{'id':'a6','joined':null,'amount':null,'unit':'to_taste','order':4,'systemUsed':'metric','version':1,'ingredientName':'sol','ingredientId':'f4','foods':[]},"
         + "{'id':'a7','joined':null,'amount':3,'unit':'clove','order':5,'systemUsed':'metric','version':1,'ingredientName':'česen','ingredientId':'f5','foods':[]},"
         + "{'id':'a8','joined':null,'amount':1,'unit':'žlička','order':6,'systemUsed':'metric','version':1,'ingredientName':'sladkor','ingredientId':'f6','foods':[]},"
-        + "{'id':'a9','joined':null,'amount':0,'unit':'','order':7,'systemUsed':'metric','version':1,'ingredientName':'voda','ingredientId':'f7','foods':[]}],"
+        + "{'id':'a9','joined':null,'amount':0,'unit':'','order':7,'systemUsed':'metric','version':1,'ingredientName':'voda','ingredientId':'f7','foods':[]},"
+        + "{'id':'a10','joined':null,'amount':null,'unit':'pinch','order':8,'systemUsed':'metric','version':1,'ingredientName':'poper','ingredientId':'f8','foods':[]},"
+        + "{'id':'a11','joined':null,'amount':null,'unit':'ščepec','order':9,'systemUsed':'metric','version':1,'ingredientName':'cimet','ingredientId':'f9','foods':[]}],"
         + "'steps':["
         + "{'step':'# Priprava','systemUsed':'metric','order':0,'version':1,'images':[],'stepIngredients':[]},"
         + "{'step':'Zelje in fižol skuhaj posebej, približno **60 minut**.','systemUsed':'metric','order':1,'version':1,"
         + "'images':[{'id':'i1','image':'/recipes/" + JOTA + "/steps/korak.jpg','order':0,'version':1}],'stepIngredients':[{'ingredientOrder':1,'share':1,'order':0}]},"
         + "{'step':'Cabbage and beans cook apart.','systemUsed':'us','order':1,'version':1,'images':[],'stepIngredients':[{'ingredientOrder':1,'share':1,'order':0}]},"
         + "{'step':'Na polovici masti prepraži kumino, vse združi in soli po okusu. Zraven ponudi [Domači kruh](id:" + KRUH + ").','systemUsed':'metric','order':2,'version':1,"
-        + "'images':[],'stepIngredients':[{'ingredientOrder':3,'share':1,'order':1},{'ingredientOrder':2,'share':0.5,'order':0},{'ingredientOrder':99,'share':1,'order':2}]},"
+        + "'images':[],'stepIngredients':[{'ingredientOrder':3,'share':1,'order':1},{'ingredientOrder':2,'share':0.5,'order':0},{'ingredientOrder':99,'share':1,'order':2},"
+        + "{'ingredientOrder':4,'share':1,'order':3}]},"
         + "{'step':'## Omaka\\nPreostalo mast zmešaj z moko.','systemUsed':'metric','order':3,'version':1,'images':[],'stepIngredients':[{'ingredientOrder':2,'share':0.5,'order':0}]},"
-        + "{'step':'Postrezi.','systemUsed':'metric','order':4,'version':1,'images':[],'stepIngredients':[]}],"
+        + "{'step':'Postrezi.','systemUsed':'metric','order':4,'version':1,'images':[],'stepIngredients':[{'ingredientOrder':4,'share':1,'order':0}]}],"
         + "'tags':[],'cuisines':[],'author':{'id':'Hq3nV8tLwZ2pXk5mRb7yJc4dFs9gTe1A','name':'Ana','image':null,'version':3},"
         + "'images':[{'id':'m2','image':'/recipes/" + JOTA + "/drugi.jpg','order':1,'generated':false,'version':1},"
         + "{'id':'m1','image':'/recipes/" + JOTA + "/prvi.jpg','order':0,'generated':false,'version':1}],'videos':[],'nutritionEstimate':null}");
@@ -165,7 +170,15 @@ public final class NorishTest {
         Settings tandoor = new Settings(values);
         assert again.sameServer(norish) && !tandoor.sameServer(again) && tandoor.otherServer(again) && !again.otherServer(norish);
         assert tandoor.markCooked == Settings.MarkCooked.ALWAYS && tandoor.app == Settings.App.TANDOOR;
-        assert RecipeSource.of(norish) instanceof NorishSource && RecipeSource.of(tandoor) instanceof TandoorSource;
+        assert RecipeSource.of(norish, () -> 0L) instanceof NorishSource && RecipeSource.of(tandoor, () -> 0L) instanceof TandoorSource;
+        // Norish shares this week and this month, as its server counts them, and nothing after the later of their ends.
+        NorishSource reach = new NorishSource("http://h", KEY, new Http());
+        assert reach.planReach(LocalDate.of(2026, 10, 30)).equals(LocalDate.of(2026, 11, 1)) && reach.planReach(LocalDate.of(2026, 11, 21)).equals(LocalDate.of(2026, 11, 30));
+        assert reach.planReach(LocalDate.of(2026, 11, 30)).equals(LocalDate.of(2026, 12, 6)) && reach.planReach(LocalDate.of(2026, 11, 29)).equals(LocalDate.of(2026, 11, 30));
+        assert new TandoorSource("http://h", "t", new Http()).planReach(TODAY).equals(LocalDate.MAX);
+        // Its slots have no time, so they count as the hours they are usually cooked at, in Norish's order.
+        assert NorishSource.slotOrder("Breakfast") == 8 * 60 && NorishSource.slotOrder("Lunch") == 12 * 60 && NorishSource.slotOrder("Dinner") == 18 * 60;
+        assert NorishSource.slotOrder("Snack") == 21 * 60 && NorishSource.slotOrder("Brunch") == 24 * 60 + 4 && NorishSource.slotOrder("") == 24 * 60 + 4;
     }
 
     static void modern() throws Exception {
@@ -220,9 +233,11 @@ public final class NorishTest {
             slovenian.add(ingredient.line(1, true));
         }
         assert english.equals(Arrays.asList("Enolončnica", "500 g kislo zelje, oprano", "2 tbsp mast ali olje", "⅓ tsp mleta kumina", "sol, to taste", "3 cloves česen",
-            "1 žlička sladkor", "voda")) : english;
+            "1 žlička sladkor", "voda", "poper, pinch", "cimet, ščepec")) : english;
         assert slovenian.equals(Arrays.asList("Enolončnica", "500 g kislo zelje, oprano", "2 žlici mast ali olje", "⅓ žličke mleta kumina", "sol, po okusu", "3 stroki česen",
-            "1 žlička sladkor", "voda")) : slovenian;
+            "1 žlička sladkor", "voda", "poper, ščepec", "cimet, ščepec")) : slovenian;
+        // A measure without a number still says what it is, in the measure's place.
+        assert "ščepec".equals(list.get(8).measure(1, true)) && "pinch".equals(list.get(8).measure(2, false)) && "".equals(list.get(9).measure(1, true));
         assert list.get(0).header && !list.get(4).hasAmount() && "po okusu".equals(list.get(4).measure(1, true)) && "".equals(list.get(7).measure(1, true));
         // Rescaled, Slovenian counts again.
         assert "1 žlica".equals(list.get(2).measure(0.5, true)) && "1½ stroka".equals(list.get(5).measure(0.5, true)) && "0,17 žličke".equals(list.get(3).measure(0.5, true));
@@ -235,11 +250,16 @@ public final class NorishTest {
         assert boil.ingredients.size() == 1 && boil.ingredients.get(0) == list.get(1);
         Recipe.Step fry = recipe.steps.get(1);
         assert "Priprava".equals(fry.title) && "Na polovici masti prepraži kumino, vse združi in soli po okusu. Zraven ponudi Domači kruh.".equals(Instructions.render(fry, 1, false));
-        assert fry.ingredients.size() == 2 && "1 tbsp mast ali olje".equals(fry.ingredients.get(0).line(1, false)) && fry.ingredients.get(1) == list.get(3);
+        assert fry.ingredients.size() == 3 && "1 tbsp mast ali olje".equals(fry.ingredients.get(0).line(1, false)) && fry.ingredients.get(1) == list.get(3);
         assert "1 žlica mast ali olje".equals(fry.ingredients.get(0).line(1, true)) && "½ žlice mast ali olje".equals(fry.ingredients.get(0).line(0.5, true));
         Recipe.Step sauce = recipe.steps.get(2);
         assert "Omaka".equals(sauce.title) && "Preostalo mast zmešaj z moko.".equals(Instructions.render(sauce, 1, false)) && sauce.ingredients.size() == 1;
-        assert "Omaka".equals(recipe.steps.get(3).title) && recipe.steps.get(3).ingredients.isEmpty();
+        Recipe.Step serve = recipe.steps.get(3);
+        assert "Omaka".equals(serve.title) && serve.ingredients.size() == 1 && "sol, po okusu".equals(serve.ingredients.get(0).line(1, true));
+        // Salt that two steps name is ticked off in each apart, and apart from the list.
+        Recipe.Ingredient early = fry.ingredients.get(2);
+        Recipe.Ingredient late = serve.ingredients.get(0);
+        assert early != late && early != list.get(4) && late != list.get(4) && "sol, po okusu".equals(early.line(1, true));
 
         // Nothing to record, and nothing sent for it.
         int before = requests.size();
@@ -261,10 +281,13 @@ public final class NorishTest {
         NorishSource norish = new NorishSource(server + "/norish", KEY, new Http());
         String picture = server + "/norish/recipes/" + JOTA + "/prvi.jpg";
         assert Collections.singletonMap("x-api-key", KEY).equals(norish.imageHeaders(picture));
+        assert !norish.imageHeaders(server + "/norish/recipes/" + JOTA + "/steps/..korak.jpg").isEmpty();
         // Never to another host, scheme or port, outside the base path, or with a user name in front.
         String port = server.substring(server.lastIndexOf(':') + 1);
         for (String other : new String[] {"https://cdn.example/kruh.jpg", "http://localhost:" + port + "/norish/recipes/x.jpg", "https://127.0.0.1:" + port + "/norish/recipes/x.jpg",
-            "http://127.0.0.1:1/norish/recipes/x.jpg", server + "/other/recipes/x.jpg", server + "/norishx/recipes/x.jpg", "http://user@127.0.0.1:" + port + "/norish/recipes/x.jpg", "nonsense"}) {
+            "http://127.0.0.1:1/norish/recipes/x.jpg", server + "/other/recipes/x.jpg", server + "/norishx/recipes/x.jpg", "http://user@127.0.0.1:" + port + "/norish/recipes/x.jpg", "nonsense",
+            server + "/norish/../other/x.jpg", server + "/norish/%2e%2E/other/x.jpg", server + "/norish/recipes/./x.jpg", server + "/norish/recipes/..%5cadmin", server + "/norish/..",
+            server + "/norish/recipes/%2e%2e%2f%2e%2e/admin"}) {
             assert norish.imageHeaders(other).isEmpty() : other;
         }
         Http http = new Http();
@@ -291,6 +314,24 @@ public final class NorishTest {
         Recipe recipe = old.recipe(JOTA);
         assert (server + "/old/recipes/" + JOTA + "/staro.jpg").equals(recipe.image) && recipe.steps.size() == 1 && recipe.ingredients().size() == 1;
         assert "2 cups moka".equals(recipe.ingredients().get(0).line(1, false)) && recipe.workingMinutes == 45 && recipe.waitingMinutes == 0;
+
+        // 0.25 refuses a key past its 500 requests an hour as if it were wrong. One that has worked waits an hour.
+        long[] now = {0};
+        NorishSource tired = new NorishSource(server + "/tired", KEY, new Http(), () -> now[0]);
+        assert tired.recipes("", RecipeSource.Order.NAME, 1).items.size() == 1;
+        RecipeSource.SourceException limit = failure(() -> tired.recipes("", RecipeSource.Order.NAME, 1));
+        assert limit.kind == RecipeSource.SourceException.Kind.LIMIT && limit.getMessage().contains("Norish 0.25") : limit.kind + " " + limit.getMessage();
+        int sent = requests.size();
+        assert kind(() -> tired.mealPlan(TODAY, TODAY)) == RecipeSource.SourceException.Kind.LIMIT && requests.size() == sent;
+        assert tired.imageHeaders(server + "/tired/recipes/" + JOTA + "/x.jpg").isEmpty();
+        now[0] += 3_600_000;
+        assert !tired.imageHeaders(server + "/tired/recipes/" + JOTA + "/x.jpg").isEmpty();
+        // Refused again with nothing answered in between, it is the key after all.
+        assert kind(() -> tired.recipes("", RecipeSource.Order.NAME, 1)) == RecipeSource.SourceException.Kind.AUTH;
+        // A key refused at its first request is a wrong one.
+        assert kind(() -> new NorishSource(server + "/tired", "aBcDe", new Http()).recipe(JOTA)) == RecipeSource.SourceException.Kind.AUTH;
+        RecipeSource.SourceException down = failure(() -> new NorishSource(server + "/olddown", KEY, new Http()).recipe(JOTA));
+        assert down.kind == RecipeSource.SourceException.Kind.SERVER && down.getMessage().startsWith("Norish is not ready: Database is error.") : down.getMessage();
     }
 
     static void failures() throws Exception {
@@ -322,6 +363,13 @@ public final class NorishTest {
         assert kind(() -> new NorishSource(server + "/web", KEY, new Http()).mealPlan(TODAY, TODAY)) == RecipeSource.SourceException.Kind.NOT_API;
         RecipeSource.SourceException other = failure(() -> new NorishSource(server + "/other", KEY, new Http()).probe());
         assert other.kind == RecipeSource.SourceException.Kind.NOT_API && other.getMessage().contains("/api/v1/recipes/search") : other.getMessage();
+        // A proxy's own page while Norish is stopped is the server's trouble, also for Test connection.
+        RecipeSource.SourceException gateway = failure(() -> new NorishSource(server + "/gateway", KEY, new Http()).probe());
+        assert gateway.kind == RecipeSource.SourceException.Kind.SERVER && gateway.getMessage().contains("HTTP 502") : gateway.kind + " " + gateway.getMessage();
+        assert kind(() -> new NorishSource(server + "/gateway", KEY, new Http()).recipe(JOTA)) == RecipeSource.SourceException.Kind.SERVER;
+        // An empty 401 to a GET comes from a password prompt in front of Norish, not from Norish.
+        RecipeSource.SourceException prompt = failure(() -> new NorishSource(server + "/basic", KEY, new Http()).recipe(JOTA));
+        assert prompt.kind == RecipeSource.SourceException.Kind.NOT_API && prompt.getMessage().contains("password") : prompt.kind + " " + prompt.getMessage();
         // Nowhere at all.
         assert kind(() -> new NorishSource("http://127.0.0.1:1", KEY, new Http()).probe()) == RecipeSource.SourceException.Kind.NETWORK;
     }
@@ -333,6 +381,8 @@ public final class NorishTest {
         RecipeSource.SourceException limited = failure(() -> busy.recipes("", RecipeSource.Order.NAME, 1));
         assert limited.kind == RecipeSource.SourceException.Kind.LIMIT && limited.getMessage().startsWith("Norish asks to wait 31 minutes") : limited.getMessage();
         int sent = requests.size();
+        String picture = server + "/busy/recipes/" + JOTA + "/x.jpg";
+        assert busy.imageHeaders(picture).isEmpty();
         now[0] += 1_000_000;
         RecipeSource.SourceException still = failure(() -> busy.mealPlan(TODAY, TODAY));
         assert still.kind == RecipeSource.SourceException.Kind.LIMIT && still.getMessage().startsWith("Norish asks to wait 14 minutes") && requests.size() == sent : still.getMessage();
@@ -340,6 +390,7 @@ public final class NorishTest {
         // The health route needs no key, so Test connection still finds Norish there.
         assert kind(busy::probe) == RecipeSource.SourceException.Kind.LIMIT && requests.size() == sent + 1;
         now[0] += 834_000;
+        assert Collections.singletonMap("x-api-key", KEY).equals(busy.imageHeaders(picture));
         assert kind(() -> busy.recipe(JOTA)) == RecipeSource.SourceException.Kind.LIMIT && requests.size() == sent + 2 : requests.size() - sent;
         assert last().startsWith("GET /busy/api/v1/recipes/" + JOTA + " key");
     }
@@ -355,6 +406,9 @@ public final class NorishTest {
         assert "Newest".equals(english.recent) && "Najnovejši".equals(slovenian.recent) && "Set the server address and the API key in the plugin settings.".equals(english.notConfigured);
         assert "Kosilo".equals(slovenian.slot("Lunch")) && "Lunch".equals(english.slot("Lunch")) && "Brunch".equals(slovenian.slot("Brunch"));
         assert english.problemLimit.contains("500 requests") && slovenian.problemLimit.contains("500 zahtev") && !slovenian.problemLimit.contains("{");
+        assert "Prep and cook".equals(english.prep) && "Priprava in kuhanje".equals(slovenian.prep) && "Prep".equals(Strings.ENGLISH.prep) && "Priprava".equals(Strings.SLOVENIAN.prep);
+        assert "Norish shares only this week and this month of the meal plan.".equals(english.planCut);
+        assert "Norish deli le jedilnik tega tedna in tega meseca.".equals(slovenian.planCut);
         // Tandoor's stay as they were.
         assert Strings.of("English", Settings.App.TANDOOR) == Strings.ENGLISH && Strings.of("Slovenščina", Settings.App.TANDOOR) == Strings.SLOVENIAN;
         assert "Open in Tandoor".equals(Strings.ENGLISH.openInApp) && "Recently opened".equals(Strings.ENGLISH.recent) && "Lunch".equals(Strings.SLOVENIAN.slot("Lunch"));
@@ -363,7 +417,7 @@ public final class NorishTest {
         assert "Zabeleži v Tandoorju kot skuhano".equals(Strings.SLOVENIAN.logCooked) && "Record in Tandoor as cooked".equals(Strings.ENGLISH.logCooked);
         for (Strings strings : new Strings[] {english, slovenian, Strings.ENGLISH, Strings.SLOVENIAN}) {
             for (String text : new String[] {strings.openInApp, strings.problemAuth, strings.problemHost, strings.problemReadOnly, strings.problemNotApi, strings.problemPrivate,
-                strings.problemLimit, strings.notConfigured, strings.recent, strings.logCooked, strings.logged}) {
+                strings.problemLimit, strings.notConfigured, strings.recent, strings.logCooked, strings.logged, strings.prep, strings.planCut}) {
                 assert !text.contains("{") && !text.contains("}") : text;
             }
         }
@@ -378,23 +432,52 @@ public final class NorishTest {
         assert "1 cup".equals(new Recipe.Ingredient(false, 1, "cup", "", "moka", "", "", "moka", "cup").measure(1, false));
         assert "2 cups".equals(new Recipe.Ingredient(false, 1, "cup", "", "moka", "", "", "moka", "cup").measure(2, false));
         assert "¾ cup".equals(new Recipe.Ingredient(false, 0.75, "cup", "", "moka", "", "", "moka", "cup").measure(1, false));
+        // English goes by the amount as written: 1.0005 is "1 cup".
+        assert "1 cup".equals(new Recipe.Ingredient(false, 0.667, "cup", "", "mleko", "", "", "mleko", "cup").measure(1.5, false));
+        assert "1½ cups".equals(new Recipe.Ingredient(false, 1.5, "cup", "", "mleko", "", "", "mleko", "cup").measure(1, false));
     }
 
     static void saved() {
-        // Norish's ids are long. Six timers of the recipe being cooked still survive a restart with their names.
-        List<Snapshot.SavedTimer> timers = new ArrayList<>();
-        for (int i = 0; i < 6; i++) timers.add(new Snapshot.SavedTimer("Korak " + (i + 1) + " · dušenje na majhnem ognju", 600 + i, false, 1_793_491_200_000L + i, JOTA, i));
-        timers.add(new Snapshot.SavedTimer("Kruh", 900, true, 300_000, KRUH, 0));
-        Snapshot snapshot = new Snapshot("Letna kuhinja", 1_793_491_200_000L, JOTA, "Jota s kislim zeljem in fižolom po kraško", 4, 2, 1_793_491_100_000L, timers);
+        // Norish's ids are long, so each goes once. Six timers of the recipe being cooked survive a restart, names and all.
+        List<Snapshot.SavedTimer> six = new ArrayList<>();
+        for (int i = 0; i < 6; i++) six.add(new Snapshot.SavedTimer("Korak " + (i + 1) + " · 60 minut", 3600, false, 1_793_491_200_000L + i, JOTA, i));
+        kept(new Snapshot("Letna kuhinja", 1_793_491_200_000L, JOTA, "Jota s kislim zeljem in fižolom po kraško", 4, 2, 1_793_491_100_000L, six), JOTA);
+        // After End cooking the timers run on, with no recipe being cooked.
+        kept(new Snapshot("Letna kuhinja", 1_793_491_200_000L, "", "", 0, 0, 0, six), JOTA);
+        // Bread in the oven while the jota's timers run on.
+        List<Snapshot.SavedTimer> mixed = new ArrayList<>();
+        mixed.add(new Snapshot.SavedTimer("Korak 1 · 45 minut", 2700, false, 1_793_491_200_000L, KRUH, 0));
+        for (int i = 1; i < 5; i++) mixed.add(new Snapshot.SavedTimer("Korak " + (i + 1) + " · 60 minut", 3600, false, 1_793_491_300_000L + i, JOTA, i));
+        Snapshot bread = Snapshot.decode(new Snapshot("Letna kuhinja", 1_793_491_200_000L, KRUH, "Domači kruh", 4, 0, 1_793_491_100_000L, mixed).encode());
+        assert bread != null && bread.timers.size() == 5 && KRUH.equals(bread.timers.get(0).recipe) && KRUH.equals(bread.recipe);
+        for (int i = 1; i < 5; i++) assert JOTA.equals(bread.timers.get(i).recipe) && bread.timers.get(i).step == i && bread.timers.get(i).label.startsWith("Korak " + (i + 1));
+        // Six recipes at once give up their ids before any timer.
+        String[] ids = {JOTA, RICET, KRUH, MISSING, "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"};
+        List<Snapshot.SavedTimer> crowd = new ArrayList<>();
+        for (int i = 0; i < 6; i++) crowd.add(new Snapshot.SavedTimer("Korak " + (i + 1) + " · 60 minut", 3600, false, 1_793_491_200_000L + i, ids[i], 0));
+        String crowded = new Snapshot("Letna kuhinja", 1_793_491_200_000L, JOTA, "Jota s kislim zeljem in fižolom po kraško", 4, 2, 1_793_491_100_000L, crowd).encode();
+        Snapshot many = Snapshot.decode(crowded);
+        assert crowded.length() <= Snapshot.MAX_LENGTH && many != null && many.timers.size() == 6 && JOTA.equals(many.timers.get(0).recipe) : crowded.length();
+        // Tandoor's ids are numbers and stay in each timer, as the last release wrote them.
+        String tandoor = new Snapshot("Kuhinja", 1L, "7", "Palačinke", 4, 1, 1L, Arrays.asList(new Snapshot.SavedTimer("Korak 1", 60, false, 5L, "7", 0),
+            new Snapshot.SavedTimer("Korak 2", 60, false, 6L, "8", 1))).encode();
+        assert tandoor.contains(",\"7\",0]") && tandoor.contains(",\"8\",1]") && !tandoor.contains("\"i\"") && !tandoor.contains("\"=\"") : tandoor;
+        Snapshot pancakes = Snapshot.decode(tandoor);
+        assert "7".equals(pancakes.timers.get(0).recipe) && "8".equals(pancakes.timers.get(1).recipe);
+        // An index that names nothing is no recipe.
+        Snapshot odd = Snapshot.decode("{\"v\":1,\"d\":\"K\",\"t\":1,\"m\":[[\"A\",60,0,5,7,0],[\"B\",60,0,5,\"=\",1]]}");
+        assert odd != null && "".equals(odd.timers.get(0).recipe) && "".equals(odd.timers.get(1).recipe);
+    }
+
+    static void kept(Snapshot snapshot, String recipe) {
         String text = snapshot.encode();
-        assert text.length() <= Snapshot.MAX_LENGTH && !text.isEmpty() : text.length();
+        assert !text.isEmpty() && text.length() <= Snapshot.MAX_LENGTH : text.length();
         Snapshot back = Snapshot.decode(text);
-        assert back != null && JOTA.equals(back.recipe) && back.timers.size() >= 6 : back == null ? "none" : back.timers.size();
-        for (int i = 0; i < 6; i++) assert JOTA.equals(back.timers.get(i).recipe) && back.timers.get(i).step == i;
-        if (back.timers.size() > 6) assert KRUH.equals(back.timers.get(6).recipe);
-        // Without a recipe being cooked, a timer keeps its own id.
-        Snapshot alone = Snapshot.decode(new Snapshot("Letna kuhinja", 1L, "", "", 0, 0, 0, Collections.singletonList(timers.get(0))).encode());
-        assert alone != null && JOTA.equals(alone.timers.get(0).recipe) && "".equals(alone.recipe);
+        assert back != null && back.timers.size() == snapshot.timers.size() : back == null ? "none" : back.timers.size();
+        for (int i = 0; i < back.timers.size(); i++) {
+            assert recipe.equals(back.timers.get(i).recipe) && back.timers.get(i).step == i : i;
+            assert back.timers.get(i).label.equals(snapshot.timers.get(i).label) : back.timers.get(i).label;
+        }
     }
 
     // The server.
@@ -435,6 +518,24 @@ public final class NorishTest {
                 return;
             case "/web":
                 send(exchange, 200, "<!DOCTYPE html><html><body>Norish</body></html>", null);
+                return;
+            case "/tired":
+                if (rest.equals("/api/v1/health")) send(exchange, 200, json("{'status':'ok','versions':{'root':'0.25.1-beta'}}"), null);
+                else if (rest.startsWith("/api/v1/health")) send(exchange, 404, NO_ROUTE, null);
+                else if (KEY.equals(key) && tiredAnswers.getAndIncrement() < 1) send(exchange, 200, json("{'recipes':[{'id':'" + JOTA + "','name':'Jota'}],'total':1,'nextCursor':null}"), null);
+                else send(exchange, 401, UNAUTHORIZED, null);
+                return;
+            case "/olddown":
+                if (rest.equals("/api/v1/health")) send(exchange, 503, json("{'message':'Database is error','code':'SERVICE_UNAVAILABLE'}"), null);
+                else if (rest.startsWith("/api/v1/health")) send(exchange, 404, NO_ROUTE, null);
+                else send(exchange, 401, UNAUTHORIZED, null);
+                return;
+            case "/gateway":
+                send(exchange, 502, "<html><body><h1>502 Bad Gateway</h1></body></html>", null);
+                return;
+            case "/basic":
+                exchange.getResponseHeaders().add("WWW-Authenticate", "Basic realm=\"kitchen\"");
+                send(exchange, 401, "", null);
                 return;
             case "/other":
                 send(exchange, 404, json("{'detail':'Not Found'}"), null);

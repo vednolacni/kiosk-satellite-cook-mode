@@ -76,6 +76,8 @@ final class Model {
     final boolean swipes;
     /** A note that the numbers in the words do not change with the servings, or an empty string. */
     final String fixedNote;
+    /** Where the app's plan ends before the days asked for, or an empty string. */
+    final String planNote;
 
     // Finish.
     final boolean canLogCooked;
@@ -85,7 +87,8 @@ final class Model {
           String query, RecipeSource.Order order, List<RecipeSource.Summary> recipes, boolean recipesLoading, boolean recipesMore,
           Recipe recipe, String recipeName, String recipeImage, boolean recipeLoading, double servings, double factor, Set<Recipe.Ingredient> checked,
           List<Recipe.Ingredient> ingredients, int resumeAt, int pageNumber, int pageCount, String stepTitle, List<StepText.Run> runs, StepText.Run ownTimer,
-          List<Recipe.Ingredient> stepIngredients, String previousPeek, String nextPeek, String readyAround, boolean canRead, boolean swipes, String fixedNote, boolean canLogCooked, boolean logged) {
+          List<Recipe.Ingredient> stepIngredients, String previousPeek, String nextPeek, String readyAround, boolean canRead, boolean swipes, String fixedNote, boolean canLogCooked, boolean logged,
+          String planNote) {
         this.page = page;
         this.pageVersion = pageVersion;
         this.strings = strings;
@@ -124,6 +127,7 @@ final class Model {
         this.canRead = canRead;
         this.swipes = swipes;
         this.fixedNote = fixedNote;
+        this.planNote = planNote;
         this.canLogCooked = canLogCooked;
         this.logged = logged;
     }

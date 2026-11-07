@@ -4,7 +4,7 @@ A real cook mode for a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satel
 
 Tandoor Recipes and Norish are supported. Mealie, KitchenOwl and Grocy fit the same design: see [docs/DESIGN.md](docs/DESIGN.md).
 
-> **Status:** early development. Not listed in Community Plugins yet. The views run in CI under Robolectric, with real drawing, but nothing has been tried on a real tablet yet.
+> **Status:** early development. Not listed in Community Plugins yet. The views run in CI under Robolectric, with real drawing, but nothing has been tried on a real tablet yet. Norish support is tested against a stand-in server built from Norish's API and source, not yet against a running Norish.
 
 ## What it does
 
@@ -31,7 +31,7 @@ English and Slovenian, including Slovenian's four plural forms and decimal comma
 | | Server address | The address you open the app with in a browser. A Norish under a base path keeps it, such as `https://home.example/norish`. |
 | | API token or key | Stored as a Kiosk Satellite secret. See [Creating the token or key](#creating-the-token-or-key). |
 | | Test connection | Checks both, and says which app answered and how many recipes it has. |
-| Meal plan | Days of the meal plan | Today and the days after it, 1 to 14. |
+| Meal plan | Days of the meal plan | Today and the days after it, 1 to 14. Norish shares only this week and this month, so with it the plan ends at the later of the two, and the first page says so. |
 | Cooking | Size of a step's text | Normal, Large or Extra large. Short steps grow and long ones shrink within it. |
 | | Split long steps | Shows each paragraph of a long step as a step of its own. |
 | | Swipe to change steps | Turn off if a splashing hand keeps changing the step. |
@@ -68,7 +68,11 @@ With **Norish**:
 2. Open **Settings > User > API keys**, create a key, and copy all of it at once. Norish shows it only once. It has 64 letters.
 3. Paste it into **API token or key** and press **Test connection**.
 
-Norish allows each key 500 requests an hour, and every picture counts. Give each tablet its own key, so one busy tablet cannot use up another's. Over the limit Norish asks the tablet to wait, and the plugin sends nothing with that key until the wait is over.
+Norish allows each key 500 requests an hour, and every picture counts. Give each tablet its own key, so one busy tablet cannot use up another's. Over the limit Norish asks the tablet to wait, and the plugin sends nothing with that key until the wait is over, pictures included.
+
+Norish 0.26 or newer works best, and from 0.26.1 the plan also shows Norish's notes. Norish 0.25 refuses a key that has made its 500 requests within an hour as if the key were wrong. The plugin knows the key worked before, says so, and waits an hour.
+
+Norish counts its today, its week and its month in its own time zone, which is UTC unless `TZ` is set for its container. Set `TZ` to your own, such as `Europe/Ljubljana`, so its days change at your midnight.
 
 ### When Test connection fails
 
@@ -79,6 +83,7 @@ Norish allows each key 500 requests an hour, and every picture counts. Give each
 | Norish refused the API key | Create a new key and copy all of it. The message says when the one you pasted is shorter than Norish's keys. |
 | Norish is not ready | Norish cannot reach its database or its cache, and then it refuses every key. Its own logs say why. |
 | Norish asks to wait | That key made its 500 requests within the hour. It works again after the time it names. |
+| Norish refused the key after it had worked | Norish 0.25's way of saying the key made its 500 requests within the hour. It works again within the hour. Norish 0.26 or newer says it plainly. |
 | The address answered with a web page, or sent the request on | Check the address, with Norish's base path if it has one. A login page in front of the app needs an address that goes around it. The token or key is never sent on to another server. |
 | This tablet cannot find the server | Android before version 12 cannot resolve `.local` names, so use the IP address. |
 | The secure connection failed | Install a private CA in Android, which Kiosk Satellite trusts, or use plain http on the home network. Android 8.1 cannot use a server that only offers TLS 1.3. |
@@ -97,7 +102,7 @@ Opening one recipe can also say it is private and not shared with the token's us
 | Action | What it does |
 | --- | --- |
 | Open Cook Mode, Close Cook Mode, Toggle Cook Mode | The panel. Opening wakes the screen and closes the screensaver. |
-| Cook today's meal | Goes straight to the next meal planned today. |
+| Cook today's meal | Goes straight to the next meal planned today. Norish's meals have no time, so they count as breakfast at 8:00, lunch at 12:00, dinner at 18:00 and a snack at 21:00. |
 | Next step, Previous step | Move through the recipe. On the first page Next opens today's meal. With the panel closed or under a screensaver, the first one only brings it back. A ringing timer comes first, and the panel comes back after it is cleared. |
 | Read step | Reads the current step aloud. |
 | Start the step's timer | Starts the first of the step's timers that does not run yet. |
@@ -127,7 +132,7 @@ Kiosk Mode's exit gesture of several fast taps counts taps anywhere, also on the
 ## Where data goes
 
 - **Your recipe server.** The plugin calls the address in **Server address** with your token or key, to read the meal plan and recipes and, with Tandoor unless **Record the meal in Tandoor** is **Never**, to record what you opened and cooked. Norish's health check, which Test connection asks first, gets no key. The token or key never goes to any other host: a redirect to another host is not followed, nor to another port unless it goes from http up to https on the same host, nor from https back to http, and a next-page link from another host is rewritten to your server. With Fleet Management, Kiosk Satellite copies it to other kiosks only if a profile includes **Plugin secrets**. Plugin settings are not part of a configuration export, so a replaced tablet needs it again.
-- **Pictures.** They load from wherever the app says they are, which can be S3 storage if you set that up in Tandoor. Tandoor's media is public, so the token is not sent with them. Norish's pictures need the key, so it goes with the pictures on your Norish server, under its base path, and with no others.
+- **Pictures.** They load from wherever the app says they are, which can be S3 storage if you set that up in Tandoor. Tandoor's media is public, so the token is not sent with them. Norish's pictures need the key, so it goes with the pictures on your Norish server, under its base path, and with no others. While Norish has asked the plugin to wait, they go without it.
 - **Home Assistant.** Only with the Home Assistant voice: the text of a step or the ingredient list goes through Kiosk Satellite's own connection to the kiosk's announce action, and on to whichever text-to-speech engine you chose, which may be a cloud service. The plugin never sees your Home Assistant token.
 - **ESPHome entities.** With them on, the recipe, the step, the timers and today's meals go to Home Assistant.
 - **The tablet.** With the tablet voice, Android's text-to-speech engine reads the step. Which engine that is, and what it does with the text, is up to the tablet. The **Saved session** setting holds the recipe's id and name, the servings, the step and the timers, in Kiosk Satellite's settings. It never holds the token. It is stored as a secret, so Fleet Management leaves it out unless a profile includes **Plugin secrets**. With Plugin secrets the leader's value replaces each follower's, so a follower's session does not survive a restart and every step syncs the fleet: keep Cook Mode out of such a profile, or turn Plugin secrets off in it and type the token on each kiosk.
@@ -173,4 +178,4 @@ Publish a GitHub release with a tag such as `v0.1.0`. The **Release** workflow b
 
 ## License
 
-[Apache-2.0](LICENSE). The icon is this project's own. Not affiliated with Kiosk Satellite, Tandoor Recipes, Norish or any other recipe app. The cooking view takes ideas from [Norish](https://norish.dev/), but no code, and `NorishSource` is written from Norish's API reference and the answers its routes give.
+[Apache-2.0](LICENSE). The icon is this project's own. Not affiliated with Kiosk Satellite, Tandoor Recipes, Norish or any other recipe app. The cooking view takes ideas from [Norish](https://norish.dev/), but no code, and `NorishSource` is written from Norish's API docs and its source, read only to learn how its API answers. No Norish code is in the plugin.

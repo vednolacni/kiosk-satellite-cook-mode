@@ -787,8 +787,8 @@ public final class ViewsTest {
         String key = "aBcDeFgHiJkLmNoPaBcDeFgHiJkLmNoPaBcDeFgHiJkLmNoPaBcDeFgHiJkLmNoP";
         String jota = "5c0f3a2e-8b1d-4e6a-9f7c-2d4b6a8e1f03";
         String picture = "/recipes/" + jota + "/1.png";
-        String plan = ("[{'id':'e1','date':'2026-11-02','slot':'Lunch','sortOrder':0,'itemType':'recipe','recipeId':'" + jota + "','title':null,'recipeName':'Jota',"
-            + "'recipeImage':'" + picture + "','servings':4,'calories':null},{'id':'e2','date':'2026-11-02','slot':'Dinner','sortOrder':0,'itemType':'note','recipeId':null,"
+        String plan = ("[{'id':'e1','date':'2026-11-27','slot':'Lunch','sortOrder':0,'itemType':'recipe','recipeId':'" + jota + "','title':null,'recipeName':'Jota',"
+            + "'recipeImage':'" + picture + "','servings':4,'calories':null},{'id':'e2','date':'2026-11-27','slot':'Dinner','sortOrder':0,'itemType':'note','recipeId':null,"
             + "'title':'Solata z vrta','recipeName':null,'recipeImage':null,'servings':null,'calories':null}]").replace('\'', '"');
         String list = ("{'recipes':[{'id':'" + jota + "','name':'Jota','totalMinutes':80,'image':'" + picture + "'}],'total':1,'nextCursor':null}").replace('\'', '"');
         String recipe = ("{'id':'" + jota + "','name':'Jota','description':'Kraška enolončnica.','url':null,'servings':4,'prepMinutes':20,'cookMinutes':60,'totalMinutes':null,"
@@ -843,9 +843,11 @@ public final class ViewsTest {
             prefix = "norish";
             theme = theme(false);
             clock = new TestClock();
+            // A Friday at the end of a month, when Norish's plan ends before the week asked for.
+            clock.now = ZonedDateTime.of(2026, 11, 27, 11, 0, 0, 0, ZONE).toInstant();
             net = new Net();
             host = new Host();
-            cook = new Cook(new StillUi(), clock, net, RecipeSource::of);
+            cook = new Cook(new StillUi(), clock, net, chosen -> RecipeSource.of(chosen, SystemClock::elapsedRealtime));
             cook.start(host, values);
             s = Strings.of("Slovenščina", Settings.App.NORISH);
             open();
@@ -853,6 +855,7 @@ public final class ViewsTest {
             assertNotNull(find("Večerja"));
             assertNotNull(find("Solata z vrta"));
             assertNotNull(find("Najnovejši"));
+            assertNotNull("where Norish's plan ends", find(s.planCut));
             shot("1-home");
 
             tap(find("Jota"));

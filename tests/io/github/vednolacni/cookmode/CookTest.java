@@ -154,6 +154,8 @@ public final class CookTest {
         public void viewed(String id) { calls.add("viewed " + id); }
         public void cooked(String id, double servings) throws SourceException { calls.add("cooked " + id + " " + servings); if (fail != null) throw fail; }
         public Map<String, String> imageHeaders(String url) { return Collections.emptyMap(); }
+        LocalDate reach = LocalDate.MAX;
+        public LocalDate planReach(LocalDate first) { return reach; }
         public void cancel() { calls.add("cancel"); }
     }
 
@@ -275,6 +277,40 @@ public final class CookTest {
         net.runAll();
         assert ui.model.page == Model.Page.HOME && ui.model.recipe == null && !cook.cooking() && "Open in Tandoor".equals(ui.model.strings.openInApp);
         assert host.triggers.contains("cookingFinished");
+        cook.close();
+
+        // Cook today's meal goes to the meal that comes next, though Norish's slots have no time of their own.
+        String[][] times = {{"7", "30", "1"}, {"12", "30", "2"}, {"13", "59", "2"}, {"18", "30", "3"}, {"23", "30", "3"}};
+        for (String[] at : times) {
+            fresh(values);
+            source.plan = new ArrayList<>(Arrays.asList(
+                new RecipeSource.Planned("b", TODAY, "Breakfast", NorishSource.slotOrder("Breakfast"), 0, "1", "Kruh", "", 0, "", 0),
+                new RecipeSource.Planned("l", TODAY, "Lunch", NorishSource.slotOrder("Lunch"), 0, "2", "Jota", "", 0, "", 0),
+                new RecipeSource.Planned("d", TODAY, "Dinner", NorishSource.slotOrder("Dinner"), 0, "3", "Ričet", "", 0, "", 0)));
+            net.runAll();
+            clock.now = ZonedDateTime.of(2026, 11, 1, Integer.parseInt(at[0]), Integer.parseInt(at[1]), 0, 0, ZONE).toInstant();
+            cook.execute("cookToday");
+            net.runAll();
+            String asked = "";
+            for (String call : source.calls) if (call.startsWith("recipe ")) asked = call;
+            assert ("recipe " + at[2]).equals(asked) : at[0] + ":" + at[1] + " asked " + asked;
+            cook.close();
+        }
+
+        // Where Norish's plan ends before the days asked for, the first page says so.
+        fresh(values);
+        net.runAll();
+        cook.execute("openCookMode");
+        net.runAll();
+        assert "".equals(ui.model.planNote);
+        source.reach = TODAY.plusDays(2);
+        cook.refresh();
+        net.runAll();
+        assert ui.model.strings.planCut.equals(ui.model.planNote) && "Norish shares only this week and this month of the meal plan.".equals(ui.model.planNote);
+        source.reach = TODAY.plusDays(6);
+        cook.refresh();
+        net.runAll();
+        assert "".equals(ui.model.planNote);
         cook.close();
     }
 

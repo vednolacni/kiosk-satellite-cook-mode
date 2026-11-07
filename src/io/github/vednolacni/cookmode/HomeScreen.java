@@ -296,7 +296,7 @@ final class HomeScreen implements Screen {
         // What the rows show and nothing else, since building them again under a finger takes its tap: the day, which names
         // today and tomorrow, whether there is anything to say about an empty today, and the card of what is being cooked.
         boolean loadingToday = model.planLoading && model.days.get(0).meals.isEmpty();
-        String state = model.date + "|" + loadingToday + "|" + model.resumeAt + (model.resumeAt > 0 ? "|" + model.recipeName + "|" + model.recipeImage : "");
+        String state = model.date + "|" + loadingToday + "|" + model.resumeAt + (model.resumeAt > 0 ? "|" + model.recipeName + "|" + model.recipeImage : "") + "|" + model.planNote;
         if (meals.equals(shownMeals) && state.equals(shownPlanState)) return;
         shownMeals.clear();
         shownMeals.addAll(meals);
@@ -314,6 +314,7 @@ final class HomeScreen implements Screen {
             }
             first = false;
         }
+        if (!model.planNote.isEmpty()) plan.addView(parts.text(model.planNote, 14, 400, "onSurfaceVariant", 0), parts.wide(18));
         View end = new View(parts.context());
         plan.addView(end, new LinearLayout.LayoutParams(1, parts.px(20)));
     }

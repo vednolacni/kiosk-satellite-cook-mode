@@ -8,7 +8,8 @@ final class PlainText {
     // Each of these has a limit, so a text full of openers does not take a pass over the rest of it for every one.
     private static final Pattern IMAGE = Pattern.compile("!\\[([^\\]]{0,300})\\]\\([^)]{0,1000}\\)");
     private static final Pattern LINK = Pattern.compile("\\[([^\\]]{0,300})\\]\\([^)]{0,1000}\\)");
-    private static final Pattern HTML = Pattern.compile("<[^>]{1,200}>");
+    /** A tag or a comment. A < before anything else, as in "<60 °C", is text, as Markdown has it. */
+    private static final Pattern HTML = Pattern.compile("<!--[\\s\\S]{0,2000}?-->|</?[A-Za-z][A-Za-z0-9-]{0,30}(?:\\s[^<>]{0,200})?/?>");
     // Line patterns use [ \t] rather than \s, which would also swallow the blank lines before them.
     private static final Pattern HEADING = Pattern.compile("(?m)^[ \\t]{0,3}#{1,6}[ \\t]*");
     private static final Pattern QUOTE = Pattern.compile("(?m)^[ \\t]{0,3}>[ \\t]?");

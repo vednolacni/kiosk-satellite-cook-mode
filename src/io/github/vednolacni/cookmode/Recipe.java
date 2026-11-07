@@ -67,7 +67,9 @@ final class Recipe {
             if (!unitKey.isEmpty()) {
                 String words = Units.words(unitKey, decimalComma);
                 if (!words.isEmpty()) return amount.isEmpty() ? words : amount + " " + words;
-                return amount.isEmpty() ? "" : amount + " " + Units.name(unitKey, this.amount * factor, amount, decimalComma);
+                // A measure without a number, such as a pinch, still says what it is.
+                if (amount.isEmpty()) return Units.name(unitKey, 1, "1", decimalComma);
+                return amount + " " + Units.name(unitKey, this.amount * factor, amount, decimalComma);
             }
             if (amount.isEmpty()) return "";
             String unitName = plural(factor) && !unitPlural.isEmpty() ? unitPlural : unit;

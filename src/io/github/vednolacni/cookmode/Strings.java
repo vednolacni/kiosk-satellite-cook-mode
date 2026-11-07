@@ -80,6 +80,8 @@ final class Strings {
     final String search;
     final String problemPrivate;
     final String problemLimit;
+    /** Where the app's meal plan ends before the days asked for. */
+    final String planCut;
     private final DateTimeFormatter longDate;
     private final DateTimeFormatter shortDate;
     /** Norish's meal slots in this language, by the name Norish sends. Empty where they stay as they come. */
@@ -91,7 +93,7 @@ final class Strings {
     private static final String[] ENGLISH_WORDS = {
         "Today", "Tomorrow", "Meal plan", "Nothing planned for today.", "Recipes", "Search recipes", "{recent}", "All",
         "Load more", "No recipes found.", "Try again", "Set the server address and the API {key} in the plugin settings.",
-        "Ingredients", "Prep", "Waiting", "Start cooking", "Continue at step %d", "Open {in app}",
+        "Ingredients", "{prep}", "Waiting", "Start cooking", "Continue at step %d", "Open {in app}",
         "This recipe has no steps.", "Back", "Close", "Ready around %s", "Next step", "Finish", "Read", "For this step",
         "Enjoy your meal!", "Record {in app} as cooked", "Recorded {in app}.", "Back to the meal plan", "End cooking",
         "Timers", "New timer", "Timer", "Stop", "Pause", "Resume", "Cancel", "At most 6 timers can run.", "Time is up", "Cooking",
@@ -106,12 +108,13 @@ final class Strings {
         "Space", "Search",
         "This recipe is private and not shared with the {key's} user.",
         "This API {key} has made its 500 requests for the hour, so {app} will not answer it for a while. Give each tablet its own {key}.",
+        "{app} shares only this week and this month of the meal plan.",
     };
 
     private static final String[] SLOVENIAN_WORDS = {
         "Danes", "Jutri", "Jedilnik", "Za danes ni načrtovanih obrokov.", "Recepti", "Išči recepte", "{recent}", "Vsi",
         "Naloži več", "Ni receptov.", "Poskusi znova", "V nastavitvah vtičnika vpiši naslov strežnika in API {key}.",
-        "Sestavine", "Priprava", "Čakanje", "Začni kuhati", "Nadaljuj pri koraku %d", "Odpri {in app}",
+        "Sestavine", "{prep}", "Čakanje", "Začni kuhati", "Nadaljuj pri koraku %d", "Odpri {in app}",
         "Ta recept nima korakov.", "Nazaj", "Zapri", "Pripravljeno okoli %s", "Naslednji korak", "Končaj", "Preberi", "Za ta korak",
         "Dober tek!", "Zabeleži {in app} kot skuhano", "Zabeleženo {in app}.", "Nazaj na jedilnik", "Končaj kuhanje",
         "Časovniki", "Nov časovnik", "Časovnik", "Ustavi", "Premor", "Nadaljuj", "Prekliči", "Teče lahko največ 6 časovnikov.", "Čas je potekel", "Kuhanje",
@@ -126,6 +129,7 @@ final class Strings {
         "Presledek", "Išči",
         "Ta recept je zaseben in ni deljen z uporabnikom tega {key's}.",
         "Ta API {key} je to uro porabil svojih 500 zahtev, zato mu {app} nekaj časa ne bo odgovarjal. Vsaka tablica naj ima svoj {key}.",
+        "{app} deli le jedilnik tega tedna in tega meseca.",
     };
 
     static final Strings ENGLISH = english(Settings.App.TANDOOR);
@@ -143,6 +147,8 @@ final class Strings {
         words.put("{key's}", norish ? "key's" : "token's");
         words.put("{new key}", norish ? "Create a new one under Settings > User > API keys." : "Create a new one under Settings > API.");
         words.put("{recent}", norish ? "Newest" : "Recently opened");
+        // Norish keeps prep and cook apart, and both are the work.
+        words.put("{prep}", norish ? "Prep and cook" : "Prep");
         return new Strings(Locale.ENGLISH, false, "EEEE, MMMM d", "EEEE, MMM d", filled(ENGLISH_WORDS, words), Collections.<String, String>emptyMap());
     }
 
@@ -157,6 +163,7 @@ final class Strings {
         // Norish does not speak Slovenian, so its menu keeps its English names.
         words.put("{new key}", norish ? "Ustvari novega v Norishu pod Settings > User > API keys." : "Ustvari novega v Nastavitvah > API.");
         words.put("{recent}", norish ? "Najnovejši" : "Nazadnje odprti");
+        words.put("{prep}", norish ? "Priprava in kuhanje" : "Priprava");
         Map<String, String> slots = new HashMap<>();
         if (norish) {
             slots.put("Breakfast", "Zajtrk");
@@ -245,6 +252,7 @@ final class Strings {
         search = words[i++];
         problemPrivate = words[i++];
         problemLimit = words[i++];
+        planCut = words[i++];
     }
 
     /** The Language setting's choice, for the recipe app. Auto follows the device. */

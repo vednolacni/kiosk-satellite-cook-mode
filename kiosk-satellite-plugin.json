@@ -57,7 +57,7 @@
       "step": 1,
       "unit": "days",
       "group": "Meal plan",
-      "description": "Today and the days after it. Meals planned today come first, one tap from cooking."
+      "description": "Today and the days after it. Meals planned today come first, one tap from cooking. Norish shares only this week and this month, so with it the plan ends at the later of the two."
     },
     {
       "key": "textSize",

@@ -8,8 +8,10 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -29,7 +31,8 @@ import javax.net.ssl.SSLException;
  * included, after which Norish answers 429 with the seconds to wait; the plan comes only as this week and this month in
  * the server's time zone; the recipe list pages by offset; a recipe keeps its own ingredient list, for both measuring
  * systems at once, and its steps refer to the lines; and pictures are paths under the server's address, which need the
- * key too. Norish keeps no cook log and no list of what was viewed.
+ * key too. Norish keeps no cook log and no list of what was viewed. 0.25 refuses a key past its limit as if it were
+ * wrong, so a refusal of a key that has worked is taken for the limit there.
  */
 final class NorishSource implements RecipeSource {
     /** Recipes with nutrition data are large. Nothing in this API should come near it. */
@@ -47,16 +50,27 @@ final class NorishSource implements RecipeSource {
     /** Norish's rule for an id: a UUID of any version, or the nil or the all-f one. Anything else never reaches a path. */
     private static final Pattern ID = Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}"
         + "|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff");
-    /** Norish's meal slots in the day's order. They have no time. */
+    /** Norish's meal slots in the day's order. */
     static final List<String> SLOTS = Collections.unmodifiableList(Arrays.asList("Breakfast", "Lunch", "Dinner", "Snack"));
+    /**
+     * When each slot is usually cooked, in minutes after midnight, since Norish's slots have no time. Cook today's meal
+     * goes by these to the meal that comes next, and they keep Norish's own order, with Snack last.
+     */
+    private static final int[] SLOT_MINUTES = {8 * 60, 12 * 60, 18 * 60, 21 * 60};
+    /** The longest 0.25 refuses a key past its limit: an hour from the last request it allowed. */
+    private static final long OLDER_WAIT_SECONDS = 3600;
 
     private final String base;
     private final String key;
     private final Http http;
-    /** A steady clock in milliseconds, for how long a wait Norish asked for lasts. */
+    /** A steady clock in milliseconds that also counts while the tablet sleeps, for how long a wait lasts. */
     private final LongSupplier millis;
     /** When the key may be used again, on millis' clock, or null while Norish has not asked to wait. */
     private volatile Long quietUntil;
+    /** Whether the key has had an answer since the last wait, so a refusal now is no wrong key on 0.25. */
+    private volatile boolean keyWorked;
+    /** Whether the server is 0.25, which lacks /health/ready and refuses a key past its limit as if it were wrong. */
+    private volatile boolean older;
 
     NorishSource(String base, String key, Http http) {
         this(base, key, http, () -> System.nanoTime() / 1_000_000L);
@@ -109,10 +123,16 @@ final class NorishSource implements RecipeSource {
      */
     private String version() throws SourceException {
         Http.Response ready = send("GET", "/api/v1/health/ready", null, false);
-        if (!ready.text().trim().startsWith("{")) throw notApi(ready.status);
+        String text = ready.text().trim();
+        if (!text.startsWith("{")) {
+            // A proxy's own page while Norish is stopped or starting says nothing about the address.
+            if (ready.status >= 500) throw inFront(ready.status);
+            throw notApi(ready.status, text.isEmpty());
+        }
         if (ready.status == 503) throw new SourceException(SourceException.Kind.SERVER, "Norish is not ready" + said(ready) + ".");
         // Anything else but 0.25's missing route is for the search to say.
         if (ready.status != 404) return "";
+        older = true;
         Http.Response health = send("GET", "/api/v1/health", null, false);
         if (!health.ok()) return "";
         try {
@@ -150,8 +170,7 @@ final class NorishSource implements RecipeSource {
             String title = !recipeId.isEmpty() && !recipeName.isEmpty() ? recipeName : words;
             if (title.isEmpty()) continue;
             String slot = Json.text(meal.get("slot")).trim();
-            int order = SLOTS.indexOf(slot);
-            Planned planned = new Planned(Json.text(meal.get("id")), date, slot, 24 * 60 + (order < 0 ? SLOTS.size() : order), 0, recipeId.isEmpty() ? null : recipeId,
+            Planned planned = new Planned(Json.text(meal.get("id")), date, slot, slotOrder(slot), 0, recipeId.isEmpty() ? null : recipeId,
                 title, note ? words : "", 0, recipeId.isEmpty() ? "" : picture(meal.get("recipeImage")), 0);
             plan.add(planned);
             places.put(planned, Json.number(meal.get("sortOrder"), 0));
@@ -163,6 +182,20 @@ final class NorishSource implements RecipeSource {
             return Double.compare(places.get(a), places.get(b));
         });
         return plan;
+    }
+
+    /** A slot's place in the day: its usual minute for Norish's four, and after them all for any other. */
+    static int slotOrder(String slot) {
+        int index = SLOTS.indexOf(slot);
+        return index < 0 ? 24 * 60 + SLOTS.size() : SLOT_MINUTES[index];
+    }
+
+    /** Norish tells this week and this month, as its server counts them, and nothing after the later of their ends. */
+    @Override
+    public LocalDate planReach(LocalDate first) {
+        LocalDate sunday = first.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY));
+        LocalDate monthEnd = first.with(TemporalAdjusters.lastDayOfMonth());
+        return sunday.isAfter(monthEnd) ? sunday : monthEnd;
     }
 
     @Override
@@ -229,7 +262,9 @@ final class NorishSource implements RecipeSource {
             double order = Json.number(line.get("order"), Double.NaN);
             if (!Double.isNaN(order) && !byOrder.containsKey(order)) byOrder.put(order, ingredient);
         }
-        List<Recipe.Step> method = new ArrayList<>();
+        List<Draft> drafts = new ArrayList<>();
+        // How many references each line has, since a line more than one step names is ticked off in each apart.
+        Map<Recipe.Ingredient, Integer> named = new IdentityHashMap<>();
         String section = "";
         for (Map<String, Object> step : steps) {
             if (!system.equals(Json.text(step.get("systemUsed")))) continue;
@@ -243,12 +278,21 @@ final class NorishSource implements RecipeSource {
                 if (end < 0 || trimmed.substring(end + 1).trim().isEmpty()) continue;
                 text = trimmed.substring(end + 1);
             }
-            List<Recipe.Ingredient> uses = new ArrayList<>();
+            Draft draft = new Draft(section, text);
             for (Map<String, Object> use : ordered(step.get("stepIngredients"))) {
                 Recipe.Ingredient line = byOrder.get(Json.number(use.get("ingredientOrder"), Double.NaN));
-                if (line != null) uses.add(part(line, Json.number(use.get("share"), 1)));
+                if (line == null) continue;
+                draft.lines.add(line);
+                draft.shares.add(Json.number(use.get("share"), 1));
+                named.put(line, named.containsKey(line) ? named.get(line) + 1 : 1);
             }
-            method.add(new Recipe.Step(section, text, Recipe.Format.MARKDOWN, uses, 0));
+            drafts.add(draft);
+        }
+        List<Recipe.Step> method = new ArrayList<>();
+        for (Draft draft : drafts) {
+            List<Recipe.Ingredient> uses = new ArrayList<>();
+            for (int i = 0; i < draft.lines.size(); i++) uses.add(part(draft.lines.get(i), draft.shares.get(i), named.get(draft.lines.get(i)) == 1));
+            method.add(new Recipe.Step(draft.title, draft.text, Recipe.Format.MARKDOWN, uses, 0));
         }
         int working = (int) (minutes(recipe.get("prepMinutes")) + minutes(recipe.get("cookMinutes")));
         long total = minutes(recipe.get("totalMinutes"));
@@ -262,6 +306,19 @@ final class NorishSource implements RecipeSource {
         String own = Json.text(recipe.get("id")).trim();
         return new Recipe(own.isEmpty() ? uuid : own, Json.text(recipe.get("name")), Json.text(recipe.get("description")).trim(), image,
             Json.number(recipe.get("servings"), 0), "", working, waiting, base + "/recipes/" + uuid, Json.text(recipe.get("url")), method, list);
+    }
+
+    /** A step before its lines are shared out: its title, its words, and the lines it names with the share of each. */
+    private static final class Draft {
+        final String title;
+        final String text;
+        final List<Recipe.Ingredient> lines = new ArrayList<>();
+        final List<Double> shares = new ArrayList<>();
+
+        Draft(String title, String text) {
+            this.title = title;
+            this.text = text;
+        }
     }
 
     /**
@@ -286,15 +343,21 @@ final class NorishSource implements RecipeSource {
         String unit = Json.text(line.get("unit")).trim();
         String name = PlainText.fromMarkdown(Json.text(line.get("ingredientName")));
         String key = Units.key(unit);
-        if (!key.isEmpty()) unit = Units.name(key, 1, "1", false);
-        return new Recipe.Ingredient(false, amount, unit, "", name, "", "", name, key);
+        if (!key.isEmpty()) return new Recipe.Ingredient(false, amount, Units.name(key, 1, "1", false), "", name, "", "", name, key);
+        // A unit kept as it was typed, with no amount to go with, still says how much after the name.
+        if (Double.isNaN(amount) && !unit.isEmpty()) return new Recipe.Ingredient(false, amount, "", "", name, "", unit, name);
+        return new Recipe.Ingredient(false, amount, unit, "", name, "", "", name);
     }
 
-    /** The share of a line one step uses. All of it is the line itself, so ticking it off in the step ticks it in the list. */
-    private static Recipe.Ingredient part(Recipe.Ingredient line, double share) {
-        if (!(share > 0) || Double.isInfinite(share) || Math.abs(share - 1) < 1e-9 || !line.hasAmount()) return line;
+    /**
+     * The share of a line one step uses. All of a line that no other step names is the line itself, so ticking it off in
+     * the step ticks it in the list. Anything else is a copy with the step's own amount.
+     */
+    private static Recipe.Ingredient part(Recipe.Ingredient line, double share, boolean onlyHere) {
+        boolean all = !(share > 0) || Double.isInfinite(share) || Math.abs(share - 1) < 1e-9 || !line.hasAmount();
+        if (all && onlyHere) return line;
         // Norish rounds the share to four decimals before it scales it for the servings.
-        double amount = BigDecimal.valueOf(line.amount * share).setScale(4, RoundingMode.HALF_UP).doubleValue();
+        double amount = all ? line.amount : BigDecimal.valueOf(line.amount * share).setScale(4, RoundingMode.HALF_UP).doubleValue();
         return new Recipe.Ingredient(false, amount, line.unit, line.unitPlural, line.food, line.foodPlural, line.note, line.raw, line.unitKey);
     }
 
@@ -334,10 +397,13 @@ final class NorishSource implements RecipeSource {
         throw new SourceException(SourceException.Kind.UNSUPPORTED, "Norish keeps no cook log.");
     }
 
-    /** Norish's pictures need the key as much as its API. They get it only on the configured server, under its base path. */
+    /**
+     * Norish's pictures need the key as much as its API. They get it only on the configured server, under its base path,
+     * and not while Norish has asked to wait, when each would only count against the key.
+     */
     @Override
     public Map<String, String> imageHeaders(String url) {
-        return ours(url) ? Collections.singletonMap("x-api-key", key) : Collections.<String, String>emptyMap();
+        return ours(url) && !waiting() ? Collections.singletonMap("x-api-key", key) : Collections.<String, String>emptyMap();
     }
 
     /** Whether an address is on the configured server, with its scheme and port, under its base path. */
@@ -346,8 +412,12 @@ final class NorishSource implements RecipeSource {
         try {
             URL target = new URL(url);
             URL server = new URL(base);
+            String path = target.getPath();
+            // Dot segments, written out or encoded, leave the base path once the request resolves them.
+            String plain = path.replaceAll("(?i)%2e", ".").replaceAll("(?i)%2f", "/").replaceAll("(?i)%5c", "\\\\");
+            if (plain.contains("\\") || ("/" + plain + "/").matches("(?s).*/\\.{1,2}/.*")) return false;
             return target.getProtocol().equals(server.getProtocol()) && target.getHost().equalsIgnoreCase(server.getHost()) && port(target) == port(server)
-                && target.getUserInfo() == null && target.getPath().startsWith(server.getPath() + "/");
+                && target.getUserInfo() == null && path.startsWith(server.getPath() + "/");
         } catch (MalformedURLException notAnAddress) {
             return false;
         }
@@ -365,7 +435,7 @@ final class NorishSource implements RecipeSource {
     // HTTP.
 
     private Object call(String method, String path, Object body) throws SourceException {
-        return answer(send(method, path, body, true), path);
+        return answer(send(method, path, body, true), method, path);
     }
 
     /** One request, with the key or without it, and none with it while Norish has asked to wait. */
@@ -397,19 +467,26 @@ final class NorishSource implements RecipeSource {
     }
 
     /** What Norish answered, or why not, the way its errors say it: {"message", "code", "data": {"httpStatus", "path"}}. */
-    private Object answer(Http.Response response, String path) throws SourceException {
+    private Object answer(Http.Response response, String method, String path) throws SourceException {
         int status = response.status;
         String text = response.text().trim();
         boolean json = text.startsWith("{") || text.startsWith("[");
-        // Some HTTP stacks keep the body of a refused POST, so an empty one is Norish's own too.
-        boolean own = json || text.isEmpty();
-        if (status == 429 && own) {
+        if (status == 429) {
+            // Norish's own, or a proxy's in front of it: either way the key waits.
             long seconds = seconds(response.header("Retry-After"));
             quietUntil = millis.getAsLong() + seconds * 1000;
             throw limited(seconds);
         }
-        if (status == 401 && own) {
+        // The JDK drops the body of a refused POST, which Android's HTTP keeps, so only there is an empty 401 Norish's.
+        if (status == 401 && (json || (text.isEmpty() && "POST".equals(method)))) {
             notReady();
+            if (older && keyWorked) {
+                // 0.25 refuses a key past its 500 requests an hour as it refuses a wrong one, and this one has worked.
+                keyWorked = false;
+                quietUntil = millis.getAsLong() + OLDER_WAIT_SECONDS * 1000;
+                throw new SourceException(SourceException.Kind.LIMIT, "Norish refused the key after it had worked, which is how Norish 0.25 says a key has made 500 requests"
+                    + " within an hour. The plugin waits an hour before it uses it again. Norish 0.26 and later say how long to wait. Give each tablet its own key.");
+            }
             String length = key.length() < KEY_LENGTH ? " This one has " + key.length() + " characters and Norish's have " + KEY_LENGTH + ", so part of it may be missing." : "";
             throw new SourceException(SourceException.Kind.AUTH, "Norish refused the API key. Create one under Settings > User > API keys and copy all of it: Norish shows it only once."
                 + length);
@@ -417,10 +494,11 @@ final class NorishSource implements RecipeSource {
         if (!json) {
             // Norish answers everything under /api/v1 in JSON. This came from something in front of it.
             if (status == 404) throw new SourceException(SourceException.Kind.NETWORK, "Something in front of Norish answered 404 for " + path + ".");
-            if (status >= 500) throw new SourceException(SourceException.Kind.SERVER, "Something in front of Norish answered HTTP " + status + ".");
-            throw notApi(status);
+            if (status >= 500) throw inFront(status);
+            throw notApi(status, text.isEmpty());
         }
         if (response.ok()) {
+            keyWorked = true;
             try {
                 return Json.parse(text);
             } catch (IllegalArgumentException unreadable) {
@@ -438,16 +516,42 @@ final class NorishSource implements RecipeSource {
         throw new SourceException(SourceException.Kind.SERVER, "Norish answered HTTP " + status + (said.isEmpty() ? "." : ": " + clip(said) + "."));
     }
 
-    /** A 401 also comes when Norish cannot reach its own database or cache. Its health route, which takes no key, tells. */
+    /**
+     * A 401 also comes when Norish cannot reach its own database or cache. Its health route, which takes no key, tells,
+     * and on 0.25, which lacks that route, the older one does.
+     */
     private void notReady() throws SourceException {
-        Http.Response ready;
+        Http.Response ready = health("/api/v1/health/ready");
+        if (ready == null) return;
+        if (ready.status == 503) throw unready(ready);
+        if (ready.status != 404) return;
+        older = true;
+        Http.Response health = health("/api/v1/health");
+        if (health != null && health.status >= 500) throw unready(health);
+    }
+
+    /** A health route's own answer in JSON, or null for anything else, which says nothing here. */
+    private Http.Response health(String path) {
         try {
-            ready = send("GET", "/api/v1/health/ready", null, false);
+            Http.Response answer = send("GET", path, null, false);
+            return answer.text().trim().startsWith("{") ? answer : null;
         } catch (SourceException unreachable) {
-            return;
+            return null;
         }
-        if (ready.status != 503 || !ready.text().trim().startsWith("{")) return;
-        throw new SourceException(SourceException.Kind.SERVER, "Norish is not ready" + said(ready) + ". That, and not the key, is why it refused it.");
+    }
+
+    private static SourceException unready(Http.Response health) {
+        return new SourceException(SourceException.Kind.SERVER, "Norish is not ready" + said(health) + ". That, and not the key, is why it refused it.");
+    }
+
+    private static SourceException inFront(int status) {
+        return new SourceException(SourceException.Kind.SERVER, "Something in front of Norish answered HTTP " + status + ". Norish may be stopped or still starting.");
+    }
+
+    /** Whether Norish has asked to wait and the wait is not over. */
+    private boolean waiting() {
+        Long until = quietUntil;
+        return until != null && until - millis.getAsLong() > 0;
     }
 
     /** Norish asked to wait. Until then the key goes nowhere: each request would count, and none would be answered. */
@@ -475,9 +579,9 @@ final class NorishSource implements RecipeSource {
         }
     }
 
-    private static SourceException notApi(int status) {
-        return new SourceException(SourceException.Kind.NOT_API, "The address answered" + (status >= 300 ? " HTTP " + status : "") + " with a web page, not Norish's API."
-            + " Check the Norish address, with its base path if it has one, and that no login page is in front of it.");
+    private static SourceException notApi(int status, boolean empty) {
+        return new SourceException(SourceException.Kind.NOT_API, "The address answered" + (status >= 300 ? " HTTP " + status : "") + (empty ? " with nothing" : " with a web page")
+            + ", not Norish's API. Check the Norish address, with its base path if it has one, and that no login page or password prompt is in front of it.");
     }
 
     /** An error's own words, as ": words", or nothing. */

@@ -118,7 +118,7 @@ final class Units {
     static String name(String key, double amount, String shown, boolean slovenian) {
         String[] row = MEASURE.get(key);
         if (row == null) return words(key, slovenian);
-        if (!slovenian) return amount <= 1 ? row[1] : row[2];
+        if (!slovenian) return amount < 1 || shown.equals("1") ? row[1] : row[2];
         return row[3 + slovenianForm(shown)];
     }
 

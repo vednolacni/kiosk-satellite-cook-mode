@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package io.github.vednolacni.cookmode;
 
+import android.os.SystemClock;
 import java.time.Clock;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -28,7 +29,7 @@ public final class CookModePlugin implements KioskPlugin {
             thread.setDaemon(true);
             return thread;
         });
-        cook = new Cook(new AndroidUi(), Clock.systemDefaultZone(), net, RecipeSource::of);
+        cook = new Cook(new AndroidUi(), Clock.systemDefaultZone(), net, values -> RecipeSource.of(values, SystemClock::elapsedRealtime));
         cook.start(host, settings);
     }
 

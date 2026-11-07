@@ -426,5 +426,9 @@ public final class TextTest {
         assert plain.equals("Testo\n\nZmešaj moko in sol v skledi.\n\n• jajca\n• mleko\n\nPusti 10 min počivati.\n\nsnake_case_word ostane.") : plain;
         assert "Testo. Zmešaj moko in sol v skledi. jajca. mleko. Pusti 10 min počivati. snake_case_word ostane.".equals(PlainText.forSpeech(plain)) : PlainText.forSpeech(plain);
         assert "".equals(PlainText.fromMarkdown(null)) && "a < b & c".equals(PlainText.fromMarkdown("a &lt; b &amp; c"));
+        // Only tags and comments go. A < before a number is text, as Markdown has it.
+        assert "Rest until the core is <60 °C, then sear at >200 °C.".equals(PlainText.fromMarkdown("Rest until the core is <60 °C, then sear at >200 °C."));
+        assert "bold and blue".equals(PlainText.fromMarkdown("<b>bold</b> and <span style=\"color: blue\">blue</span>"));
+        assert "a b".equals(PlainText.fromMarkdown("a <!-- a note --> b")) && "x <= y".equals(PlainText.fromMarkdown("x <= y"));
     }
 }

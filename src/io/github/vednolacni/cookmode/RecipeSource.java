@@ -7,6 +7,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.LongSupplier;
 
 /**
  * A recipe app the plugin can cook from: Tandoor and Norish. Mealie, KitchenOwl and Grocy fit the same shape: see
@@ -120,9 +121,9 @@ interface RecipeSource {
         }
     }
 
-    /** The source for the app the settings name. */
-    static RecipeSource of(Settings settings) {
-        if (settings.app == Settings.App.NORISH) return new NorishSource(settings.serverUrl, settings.apiToken, new Http());
+    /** The source for the app the settings name. steadyMillis is a clock nobody can set that counts while the tablet sleeps. */
+    static RecipeSource of(Settings settings, LongSupplier steadyMillis) {
+        if (settings.app == Settings.App.NORISH) return new NorishSource(settings.serverUrl, settings.apiToken, new Http(), steadyMillis);
         return new TandoorSource(settings.serverUrl, settings.apiToken, new Http());
     }
 
@@ -134,6 +135,11 @@ interface RecipeSource {
 
     /** The meals planned from first to last, both included, in date and slot order. */
     List<Planned> mealPlan(LocalDate first, LocalDate last) throws SourceException;
+
+    /** The last day the app can tell the meals of, when the plan is read from first on. Most can tell any day. */
+    default LocalDate planReach(LocalDate first) {
+        return LocalDate.MAX;
+    }
 
     /** Recipes matching query, or all recipes when it is empty. page counts from 1. */
     Page recipes(String query, Order order, int page) throws SourceException;

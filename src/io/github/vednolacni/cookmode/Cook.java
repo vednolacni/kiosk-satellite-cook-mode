@@ -1733,6 +1733,8 @@ final class Cook implements Ui.Actions {
             }
         }
         boolean canLog = (settings.markCooked == Settings.MarkCooked.ASK || logFailed) && recipe != null && !logged;
+        // Norish tells only this week and this month, so the days after them are not known to be free.
+        boolean cut = source != null && source.planReach(today).isBefore(today.plusDays(settings.planDays - 1));
         int resumeAt = cooking ? pageIndex + 1 : resume != null ? Math.max(0, resume.page) + 1 : 0;
         // The plan and the list are for the first page. Trouble with them has no place over a recipe that is here.
         boolean homeOnly = bannerOwner == Trouble.PLAN || bannerOwner == Trouble.LIST;
@@ -1740,7 +1742,8 @@ final class Cook implements Ui.Actions {
             query, order, Collections.unmodifiableList(new ArrayList<>(recipes)), recipesLoading, recipesMore,
             recipe, recipeName, recipeImage, recipeLoading, servings, factor, copyChecked(),
             recipe == null ? Collections.<Recipe.Ingredient>emptyList() : recipe.ingredients(), resumeAt, pageNumber, pages.size(), stepTitle, runs, ownTimer,
-            stepIngredients, peek(pageIndex - 1), peek(pageIndex + 1), readyAround, settings.voice != Settings.Voice.OFF, settings.swipeSteps, fixedNote, canLog, logged);
+            stepIngredients, peek(pageIndex - 1), peek(pageIndex + 1), readyAround, settings.voice != Settings.Voice.OFF, settings.swipeSteps, fixedNote, canLog, logged,
+            cut ? strings.planCut : "");
     }
 
     private Set<Recipe.Ingredient> copyChecked() {

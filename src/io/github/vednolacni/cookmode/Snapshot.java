@@ -20,11 +20,10 @@ final class Snapshot {
     private static final int[] LABEL_LENGTHS = {60, 30, 16};
     /** Enough of the recipe's name to show while the recipe itself is not back yet. */
     private static final int NAME_LENGTH = 40;
-    /**
-     * A timer's recipe when it is the one being cooked. Norish's ids are 36 characters, which six timers repeating it
-     * would spend on the id alone.
-     */
+    /** A timer's recipe when it is the one being cooked and its id is long. */
     private static final String SAME_RECIPE = "=";
+    /** Tandoor's ids, which are numbers, stay in each timer as before. Longer ones, as Norish's 36 characters, go once each. */
+    private static final int SHORT_ID = 12;
 
     static final class SavedTimer {
         final String label;
@@ -69,17 +68,23 @@ final class Snapshot {
     /** As text of at most MAX_LENGTH characters. The timers are soonest first, so the last are the first to go. */
     String encode() {
         for (int length : LABEL_LENGTHS) {
-            String text = write(length, timers.size());
+            String text = write(length, timers.size(), true);
             if (text.length() <= MAX_LENGTH) return text;
         }
-        for (int count = timers.size() - 1; count >= 0; count--) {
-            String text = write(LABEL_LENGTHS[LABEL_LENGTHS.length - 1], count);
+        // A timer's recipe only keeps its step's timer from starting twice, which costs less than the timer.
+        int shortest = LABEL_LENGTHS[LABEL_LENGTHS.length - 1];
+        for (int count = timers.size(); count >= 0; count--) {
+            String text = write(shortest, count, false);
             if (text.length() <= MAX_LENGTH) return text;
         }
         return "";
     }
 
-    private String write(int labelLength, int timerCount) {
+    private static boolean longId(String id) {
+        return id.length() > SHORT_ID || !id.matches("[0-9]*");
+    }
+
+    private String write(int labelLength, int timerCount, boolean otherRecipes) {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("v", VERSION);
         values.put("d", device);
@@ -92,11 +97,23 @@ final class Snapshot {
             values.put("b", started);
         }
         List<Object> saved = new ArrayList<>();
+        List<String> ids = new ArrayList<>();
         for (SavedTimer timer : timers.subList(0, timerCount)) {
             String label = timer.label.length() > labelLength ? timer.label.substring(0, labelLength) : timer.label;
-            String named = !recipe.isEmpty() && timer.recipe.equals(recipe) ? SAME_RECIPE : timer.recipe;
+            Object named = timer.recipe;
+            if (longId(timer.recipe)) {
+                if (timer.recipe.equals(recipe)) {
+                    named = SAME_RECIPE;
+                } else if (otherRecipes) {
+                    if (!ids.contains(timer.recipe)) ids.add(timer.recipe);
+                    named = ids.indexOf(timer.recipe);
+                } else {
+                    named = "";
+                }
+            }
             saved.add(Arrays.<Object>asList(label, timer.total, timer.paused ? 1 : 0, timer.value, named, timer.step));
         }
+        if (!ids.isEmpty()) values.put("i", ids);
         values.put("m", saved);
         return Json.write(values);
     }
@@ -108,13 +125,21 @@ final class Snapshot {
             Map<String, Object> values = Json.object(Json.parse(text));
             if (Json.integer(values.get("v"), 0) != VERSION) return null;
             String recipe = Json.text(values.get("r"));
+            List<Object> ids = Json.list(values.get("i"));
             List<SavedTimer> timers = new ArrayList<>();
             for (Object item : Json.list(values.get("m"))) {
                 List<Object> timer = Json.list(item);
                 if (timer.size() < 6) continue;
-                String named = Json.text(timer.get(4));
+                String named;
+                if (timer.get(4) instanceof Number) {
+                    long index = Json.integer(timer.get(4), -1);
+                    named = index >= 0 && index < ids.size() ? Json.text(ids.get((int) index)) : "";
+                } else {
+                    named = Json.text(timer.get(4));
+                    if (named.equals(SAME_RECIPE)) named = recipe;
+                }
                 timers.add(new SavedTimer(Json.text(timer.get(0)), (int) Json.integer(timer.get(1), 0), Json.integer(timer.get(2), 0) == 1,
-                    Json.integer(timer.get(3), 0), named.equals(SAME_RECIPE) ? recipe : named, (int) Json.integer(timer.get(5), -1)));
+                    Json.integer(timer.get(3), 0), named, (int) Json.integer(timer.get(5), -1)));
             }
             return new Snapshot(Json.text(values.get("d")), Json.integer(values.get("t"), 0), recipe, Json.text(values.get("n")), Json.number(values.get("s"), 0),
                 (int) Json.integer(values.get("p"), 0), Json.integer(values.get("b"), 0), timers);
