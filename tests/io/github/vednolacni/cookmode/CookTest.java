@@ -156,6 +156,11 @@ public final class CookTest {
         public Map<String, String> imageHeaders(String url) { return Collections.emptyMap(); }
         LocalDate reach = LocalDate.MAX;
         public LocalDate planReach(LocalDate first) { return reach; }
+        long refresh;
+        public long planRefresh(long usual) { return refresh > 0 ? refresh : usual; }
+        boolean counts;
+        public boolean countsRequests() { return counts; }
+        public RecipeSource twin() { calls.add("twin"); return null; }
         public void cancel() { calls.add("cancel"); }
     }
 
@@ -297,6 +302,15 @@ public final class CookTest {
             cook.close();
         }
 
+        // An app that needs pauses between plan reads gets them.
+        fresh(values);
+        net.runAll();
+        source.refresh = 65 * 60_000L;
+        ui.run(Cook.PLAN_REFRESH_MS);
+        net.runAll();
+        assert ui.posted(65 * 60_000L) && !ui.posted(Cook.PLAN_REFRESH_MS);
+        cook.close();
+
         // Where Norish's plan ends before the days asked for, the first page says so.
         fresh(values);
         net.runAll();
@@ -378,6 +392,8 @@ public final class CookTest {
         assert host.setup.isEmpty();
         net.runAll();
         assert host.setup.equals(Arrays.asList("r1 running Connecting to http://tandoor.local:8080", "r1 success Connected to Tandoor 2.7.2, 2 recipes.")) : host.setup;
+        // It asks the running source for a twin that knows what it has learned, and makes a new one only when there is none.
+        assert source.calls.contains("twin");
         cook.stop();
         assert ui.shutdown && source.calls.contains("cancel");
     }
@@ -1189,6 +1205,7 @@ public final class CookTest {
         newUi.run(Cook.SAVE_AFTER_MS);
         assert "7".equals(Snapshot.decode((String) again.saved.get("resumeState")).recipe);
         // A server that answers with an error, which Norish counts against its key, is asked again only now and then.
+        source.counts = true;
         source.fail = new RecipeSource.SourceException(RecipeSource.SourceException.Kind.SERVER, "Norish answered HTTP 500: Failed to parse FullRecipeDTO.");
         newUi.run(Cook.RESUME_AGAIN_MS);
         newNet.runAll();
@@ -1197,6 +1214,13 @@ public final class CookTest {
         newUi.run(Cook.RESUME_SLOWLY_MS);
         newNet.runAll();
         assert newUi.posted(Cook.RESUME_AGAIN_MS) && !newUi.posted(Cook.RESUME_SLOWLY_MS);
+        // An app that counts nothing, such as Tandoor, is asked again every minute, whatever it answered.
+        source.counts = false;
+        source.fail = new RecipeSource.SourceException(RecipeSource.SourceException.Kind.SERVER, "Tandoor answered HTTP 500.");
+        newUi.run(Cook.RESUME_AGAIN_MS);
+        newNet.runAll();
+        assert newUi.posted(Cook.RESUME_AGAIN_MS) && !newUi.posted(Cook.RESUME_SLOWLY_MS);
+        source.fail = down();
 
         // Opened meanwhile: a card on the home page, and the same recipe leads back instead of starting over.
         newCook.execute("openCookMode");

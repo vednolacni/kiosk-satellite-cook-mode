@@ -59,6 +59,11 @@ final class NorishSource implements RecipeSource {
     private static final int[] SLOT_MINUTES = {8 * 60, 12 * 60, 18 * 60, 21 * 60};
     /** The longest 0.25 refuses a key past its limit: an hour from the last request it allowed. */
     private static final long OLDER_WAIT_SECONDS = 3600;
+    /**
+     * How often to read the plan from 0.25 while nobody asks. Its hour starts again at each request it allows, so a key
+     * read every half hour never has the pause that resets its 500, and is refused every few days.
+     */
+    static final long OLDER_PLAN_MS = 65 * 60_000L;
 
     private final String base;
     private final String key;
@@ -71,6 +76,10 @@ final class NorishSource implements RecipeSource {
     private volatile boolean keyWorked;
     /** Whether the server is 0.25, which lacks /health/ready and refuses a key past its limit as if it were wrong. */
     private volatile boolean older;
+    /** Whether a health route has said which Norish this is. */
+    private volatile boolean checked;
+    /** Whether the wait is the plugin's own, after 0.25 refused a key that had worked, rather than one Norish asked for. */
+    private volatile boolean olderWait;
 
     NorishSource(String base, String key, Http http) {
         this(base, key, http, () -> System.nanoTime() / 1_000_000L);
@@ -130,9 +139,10 @@ final class NorishSource implements RecipeSource {
             throw notApi(ready.status, text.isEmpty());
         }
         if (ready.status == 503) throw new SourceException(SourceException.Kind.SERVER, "Norish is not ready" + said(ready) + ".");
+        checked = true;
+        older = ready.status == 404;
         // Anything else but 0.25's missing route is for the search to say.
-        if (ready.status != 404) return "";
-        older = true;
+        if (!older) return "";
         Http.Response health = send("GET", "/api/v1/health", null, false);
         if (!health.ok()) return "";
         try {
@@ -145,6 +155,7 @@ final class NorishSource implements RecipeSource {
 
     @Override
     public List<Planned> mealPlan(LocalDate first, LocalDate last) throws SourceException {
+        learnVersion();
         // Norish answers this week and this month in its own time zone, and nothing further. The two together reach
         // furthest, also around a midnight that is not the tablet's, and each meal's own date says where it goes.
         Map<String, Map<String, Object>> meals = new LinkedHashMap<>();
@@ -190,12 +201,49 @@ final class NorishSource implements RecipeSource {
         return index < 0 ? 24 * 60 + SLOTS.size() : SLOT_MINUTES[index];
     }
 
-    /** Norish tells this week and this month, as its server counts them, and nothing after the later of their ends. */
+    /**
+     * Norish tells this week and this month, as its server counts them, and nothing after the later of their ends. Counted
+     * from the day before, since the server's day may not have turned yet when the tablet's has.
+     */
     @Override
     public LocalDate planReach(LocalDate first) {
-        LocalDate sunday = first.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY));
-        LocalDate monthEnd = first.with(TemporalAdjusters.lastDayOfMonth());
+        LocalDate day = first.minusDays(1);
+        LocalDate sunday = day.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY));
+        LocalDate monthEnd = day.with(TemporalAdjusters.lastDayOfMonth());
         return sunday.isAfter(monthEnd) ? sunday : monthEnd;
+    }
+
+    /** 0.25 needs an hour's pause now and then, which a plan read every half hour never leaves it. */
+    @Override
+    public long planRefresh(long usual) {
+        return older ? Math.max(usual, OLDER_PLAN_MS) : usual;
+    }
+
+    /** Norish counts every request against the key, failures too. */
+    @Override
+    public boolean countsRequests() {
+        return true;
+    }
+
+    /** A source for the same server and key that knows what this one has learned, with connections of its own. */
+    @Override
+    public RecipeSource twin() {
+        NorishSource twin = new NorishSource(base, key, new Http(), millis);
+        twin.keyWorked = keyWorked;
+        twin.older = older;
+        twin.checked = checked;
+        twin.olderWait = olderWait;
+        twin.quietUntil = quietUntil;
+        return twin;
+    }
+
+    /** Which Norish this is, from its health route, which takes no key and costs nothing. Asked until it says. */
+    private void learnVersion() {
+        if (checked) return;
+        Http.Response ready = health("/api/v1/health/ready");
+        if (ready == null || ready.status == 503) return;
+        checked = true;
+        older = ready.status == 404;
     }
 
     @Override
@@ -474,22 +522,29 @@ final class NorishSource implements RecipeSource {
         if (status == 429) {
             // Norish's own, or a proxy's in front of it: either way the key waits.
             long seconds = seconds(response.header("Retry-After"));
+            olderWait = false;
             quietUntil = millis.getAsLong() + seconds * 1000;
             throw limited(seconds);
         }
-        // The JDK drops the body of a refused POST, which Android's HTTP keeps, so only there is an empty 401 Norish's.
+        // Norish asks for no password, so a 401 that does is a prompt in front of it. The JDK drops the body of a refused
+        // POST, which Android's HTTP keeps, so only there is an empty 401 Norish's.
+        if (status == 401 && !response.header("WWW-Authenticate").isEmpty()) throw notApi(status, text.isEmpty());
         if (status == 401 && (json || (text.isEmpty() && "POST".equals(method)))) {
             notReady();
-            if (older && keyWorked) {
-                // 0.25 refuses a key past its 500 requests an hour as it refuses a wrong one, and this one has worked.
+            // 0.25 refuses a key that has made 500 requests with no hour's pause as it refuses a wrong one. A key that has
+            // worked is that, and so is one refused while another call's refusal already started the wait.
+            if (older && (keyWorked || waiting())) {
                 keyWorked = false;
-                quietUntil = millis.getAsLong() + OLDER_WAIT_SECONDS * 1000;
-                throw new SourceException(SourceException.Kind.LIMIT, "Norish refused the key after it had worked, which is how Norish 0.25 says a key has made 500 requests"
-                    + " within an hour. The plugin waits an hour before it uses it again. Norish 0.26 and later say how long to wait. Give each tablet its own key.");
+                if (!waiting()) {
+                    olderWait = true;
+                    quietUntil = millis.getAsLong() + OLDER_WAIT_SECONDS * 1000;
+                }
+                stillWaiting();
             }
             String length = key.length() < KEY_LENGTH ? " This one has " + key.length() + " characters and Norish's have " + KEY_LENGTH + ", so part of it may be missing." : "";
+            String older = this.older ? " Norish 0.25 also refuses a good key for up to an hour once it has made 500 requests with no hour's pause between them." : "";
             throw new SourceException(SourceException.Kind.AUTH, "Norish refused the API key. Create one under Settings > User > API keys and copy all of it: Norish shows it only once."
-                + length);
+                + length + older);
         }
         if (!json) {
             // Norish answers everything under /api/v1 in JSON. This came from something in front of it.
@@ -524,10 +579,13 @@ final class NorishSource implements RecipeSource {
         Http.Response ready = health("/api/v1/health/ready");
         if (ready == null) return;
         if (ready.status == 503) throw unready(ready);
-        if (ready.status != 404) return;
-        older = true;
+        // A server updated from 0.25 has the route now.
+        checked = true;
+        older = ready.status == 404;
+        if (!older) return;
+        // 0.25's one route also fails while only its parser is down, which has nothing to do with the key.
         Http.Response health = health("/api/v1/health");
-        if (health != null && health.status >= 500) throw unready(health);
+        if (health != null && health.status >= 500 && said(health).toLowerCase(Locale.ROOT).contains("database")) throw unready(health);
     }
 
     /** A health route's own answer in JSON, or null for anything else, which says nothing here. */
@@ -544,8 +602,9 @@ final class NorishSource implements RecipeSource {
         return new SourceException(SourceException.Kind.SERVER, "Norish is not ready" + said(health) + ". That, and not the key, is why it refused it.");
     }
 
+    /** A proxy's own answer while Norish is stopped or starting, which Norish neither sees nor counts. */
     private static SourceException inFront(int status) {
-        return new SourceException(SourceException.Kind.SERVER, "Something in front of Norish answered HTTP " + status + ". Norish may be stopped or still starting.");
+        return new SourceException(SourceException.Kind.NETWORK, "Something in front of Norish answered HTTP " + status + ". Norish may be stopped or still starting.");
     }
 
     /** Whether Norish has asked to wait and the wait is not over. */
@@ -563,9 +622,13 @@ final class NorishSource implements RecipeSource {
         quietUntil = null;
     }
 
-    private static SourceException limited(long seconds) {
+    private SourceException limited(long seconds) {
         long minutes = (seconds + 59) / 60;
         String wait = seconds < 60 ? seconds + (seconds == 1 ? " second" : " seconds") : minutes + (minutes == 1 ? " minute" : " minutes");
+        if (olderWait) {
+            return new SourceException(SourceException.Kind.LIMIT, "The plugin waits " + wait + " before it uses this API key again. Norish 0.25 refused the key after it"
+                + " had worked, which it does once a key has made 500 requests with no hour's pause between them. Norish 0.26 and later count a plain hour.");
+        }
         return new SourceException(SourceException.Kind.LIMIT, "Norish asks to wait " + wait + ": this API key has made its 500 requests for the hour, pictures included."
             + " Give each tablet its own key.");
     }

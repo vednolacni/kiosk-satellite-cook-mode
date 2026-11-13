@@ -5,6 +5,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
+import java.io.File;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -57,6 +58,12 @@ class AndroidUi implements Ui {
             @Override public View create(Context from, KsTheme theme) {
                 context = from.getApplicationContext();
                 AndroidUi.this.actions = actions;
+                try {
+                    File cache = from.getCacheDir();
+                    if (cache != null) images.keepIn(new File(cache, "cook-mode-pictures"));
+                } catch (RuntimeException noCache) {
+                    // Pictures come from the server each time the plugin starts.
+                }
                 view = new CookView(from, theme, actions, images);
                 apply();
                 return view;

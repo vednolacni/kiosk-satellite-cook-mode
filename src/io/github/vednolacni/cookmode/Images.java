@@ -8,9 +8,18 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.LruCache;
 import android.widget.ImageView;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -20,9 +29,9 @@ import java.util.concurrent.TimeUnit;
 /**
  * Recipe pictures for the views: fetched on two low-priority threads of the plugin's own, decoded no larger than their
  * view needs, which matters on a 2 GB tablet, and kept in a small memory cache. Their bytes are kept by address as well,
- * so a picture is fetched once for every size it is shown at and for every time the panel opens, which matters to Norish,
- * which counts each picture against its key. For the same reason a picture that does not exist, or that Android cannot
- * read, is left be for a while. What a new page asks for goes first, so a recipe just opened does not wait behind a whole
+ * in memory and in a folder of Kiosk Satellite's cache, so a picture is fetched once for every size it is shown at, every
+ * opening of the panel and every start of the plugin, which matters to Norish, which counts each picture against its key.
+ * For the same reason a picture the server says does not exist, or that Android cannot read, is left be for a while. What a new page asks for goes first, so a recipe just opened does not wait behind a whole
  * list, and a page's own pictures come from its top down. The same picture is only fetched once at a time. A view gets its
  * picture only if it still shows the same address, so fast scrolling never puts the wrong picture in a row.
  */
@@ -36,6 +45,8 @@ final class Images {
     private static final long MAX_DECODED_BYTES = 16 * 1024 * 1024;
     /** How long a picture that does not exist, or that Android cannot read, is not asked for again. */
     static final long MISSING_MS = 15 * 60_000L;
+    /** What the pictures kept on the tablet may take. Android may also empty the cache they are in. */
+    static final long KEPT_MOST = 48L * 1024 * 1024;
 
     private final Http http = new Http();
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -57,6 +68,10 @@ final class Images {
             return Math.max(1, picture.length / 1024);
         }
     };
+    /** Where pictures are kept on the tablet, or null until the first view brings a place for them. */
+    private volatile File keptIn;
+    /** What the kept pictures take, or -1 before they were counted. Guarded by itself. */
+    private final long[] kept = {-1};
     /** Addresses with no picture to show, and until when on the steady clock to leave them be. Main thread only. */
     private final Map<String, Long> missing = new HashMap<>();
     /** Each picture being fetched. Main thread only. */
@@ -83,6 +98,11 @@ final class Images {
             this.headers = headers;
             this.width = width;
         }
+    }
+
+    /** Keep pictures in this folder from here on, so they outlast the panel and the plugin. Any thread. */
+    void keepIn(File folder) {
+        keptIn = folder;
     }
 
     /** What is asked for from here on goes before everything still waiting. Main thread only. */
@@ -172,30 +192,130 @@ final class Images {
         jobs.clear();
     }
 
-    /** The picture at the job's size, from the bytes kept or else from the server. */
+    /** The picture at the job's size, from the bytes kept in memory or on the tablet, or else from the server. */
     private Bitmap fetch(Job job) {
         try {
             byte[] picture = bytes.get(job.url);
-            if (picture == null) {
-                Http.Response response = http.request("GET", job.url, job.headers, null, MAX_BYTES);
-                if (!response.ok() || response.body.length == 0) {
-                    // The server's own word that there is no such picture lasts. A server that is down or busy does not.
-                    job.lasting = response.status >= 400 && response.status < 500 && response.status != 408 && response.status != 429;
+            if (picture == null) picture = kept(job.url);
+            if (picture != null) {
+                Bitmap bitmap = decode(picture, job.width);
+                if (bitmap == null) {
+                    bytes.remove(job.url);
+                    forget(job.url);
                     return null;
                 }
-                picture = response.body;
+                bytes.put(job.url, picture);
+                return bitmap;
             }
-            Bitmap bitmap = decode(picture, job.width);
-            if (bitmap == null) {
-                job.lasting = true;
-                bytes.remove(job.url);
+            Http.Response response = http.request("GET", job.url, job.headers, null, MAX_BYTES);
+            if (!response.ok() || response.body.length == 0) {
+                job.lasting = missing(response);
                 return null;
             }
-            bytes.put(job.url, picture);
+            Bitmap bitmap = decode(response.body, job.width);
+            if (bitmap == null) {
+                // A picture Android cannot read stays so. A page instead, such as a sign-in page, says nothing of the picture.
+                job.lasting = response.header("Content-Type").toLowerCase(Locale.ROOT).startsWith("image/");
+                return null;
+            }
+            bytes.put(job.url, response.body);
+            keep(job.url, response.body);
             return bitmap;
         } catch (Exception | OutOfMemoryError unavailable) {
             // A missing picture is not worth failing over. The row shows without it.
             return null;
+        }
+    }
+
+    /**
+     * The server's own word that there is no such picture: a 404 or 410 in JSON, as Norish says it. A proxy's page while the
+     * server starts says nothing of the picture.
+     */
+    private static boolean missing(Http.Response response) {
+        return (response.status == 404 || response.status == 410) && response.text().trim().startsWith("{");
+    }
+
+    /** A picture kept on the tablet, or null. */
+    private byte[] kept(String url) {
+        File folder = keptIn;
+        if (folder == null) return null;
+        try {
+            File file = new File(folder, name(url));
+            if (!file.isFile()) return null;
+            byte[] picture = Files.readAllBytes(file.toPath());
+            // Used now, so it goes last when room is made.
+            file.setLastModified(System.currentTimeMillis());
+            return picture.length == 0 ? null : picture;
+        } catch (IOException | RuntimeException unreadable) {
+            return null;
+        }
+    }
+
+    /** Keep a picture on the tablet, making room by the ones used longest ago. */
+    private void keep(String url, byte[] picture) {
+        File folder = keptIn;
+        if (folder == null) return;
+        try {
+            if (!folder.isDirectory() && !folder.mkdirs()) return;
+            File file = new File(folder, name(url));
+            if (file.isFile()) return;
+            File part = File.createTempFile("part", ".tmp", folder);
+            try (FileOutputStream out = new FileOutputStream(part)) {
+                out.write(picture);
+            }
+            // Whole or not at all, since the other picture thread may read it at once.
+            if (!part.renameTo(file)) {
+                part.delete();
+                return;
+            }
+            trim(folder, picture.length);
+        } catch (IOException | RuntimeException unwritable) {
+            // It shows all the same, and comes from the server next time.
+        }
+    }
+
+    private void forget(String url) {
+        File folder = keptIn;
+        if (folder != null) new File(folder, name(url)).delete();
+    }
+
+    /** Keep the folder within its size, the pictures used longest ago going first. */
+    private void trim(File folder, long added) {
+        synchronized (kept) {
+            if (kept[0] >= 0 && kept[0] + added <= KEPT_MOST) {
+                kept[0] += added;
+                return;
+            }
+            File[] files = folder.listFiles();
+            if (files == null) return;
+            // Times read once, since the other thread may touch a file while they are sorted.
+            final long[] used = new long[files.length];
+            Integer[] order = new Integer[files.length];
+            long total = 0;
+            for (int i = 0; i < files.length; i++) {
+                used[i] = files[i].lastModified();
+                order[i] = i;
+                total += files[i].length();
+            }
+            Arrays.sort(order, (a, b) -> Long.compare(used[a], used[b]));
+            for (Integer i : order) {
+                if (total <= KEPT_MOST * 3 / 4) break;
+                long length = files[i].length();
+                if (files[i].delete()) total -= length;
+            }
+            kept[0] = total;
+        }
+    }
+
+    /** A file's name for an address: a hash of it, so any address makes a safe one. */
+    static String name(String url) {
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(url.getBytes(StandardCharsets.UTF_8));
+            StringBuilder name = new StringBuilder();
+            for (int i = 0; i < 20; i++) name.append(Character.forDigit((hash[i] >> 4) & 15, 16)).append(Character.forDigit(hash[i] & 15, 16));
+            return name.append(".pic").toString();
+        } catch (NoSuchAlgorithmException impossible) {
+            return Integer.toHexString(url.hashCode()) + ".pic";
         }
     }
 

@@ -113,8 +113,8 @@ final class Settings {
 
     /** What keeps the plugin from working, for its status, or null when nothing does. */
     String problem() {
-        if (serverUrl.isEmpty()) return "Set the " + app.title + " address under Recipe server.";
-        if (!serverUrl.startsWith("http://") && !serverUrl.startsWith("https://")) return "The " + app.title + " address must start with http:// or https://.";
+        if (serverUrl.isEmpty()) return "Set the server address under Recipe server.";
+        if (!serverUrl.startsWith("http://") && !serverUrl.startsWith("https://")) return "The server address must start with http:// or https://.";
         if (apiToken.isEmpty() && app == App.NORISH) return "Set the API key under Recipe server. Create it in Norish under Settings > User > API keys.";
         if (apiToken.isEmpty()) return "Set the API token under Recipe server. Create it in Tandoor under Settings > API with the scope \"read write\".";
         return null;

@@ -107,7 +107,7 @@ final class Strings {
         "The secure connection failed. The tablet may not trust the certificate or know its TLS version.",
         "Space", "Search",
         "This recipe is private and not shared with the {key's} user.",
-        "This API {key} has made its 500 requests for the hour, so {app} will not answer it for a while. Give each tablet its own {key}.",
+        "{app} is not answering this API {key} for a while, because it made too many requests. Give each tablet its own {key}.",
         "{app} shares only this week and this month of the meal plan.",
     };
 
@@ -128,7 +128,7 @@ final class Strings {
         "Varna povezava ni uspela. Tablica morda ne zaupa certifikatu ali ne pozna njegove različice TLS.",
         "Presledek", "Išči",
         "Ta recept je zaseben in ni deljen z uporabnikom tega {key's}.",
-        "Ta API {key} je to uro porabil svojih 500 zahtev, zato mu {app} nekaj časa ne bo odgovarjal. Vsaka tablica naj ima svoj {key}.",
+        "{app} temu API {key}u nekaj časa ne odgovarja, ker je poslal preveč zahtev. Vsaka tablica naj ima svoj {key}.",
         "{app} deli le jedilnik tega tedna in tega meseca.",
     };
 

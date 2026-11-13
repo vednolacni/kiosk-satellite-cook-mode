@@ -180,8 +180,21 @@ public final class ViewsTest {
             String name = exchange.getRequestURI().getPath().replaceAll("\\D", "");
             picturesAsked.add(name);
             if ("404".equals(name)) {
-                exchange.sendResponseHeaders(404, -1);
-                exchange.close();
+                // As Norish says it: no such picture, in JSON.
+                byte[] missing = "{\"error\":\"Not found\"}".getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(404, missing.length);
+                try (OutputStream out = exchange.getResponseBody()) {
+                    out.write(missing);
+                }
+                return;
+            }
+            if ("405".equals(name)) {
+                // A proxy's page while the server starts, which says nothing of the picture.
+                byte[] page = "<html>Starting</html>".getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(404, page.length);
+                try (OutputStream out = exchange.getResponseBody()) {
+                    out.write(page);
+                }
                 return;
             }
             boolean fail = picturesFail;
@@ -1249,7 +1262,38 @@ public final class ViewsTest {
         later(500);
         assertEquals(picturesAsked.toString(), 1, Collections.frequency(picturesAsked, "404"));
         assertNull(gone.getDrawable());
+        // A proxy's own page says nothing of the picture, so it is asked for again.
+        images.load(new ImageView(activity), base + "405.png", Collections.<String, String>emptyMap(), 100);
+        waitUntil(() -> picturesAsked.contains("405"));
+        later(500);
+        images.load(new ImageView(activity), base + "405.png", Collections.<String, String>emptyMap(), 100);
+        waitUntil(() -> Collections.frequency(picturesAsked, "405") == 2);
+        assertEquals(picturesAsked.toString(), 2, Collections.frequency(picturesAsked, "405"));
         images.close();
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aPictureKeptOnTheTabletIsNotFetchedAgainAfterARestart() throws IOException {
+        begin("pictures-kept", true, settings("English"));
+        File folder = Files.createTempDirectory("kept").toFile();
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/8.png";
+        Images first = new Images();
+        first.keepIn(folder);
+        ImageView one = new ImageView(activity);
+        first.load(one, url, Collections.<String, String>emptyMap(), 100);
+        waitUntil(() -> one.getDrawable() != null);
+        assertNotNull(one.getDrawable());
+        first.close();
+        // The next start of the plugin finds it on the tablet, at any size.
+        Images second = new Images();
+        second.keepIn(folder);
+        ImageView two = new ImageView(activity);
+        second.load(two, url, Collections.<String, String>emptyMap(), 300);
+        waitUntil(() -> two.getDrawable() != null);
+        assertNotNull(two.getDrawable());
+        assertEquals(picturesAsked.toString(), 1, Collections.frequency(picturesAsked, "8"));
+        assertTrue(new File(folder, Images.name(url)).isFile());
+        second.close();
     }
 
     /** Wait for the picture threads, letting the main thread run what they post. */

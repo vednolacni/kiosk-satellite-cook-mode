@@ -219,7 +219,7 @@ final class Cook implements Ui.Actions {
         host.subscribe("screensaver.countdown");
         // The word KS listens for to stop its own timers silences ours too.
         host.subscribe("stopword.detected");
-        ui.post(planTask, PLAN_REFRESH_MS);
+        ui.post(planTask, planEvery());
         Object saved = values.get("resumeState");
         boolean anySaved = saved instanceof String && !((String) saved).isEmpty();
         // What is stored must be replaced the first time, whatever it holds.
@@ -690,8 +690,11 @@ final class Cook implements Ui.Actions {
     private void testConnection(String run) {
         final Settings current = settings;
         background(() -> {
-            RecipeSource trying = sources.create(current);
+            RecipeSource trying;
             synchronized (this) {
+                // A source already reading this server knows what it has learned of the key, which a new one would not.
+                RecipeSource twin = source != null && current.sameServer(settings) ? source.twin() : null;
+                trying = twin != null ? twin : sources.create(current);
                 probe = trying;
             }
             try {
@@ -933,7 +936,8 @@ final class Cook implements Ui.Actions {
         } else if (resume != null) {
             ui.cancel(resumeTask);
             // A server that is not up yet costs nothing to ask again soon. One that answers with an error may well count it.
-            boolean answered = problem != null && (problem.kind == RecipeSource.SourceException.Kind.SERVER || problem.kind == RecipeSource.SourceException.Kind.PARSE);
+            boolean answered = problem != null && (problem.kind == RecipeSource.SourceException.Kind.SERVER || problem.kind == RecipeSource.SourceException.Kind.PARSE)
+                && source != null && source.countsRequests();
             ui.post(resumeTask, answered ? RESUME_SLOWLY_MS : RESUME_AGAIN_MS);
         } else if (stash != null) {
             comeBack();
@@ -1522,6 +1526,12 @@ final class Cook implements Ui.Actions {
         }
     }
 
+    /** How often the plan is read while nobody asks: half-hourly, unless the app needs pauses, as Norish 0.25 does. */
+    private long planEvery() {
+        RecipeSource current = source;
+        return current == null ? PLAN_REFRESH_MS : current.planRefresh(PLAN_REFRESH_MS);
+    }
+
     /** Runs on the main thread: keeps the meal plan and Home Assistant's view of it current. */
     private void planTick() {
         synchronized (this) {
@@ -1534,7 +1544,7 @@ final class Cook implements Ui.Actions {
                     savedKey = "?";
                     saveSoon();
                 }
-                ui.post(planTask, PLAN_REFRESH_MS);
+                ui.post(planTask, planEvery());
             } catch (RuntimeException sessionEnded) {
                 // As above.
             }

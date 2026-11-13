@@ -141,6 +141,21 @@ interface RecipeSource {
         return LocalDate.MAX;
     }
 
+    /** How often to read the plan while nobody asks for it, given how often the plugin would. */
+    default long planRefresh(long usual) {
+        return usual;
+    }
+
+    /** Whether the app counts each request against a limit, also one it answers with an error. */
+    default boolean countsRequests() {
+        return false;
+    }
+
+    /** A source for the same server that knows what this one has learned, with connections of its own, or null. */
+    default RecipeSource twin() {
+        return null;
+    }
+
     /** Recipes matching query, or all recipes when it is empty. page counts from 1. */
     Page recipes(String query, Order order, int page) throws SourceException;
 

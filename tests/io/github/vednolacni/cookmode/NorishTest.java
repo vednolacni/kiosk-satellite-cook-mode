@@ -31,6 +31,10 @@ public final class NorishTest {
     /** What the server saw that Norish would refuse or that must never be sent. */
     static final List<String> wrong = Collections.synchronizedList(new ArrayList<String>());
     static String server;
+    /** Whether the /flip server has been updated from 0.25. */
+    static volatile boolean flipped;
+    /** How many answers the /revoked server has given its key. */
+    static final java.util.concurrent.atomic.AtomicInteger revokedAnswers = new java.util.concurrent.atomic.AtomicInteger();
     /** How many answers the tired 0.25 server has given its key. */
     static final java.util.concurrent.atomic.AtomicInteger tiredAnswers = new java.util.concurrent.atomic.AtomicInteger();
 
@@ -163,7 +167,7 @@ public final class NorishTest {
         values.put("apiToken", "");
         assert new Settings(values).problem().contains("Settings > User > API keys");
         values.put("serverUrl", "home.example");
-        assert new Settings(values).problem().startsWith("The Norish address");
+        assert new Settings(values).problem().startsWith("The server address");
         // The same address in another app is another server.
         values.put("serverUrl", "https://home.example/norish");
         values.put("apiToken", KEY);
@@ -176,7 +180,9 @@ public final class NorishTest {
         // Norish shares this week and this month, as its server counts them, and nothing after the later of their ends.
         NorishSource reach = new NorishSource("http://h", KEY, new Http());
         assert reach.planReach(LocalDate.of(2026, 10, 30)).equals(LocalDate.of(2026, 11, 1)) && reach.planReach(LocalDate.of(2026, 11, 21)).equals(LocalDate.of(2026, 11, 30));
-        assert reach.planReach(LocalDate.of(2026, 11, 30)).equals(LocalDate.of(2026, 12, 6)) && reach.planReach(LocalDate.of(2026, 11, 29)).equals(LocalDate.of(2026, 11, 30));
+        assert reach.planReach(LocalDate.of(2026, 11, 29)).equals(LocalDate.of(2026, 11, 30)) && reach.planReach(LocalDate.of(2026, 12, 1)).equals(LocalDate.of(2026, 12, 6));
+        // On the first day of a week Norish may still be on the last one, so its plan is not counted on past that.
+        assert reach.planReach(LocalDate.of(2026, 11, 30)).equals(LocalDate.of(2026, 11, 30));
         assert new TandoorSource("http://h", "t", new Http()).planReach(TODAY).equals(LocalDate.MAX);
         // Its slots have no time, so they count as the hours they are usually cooked at, in Norish's order.
         assert NorishSource.slotOrder("Breakfast") == 8 * 60 && NorishSource.slotOrder("Lunch") == 12 * 60 && NorishSource.slotOrder("Dinner") == 18 * 60;
@@ -202,6 +208,9 @@ public final class NorishTest {
         RecipeSource.Planned jota = plan.get(2);
         assert JOTA.equals(jota.recipeId) && "".equals(jota.note) && (server + "/norish/recipes/" + JOTA + "/prvi.jpg").equals(jota.image) : jota.image;
         assert bread.slotOrder < salad.slotOrder && plan.get(3).slotOrder > plan.get(5).slotOrder;
+        assert bread.slotOrder == 8 * 60 && salad.slotOrder == 12 * 60 && plan.get(4).slotOrder == 18 * 60 && plan.get(5).slotOrder == 21 * 60 && plan.get(3).slotOrder == 24 * 60 + 4;
+        // 0.26 reads the plan as often as the plugin does.
+        assert norish.planRefresh(30 * 60_000L) == 30 * 60_000L && norish.countsRequests();
         // A note that names a recipe cooks the recipe and keeps its words.
         RecipeSource.Planned leftovers = plan.get(4);
         assert RICET.equals(leftovers.recipeId) && "Ostanki od sobote".equals(leftovers.note);
@@ -314,7 +323,12 @@ public final class NorishTest {
     }
 
     static void older() throws Exception {
-        // 0.25 has one health route that says its version, and its plan has no notes and no types.
+        // 0.25 has one health route that says its version, and its plan has no notes and no types. Its plan is read
+        // with an hour's pause, which it needs now and then, also before it has said its version anywhere else.
+        NorishSource first = new NorishSource(server + "/old", KEY, new Http());
+        assert first.planRefresh(30 * 60_000L) == 30 * 60_000L;
+        first.mealPlan(TODAY, TODAY);
+        assert first.planRefresh(30 * 60_000L) == NorishSource.OLDER_PLAN_MS;
         NorishSource old = new NorishSource(server + "/old", KEY, new Http());
         assert "Connected to Norish 0.25.1-beta, 1 recipe.".equals(old.probe());
         List<RecipeSource.Planned> plan = old.mealPlan(TODAY, TODAY);
@@ -329,18 +343,37 @@ public final class NorishTest {
         NorishSource tired = new NorishSource(server + "/tired", KEY, new Http(), () -> now[0]);
         assert tired.recipes("", RecipeSource.Order.NAME, 1).items.size() == 1;
         RecipeSource.SourceException limit = failure(() -> tired.recipes("", RecipeSource.Order.NAME, 1));
-        assert limit.kind == RecipeSource.SourceException.Kind.LIMIT && limit.getMessage().contains("Norish 0.25") : limit.kind + " " + limit.getMessage();
+        assert limit.kind == RecipeSource.SourceException.Kind.LIMIT && limit.getMessage().startsWith("The plugin waits 60 minutes") && limit.getMessage().contains("Norish 0.25")
+            : limit.kind + " " + limit.getMessage();
         int sent = requests.size();
-        assert kind(() -> tired.mealPlan(TODAY, TODAY)) == RecipeSource.SourceException.Kind.LIMIT && requests.size() == sent;
+        RecipeSource.SourceException waits = failure(() -> tired.mealPlan(TODAY, TODAY));
+        assert waits.kind == RecipeSource.SourceException.Kind.LIMIT && waits.getMessage().startsWith("The plugin waits") && requests.size() == sent : waits.getMessage();
+        // Test connection asks through a twin that knows the wait, not a new source that would call the key wrong.
+        RecipeSource twin = tired.twin();
+        assert twin instanceof NorishSource && kind(twin::probe) == RecipeSource.SourceException.Kind.LIMIT;
+        // It asks only the health routes, which take no key.
+        for (String request : new ArrayList<>(requests.subList(sent, requests.size()))) assert request.contains("/api/v1/health") && request.contains(" - ") : request;
+        sent = requests.size();
         assert tired.imageHeaders(server + "/tired/recipes/" + JOTA + "/x.jpg").isEmpty();
         now[0] += 3_600_000;
         assert !tired.imageHeaders(server + "/tired/recipes/" + JOTA + "/x.jpg").isEmpty();
-        // Refused again with nothing answered in between, it is the key after all.
-        assert kind(() -> tired.recipes("", RecipeSource.Order.NAME, 1)) == RecipeSource.SourceException.Kind.AUTH;
+        // Refused again with nothing answered in between, it is the key after all, though 0.25's limit may be why.
+        RecipeSource.SourceException wrong = failure(() -> tired.recipes("", RecipeSource.Order.NAME, 1));
+        assert wrong.kind == RecipeSource.SourceException.Kind.AUTH && wrong.getMessage().contains("Norish 0.25 also refuses a good key") : wrong.getMessage();
         // A key refused at its first request is a wrong one.
         assert kind(() -> new NorishSource(server + "/tired", "aBcDe", new Http()).recipe(JOTA)) == RecipeSource.SourceException.Kind.AUTH;
         RecipeSource.SourceException down = failure(() -> new NorishSource(server + "/olddown", KEY, new Http()).recipe(JOTA));
         assert down.kind == RecipeSource.SourceException.Kind.SERVER && down.getMessage().startsWith("Norish is not ready: Database is error.") : down.getMessage();
+        // Only its parser down has nothing to do with the key.
+        assert kind(() -> new NorishSource(server + "/oldparser", KEY, new Http()).recipe(JOTA)) == RecipeSource.SourceException.Kind.AUTH;
+        // A Norish updated from 0.25 in place says so, and a key it refuses is refused.
+        flipped = false;
+        NorishSource updated = new NorishSource(server + "/flip", KEY, new Http());
+        updated.mealPlan(TODAY, TODAY);
+        assert updated.planRefresh(30 * 60_000L) == NorishSource.OLDER_PLAN_MS;
+        flipped = true;
+        RecipeSource.SourceException revoked = failure(() -> updated.recipe(JOTA));
+        assert revoked.kind == RecipeSource.SourceException.Kind.AUTH && updated.planRefresh(30 * 60_000L) == 30 * 60_000L : revoked.kind + " " + revoked.getMessage();
     }
 
     static void failures() throws Exception {
@@ -373,9 +406,15 @@ public final class NorishTest {
         RecipeSource.SourceException other = failure(() -> new NorishSource(server + "/other", KEY, new Http()).probe());
         assert other.kind == RecipeSource.SourceException.Kind.NOT_API && other.getMessage().contains("/api/v1/recipes/search") : other.getMessage();
         // A proxy's own page while Norish is stopped is the server's trouble, also for Test connection.
+        // A proxy's own 502 while Norish is stopped or starting is as good as no answer, which Norish never sees or counts.
         RecipeSource.SourceException gateway = failure(() -> new NorishSource(server + "/gateway", KEY, new Http()).probe());
-        assert gateway.kind == RecipeSource.SourceException.Kind.SERVER && gateway.getMessage().contains("HTTP 502") : gateway.kind + " " + gateway.getMessage();
-        assert kind(() -> new NorishSource(server + "/gateway", KEY, new Http()).recipe(JOTA)) == RecipeSource.SourceException.Kind.SERVER;
+        assert gateway.kind == RecipeSource.SourceException.Kind.NETWORK && gateway.getMessage().contains("HTTP 502") : gateway.kind + " " + gateway.getMessage();
+        assert kind(() -> new NorishSource(server + "/gateway", KEY, new Http()).recipe(JOTA)) == RecipeSource.SourceException.Kind.NETWORK;
+        // 0.26 refusing a key that worked has revoked it.
+        NorishSource revoked = new NorishSource(server + "/revoked", KEY, new Http());
+        assert revoked.recipes("", RecipeSource.Order.NAME, 1).items.size() == 1;
+        RecipeSource.SourceException gone = failure(() -> revoked.recipes("", RecipeSource.Order.NAME, 1));
+        assert gone.kind == RecipeSource.SourceException.Kind.AUTH && !gone.getMessage().contains("0.25") : gone.kind + " " + gone.getMessage();
         // A sign-in service in front of Norish sends every call to its own host, where the key never goes.
         NorishSource sso = new NorishSource(server + "/sso", KEY, new Http());
         for (Call call : new Call[] {sso::probe, () -> sso.mealPlan(TODAY, TODAY), () -> sso.recipe(JOTA), () -> sso.recipes("", RecipeSource.Order.NAME, 1)}) {
@@ -389,6 +428,9 @@ public final class NorishTest {
             RecipeSource.SourceException refused = failure(call);
             assert refused.kind == RecipeSource.SourceException.Kind.NOT_API && refused.getMessage().contains("login page") : refused.kind + " " + refused.getMessage();
         }
+        // A sign-in layer that answers in JSON but asks for its own credentials is no word from Norish either.
+        RecipeSource.SourceException bearer = failure(() -> new NorishSource(server + "/oauth", KEY, new Http()).recipe(JOTA));
+        assert bearer.kind == RecipeSource.SourceException.Kind.NOT_API : bearer.kind + " " + bearer.getMessage();
         // An empty 401 to a GET comes from a password prompt in front of Norish, not from Norish.
         RecipeSource.SourceException prompt = failure(() -> new NorishSource(server + "/basic", KEY, new Http()).recipe(JOTA));
         assert prompt.kind == RecipeSource.SourceException.Kind.NOT_API && prompt.getMessage().contains("password") : prompt.kind + " " + prompt.getMessage();
@@ -407,7 +449,10 @@ public final class NorishTest {
         assert busy.imageHeaders(picture).isEmpty();
         now[0] += 1_000_000;
         RecipeSource.SourceException still = failure(() -> busy.mealPlan(TODAY, TODAY));
-        assert still.kind == RecipeSource.SourceException.Kind.LIMIT && still.getMessage().startsWith("Norish asks to wait 14 minutes") && requests.size() == sent : still.getMessage();
+        assert still.kind == RecipeSource.SourceException.Kind.LIMIT && still.getMessage().startsWith("Norish asks to wait 14 minutes") : still.getMessage();
+        // Only the health route, which takes no key, has been asked since: the plan's first read learns which Norish it is.
+        for (String request : new ArrayList<>(requests.subList(sent, requests.size()))) assert request.contains("/api/v1/health") && request.contains(" - ") : request;
+        sent = requests.size();
         assert kind(() -> busy.recipe(JOTA)) == RecipeSource.SourceException.Kind.LIMIT && requests.size() == sent;
         // The health route needs no key, so Test connection still finds Norish there.
         assert kind(busy::probe) == RecipeSource.SourceException.Kind.LIMIT && requests.size() == sent + 1;
@@ -427,7 +472,8 @@ public final class NorishTest {
         assert "Ta naslov ne vodi do Norishevega API-ja. Morda je pred njim prijavna stran.".equals(slovenian.problemNotApi);
         assert "Newest".equals(english.recent) && "Najnovejši".equals(slovenian.recent) && "Set the server address and the API key in the plugin settings.".equals(english.notConfigured);
         assert "Kosilo".equals(slovenian.slot("Lunch")) && "Lunch".equals(english.slot("Lunch")) && "Brunch".equals(slovenian.slot("Brunch"));
-        assert english.problemLimit.contains("500 requests") && slovenian.problemLimit.contains("500 zahtev") && !slovenian.problemLimit.contains("{");
+        assert "Norish is not answering this API key for a while, because it made too many requests. Give each tablet its own key.".equals(english.problemLimit);
+        assert "Norish temu API ključu nekaj časa ne odgovarja, ker je poslal preveč zahtev. Vsaka tablica naj ima svoj ključ.".equals(slovenian.problemLimit);
         assert "Prep and cook".equals(english.prep) && "Priprava in kuhanje".equals(slovenian.prep) && "Prep".equals(Strings.ENGLISH.prep) && "Priprava".equals(Strings.SLOVENIAN.prep);
         assert "Norish shares only this week and this month of the meal plan.".equals(english.planCut);
         assert "Norish deli le jedilnik tega tedna in tega meseca.".equals(slovenian.planCut);
@@ -547,6 +593,28 @@ public final class NorishTest {
                 else if (KEY.equals(key) && tiredAnswers.getAndIncrement() < 1) send(exchange, 200, json("{'recipes':[{'id':'" + JOTA + "','name':'Jota'}],'total':1,'nextCursor':null}"), null);
                 else send(exchange, 401, UNAUTHORIZED, null);
                 return;
+            case "/oldparser":
+                if (rest.equals("/api/v1/health")) send(exchange, 503, json("{'message':'Parser service is unreachable','code':'SERVICE_UNAVAILABLE'}"), null);
+                else if (rest.startsWith("/api/v1/health")) send(exchange, 404, NO_ROUTE, null);
+                else send(exchange, 401, UNAUTHORIZED, null);
+                return;
+            case "/flip":
+                if (rest.equals("/api/v1/health/ready")) {
+                    if (flipped) send(exchange, 200, json("{'status':'ok'}"), null);
+                    else send(exchange, 404, NO_ROUTE, null);
+                } else if (rest.equals("/api/v1/health")) {
+                    send(exchange, 200, json("{'status':'ok'}"), null);
+                } else if (rest.startsWith("/api/v1/planned-recipes")) {
+                    send(exchange, 200, "[]", null);
+                } else {
+                    send(exchange, 401, UNAUTHORIZED, null);
+                }
+                return;
+            case "/revoked":
+                if (rest.startsWith("/api/v1/health")) send(exchange, 200, json("{'status':'ok'}"), null);
+                else if (KEY.equals(key) && revokedAnswers.getAndIncrement() < 1) send(exchange, 200, json("{'recipes':[{'id':'" + JOTA + "','name':'Jota'}],'total':1,'nextCursor':null}"), null);
+                else send(exchange, 401, UNAUTHORIZED, null);
+                return;
             case "/olddown":
                 if (rest.equals("/api/v1/health")) send(exchange, 503, json("{'message':'Database is error','code':'SERVICE_UNAVAILABLE'}"), null);
                 else if (rest.startsWith("/api/v1/health")) send(exchange, 404, NO_ROUTE, null);
@@ -558,6 +626,10 @@ public final class NorishTest {
                 return;
             case "/gate":
                 send(exchange, 401, "<html><body>Sign in to continue</body></html>", null);
+                return;
+            case "/oauth":
+                exchange.getResponseHeaders().add("WWW-Authenticate", "Bearer realm=\"kitchen\"");
+                send(exchange, 401, json("{'error':'unauthorized'}"), null);
                 return;
             case "/gateway":
                 send(exchange, 502, "<html><body><h1>502 Bad Gateway</h1></body></html>", null);
