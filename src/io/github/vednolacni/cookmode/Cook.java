@@ -133,10 +133,15 @@ final class Cook implements Ui.Actions {
     private long planAskedAt = -1;
     /** Whether the plugin's page now says something is wrong. */
     private boolean statusError;
+    /** The call whose failure the plugin's page shows, or null for any other message. */
+    private Trouble statusOwner;
     /** Why the last read of the plan failed, until one comes in. */
     private RecipeSource.SourceException planProblem;
     /** The earliest day the server may have been on when the plan in hand was read, which says how far that plan reaches. */
     private LocalDate planFrom;
+    /** The last day of the plan in hand, and of the read on its way, which is set while planLoading. */
+    private LocalDate planTo;
+    private LocalDate planLoadingTo;
     /** Cook today's meal came while the plan was old: the page it came on, until the plan read again is in. */
     private Model.Page chooseOn;
     /** And the recipe open then. */
@@ -382,6 +387,7 @@ final class Cook implements Ui.Actions {
             planReadAt = -1;
             planAskedAt = -1;
             planFrom = null;
+            planTo = null;
             planProblem = null;
             chooseOn = null;
             recipes = new ArrayList<>();
@@ -577,6 +583,7 @@ final class Cook implements Ui.Actions {
         final LocalDate serverDay = serverDay();
         final LocalDate first = LocalDate.now(clock);
         final LocalDate last = first.plusDays(settings.planDays - 1);
+        planLoadingTo = last;
         background(() -> {
             List<RecipeSource.Planned> read = null;
             RecipeSource.SourceException problem = null;
@@ -594,6 +601,7 @@ final class Cook implements Ui.Actions {
                     plan = read;
                     planReadAt = clock.millis();
                     planFrom = serverDay;
+                    planTo = last;
                     planProblem = null;
                     cleared(Trouble.PLAN);
                     report();
@@ -662,6 +670,7 @@ final class Cook implements Ui.Actions {
     private void failed(RecipeSource.SourceException problem, Trouble from) {
         if (problem == null) return;
         status(problem.getMessage(), true);
+        statusOwner = from;
         if ((from == Trouble.PLAN || from == Trouble.LIST) && page != Model.Page.HOME) return;
         bannerOwner = from;
         switch (problem.kind) {
@@ -682,6 +691,8 @@ final class Cook implements Ui.Actions {
     /** What raised the banner works again. */
     private void cleared(Trouble from) {
         if (bannerOwner == from) clearBanner();
+        // Nor does the plugin's page go on saying it.
+        if (statusError && statusOwner == from) report();
     }
 
     private void clearBanner() {
@@ -695,6 +706,7 @@ final class Cook implements Ui.Actions {
 
     private void status(String message, boolean error) {
         statusError = error;
+        statusOwner = null;
         if (host != null) host.status(message.length() > 1000 ? message.substring(0, 1000) : message, error);
     }
 
@@ -1176,11 +1188,14 @@ final class Cook implements Ui.Actions {
      * household may have changed tonight's dinner since the last read, which can be an hour ago.
      */
     private void cookToday() {
-        boolean old = planReadAt < 0 || clock.millis() - planReadAt > PLAN_STALE_MS;
+        LocalDate today = LocalDate.now(clock);
+        // Also a plan read just before midnight that ends before today, as with one day of plan.
+        boolean old = planReadAt < 0 || clock.millis() - planReadAt > PLAN_STALE_MS || planTo == null || planTo.isBefore(today);
         open();
         if (old && source != null) {
-            // Opening the panel reads the plan when it was closed. When it was up already, this does.
-            if (!planLoading) loadPlan();
+            // Opening the panel reads the plan when it was closed. When it was up already, this does. A read on its way is
+            // waited for, unless it was asked before midnight for days that end before today.
+            if (!planLoading || planLoadingTo.isBefore(today)) loadPlan();
             chooseOn = page;
             chooseWith = recipeId;
             return;
@@ -1619,6 +1634,8 @@ final class Cook implements Ui.Actions {
         synchronized (this) {
             if (host == null) return;
             try {
+                // A plan that does not reach the new day, as with one day of plan, is read now.
+                if (!planLoading && planTo != null && planTo.isBefore(LocalDate.now(clock))) loadPlan();
                 // A trouble on the plugin's page stays until it is over.
                 if (!statusError) report();
                 publishState();

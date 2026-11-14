@@ -180,6 +180,9 @@ public final class ViewsTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
             String name = exchange.getRequestURI().getPath().replaceAll("\\D", "");
+            // Read before the request is counted: a test that waits to see it counted may then change them for the next.
+            boolean fail = picturesFail;
+            java.util.concurrent.CountDownLatch held = picturesHeld;
             picturesAsked.add(name);
             if ("404".equals(name)) {
                 // As Norish says it: no such picture, in JSON.
@@ -233,8 +236,6 @@ public final class ViewsTest {
                 }
                 return;
             }
-            boolean fail = picturesFail;
-            java.util.concurrent.CountDownLatch held = picturesHeld;
             if (held != null) {
                 try {
                     held.await(30, java.util.concurrent.TimeUnit.SECONDS);
@@ -1379,6 +1380,27 @@ public final class ViewsTest {
         assertNotNull(large.getDrawable());
         assertNotNull(small.getDrawable());
         assertEquals(picturesAsked.toString(), 2, Collections.frequency(picturesAsked, "14"));
+        images.close();
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aPictureNoOtherSizeWaitsOnIsNotHeldOnceFetched() {
+        begin("pictures-held", true, settings("English"));
+        Images images = new Images(Images.KEPT_MOST, 64 * 1024);
+        String base = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/";
+        List<ImageView> views = new ArrayList<>();
+        for (int number = 31; number <= 34; number++) {
+            ImageView view = new ImageView(activity);
+            views.add(view);
+            images.load(view, base + number + ".png?X-Amz-Signature=abc", NO_HEADERS, 100);
+        }
+        // The answers are in and the main thread has not taken them yet. Nothing waits on their bytes, so none are held.
+        long until = System.currentTimeMillis() + 10_000;
+        while (images.fetched() < 4 && System.currentTimeMillis() < until) Thread.yield();
+        assertEquals(4, images.fetched());
+        assertEquals(0, images.heldBytes());
+        waitUntil(() -> views.stream().allMatch(view -> view.getDrawable() != null));
+        for (ImageView view : views) assertNotNull(view.getDrawable());
         images.close();
     }
 

@@ -144,7 +144,16 @@ public final class CookTest {
         RuntimeException bug;
         final List<String> calls = new ArrayList<>();
         public String probe() throws SourceException { calls.add("probe"); if (bug != null) throw bug; if (fail != null) throw fail; return "Connected to Tandoor 2.7.2, 2 recipes."; }
-        public List<Planned> mealPlan(LocalDate first, LocalDate last) throws SourceException { calls.add("plan " + first + " " + last); if (fail != null) throw fail; return plan; }
+        /** Answers only the days asked for, as both apps do. */
+        boolean byRange;
+        public List<Planned> mealPlan(LocalDate first, LocalDate last) throws SourceException {
+            calls.add("plan " + first + " " + last);
+            if (fail != null) throw fail;
+            if (!byRange) return plan;
+            List<Planned> days = new ArrayList<>();
+            for (Planned meal : plan) if (!meal.date.isBefore(first) && !meal.date.isAfter(last)) days.add(meal);
+            return days;
+        }
         public Page recipes(String query, Order order, int page) throws SourceException {
             calls.add("recipes " + query + " " + order + " " + page);
             if (fail != null) throw fail;
@@ -237,6 +246,7 @@ public final class CookTest {
         voice();
         commands();
         problems();
+        acrossMidnight();
         questions();
         restart();
         secondTimer();
@@ -2226,7 +2236,56 @@ public final class CookTest {
         assert "ks_kitchen_announce_stop".equals(host.haCalls.get(3).get("service"));
     }
 
+    static void acrossMidnight() {
+        // With one day of plan, a read asked before midnight brings only that day. Cook today's meal after midnight reads
+        // today's plan first, also while that read is still on its way.
+        Map<String, Object> values = settings();
+        values.put("planDays", 1.0);
+        for (boolean answered : new boolean[] {false, true}) {
+            fresh(values);
+            source.byRange = true;
+            source.plan = new ArrayList<>(Arrays.asList(
+                new RecipeSource.Planned("y", TODAY, "Dinner", 18 * 60, 0, "3", "Soup", "", 0, "", 0),
+                new RecipeSource.Planned("t", TODAY.plusDays(1), "Lunch", 12 * 60, 0, "2", "Jota", "", 0, "", 0)));
+            net.runAll();
+            clock.now = ZonedDateTime.of(2026, 11, 1, 23, 59, 30, 0, ZONE).toInstant();
+            ui.run(Cook.PLAN_REFRESH_MS);
+            if (answered) net.runAll();
+            clock.now = ZonedDateTime.of(2026, 11, 2, 0, 0, 40, 0, ZONE).toInstant();
+            int from = source.calls.size();
+            cook.execute("cookToday");
+            net.runAll();
+            List<String> calls = source.calls.subList(from, source.calls.size());
+            assert calls.contains("plan 2026-11-02 2026-11-02") && calls.contains("recipe 2") && ui.model.page == Model.Page.RECIPE : answered + " " + calls;
+            cook.close();
+        }
+        // At midnight a plan that does not reach the new day is read, and one that does is not.
+        fresh(values);
+        net.runAll();
+        clock.now = ZonedDateTime.of(2026, 11, 2, 0, 0, 5, 0, ZONE).toInstant();
+        int at = source.calls.size();
+        ui.run(13 * 3_600_000L + 5_000L);
+        net.runAll();
+        assert source.calls.subList(at, source.calls.size()).contains("plan 2026-11-02 2026-11-02") : source.calls;
+        cook.close();
+    }
+
     static void problems() {
+        // An error that is over leaves the plugin's page: a search that works again puts the usual line back.
+        fresh(settings());
+        net.runAll();
+        cook.execute("openCookMode");
+        net.runAll();
+        source.fail = down();
+        cook.search("soup");
+        net.runAll();
+        assert host.statusError && "Could not reach Tandoor.".equals(host.status) : host.status;
+        source.fail = null;
+        cook.search("soup");
+        net.runAll();
+        assert !host.statusError && host.status.startsWith("Connected. 2 meals planned today.") : host.status;
+        cook.close();
+
         // Not configured: no calls, and the status says what to set.
         Map<String, Object> empty = settings();
         empty.put("apiToken", "");

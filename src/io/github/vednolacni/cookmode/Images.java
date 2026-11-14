@@ -132,6 +132,8 @@ final class Images {
          * memory is too small to hold them and the address is not kept on the tablet. Set before the answer is posted.
          */
         byte[] body;
+        /** Whether another size waits on this job's bytes. Set on the main thread, read on the picture threads. */
+        volatile boolean handOff;
         Fetch fetch;
         long batch;
         /** Asked for while on its way, perhaps because the server has just come back. */
@@ -165,6 +167,18 @@ final class Images {
     /** Keep pictures in this folder from here on, so they outlast the panel and the plugin. Any thread. */
     void keepIn(File folder) {
         keptIn = folder;
+    }
+
+    /** How many tries the picture threads have finished, for a test. Any thread. */
+    long fetched() {
+        return pool.getCompletedTaskCount();
+    }
+
+    /** The bytes jobs hold for other sizes, for a test. Main thread only. */
+    long heldBytes() {
+        long held = 0;
+        for (Job job : jobs.values()) if (job.body != null) held += job.body.length;
+        return held;
     }
 
     /** Whether nothing is on its way. Main thread only. */
@@ -228,6 +242,7 @@ final class Images {
             Job sibling = jobs.get(other);
             for (int i = sibling.parked.size() - 1; i >= 0; i--) if (sibling.parked.get(i).view == view) sibling.parked.remove(i);
             sibling.parked.add(new Parked(view, headers, width));
+            sibling.handOff = true;
             // As for the same size: a try that fails now gets one more, which brings this size too.
             sibling.askedAgain = true;
             if (sibling.batch != batch && pool.remove(sibling.fetch)) start(other, sibling);
@@ -301,7 +316,7 @@ final class Images {
                 Bitmap bitmap = decode(picture, job.width);
                 if (bitmap != null) {
                     bytes.put(job.url, picture);
-                    job.body = picture;
+                    job.body = job.handOff ? picture : null;
                     return bitmap;
                 }
                 // Kept bytes that no longer read, as a power cut can leave them. The server still has the picture.
@@ -326,7 +341,7 @@ final class Images {
             }
             bytes.put(job.url, response.body);
             keep(job.url, response.body);
-            job.body = response.body;
+            job.body = job.handOff ? response.body : null;
             return bitmap;
         } catch (Http.TooLarge large) {
             // A picture too large to take is so every time. A page that large, such as a proxy's, says nothing of the picture.
