@@ -584,7 +584,10 @@ public final class ViewsTest {
         assertEquals(1, kitchen.cooked.size());
         assertEquals("1 4.0", kitchen.cooked.get(0));
         assertNotNull(find(s.logged));
-        tap(find(s.backToPlan));
+        // Room past its measured width for the last letter, which KS's typeface can draw beyond it.
+        TextView back = find(s.backToPlan);
+        assertTrue(back.getShadowRadius() >= back.getTextSize() / 2 && android.graphics.Color.alpha(back.getShadowColor()) == 0);
+        tap(back);
         assertNotNull(find(s.today));
         assertNull(find(String.format(s.continueAt, 7)));
         assertFalse(mainView().getKeepScreenOn());

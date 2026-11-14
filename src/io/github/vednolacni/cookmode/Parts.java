@@ -103,6 +103,9 @@ final class Parts {
         TextView pill = new TextView(context);
         pill.setText(label);
         theme.stylePill(pill, filled);
+        // KS's typeface at weight 600 can draw wider than Android measures it, and TextView cuts its text off at the edge it
+        // measured, so a long label lost its last letter. A shadow that shows nothing moves that edge into the padding.
+        pill.setShadowLayer(pill.getTextSize() / 2, 0, 0, Color.TRANSPARENT);
         onTap(pill, action);
         return pill;
     }
