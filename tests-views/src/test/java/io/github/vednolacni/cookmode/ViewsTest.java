@@ -81,6 +81,8 @@ import org.robolectric.annotation.LooperMode;
 public final class ViewsTest {
     private static final ZoneId ZONE = ZoneId.of("Europe/Ljubljana");
     private static final Map<Integer, byte[]> PICTURES = new HashMap<>();
+    /** No headers for any picture, as for a server that needs none. */
+    private static final java.util.function.Function<String, Map<String, String>> NO_HEADERS = url -> Collections.<String, String>emptyMap();
     private static final Map<Integer, Typeface> FONTS = new HashMap<>();
 
     private final class TestClock extends Clock {
@@ -185,6 +187,40 @@ public final class ViewsTest {
                 exchange.sendResponseHeaders(404, missing.length);
                 try (OutputStream out = exchange.getResponseBody()) {
                     out.write(missing);
+                }
+                return;
+            }
+            boolean first;
+            synchronized (picturesAsked) {
+                first = Collections.frequency(picturesAsked, name) == 1;
+            }
+            if ("406".equals(name) && first) {
+                // As Norish answers a key over its limit: not found, and not to be kept.
+                byte[] refused = "{\"error\":\"Not found\"}".getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Cache-Control", "no-store");
+                exchange.sendResponseHeaders(404, refused.length);
+                try (OutputStream out = exchange.getResponseBody()) {
+                    out.write(refused);
+                }
+                return;
+            }
+            if ("407".equals(name) && first) {
+                // A sign-in page where the picture should be.
+                byte[] page = "<html>Sign in</html>".getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "text/html");
+                exchange.sendResponseHeaders(200, page.length);
+                try (OutputStream out = exchange.getResponseBody()) {
+                    out.write(page);
+                }
+                return;
+            }
+            if ("408".equals(name)) {
+                // A picture this tablet cannot read, as AVIF is before Android 12.
+                byte[] unreadable = "not a picture Android reads".getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "image/avif");
+                exchange.sendResponseHeaders(200, unreadable.length);
+                try (OutputStream out = exchange.getResponseBody()) {
+                    out.write(unreadable);
                 }
                 return;
             }
@@ -903,6 +939,9 @@ public final class ViewsTest {
             shot("4-finish");
 
             assertFalse(pictureKeys.isEmpty());
+            // The pictures are kept in KS's cache, where the next start of the plugin finds them.
+            File kept = new File(activity.getCacheDir(), "cook-mode-pictures");
+            assertTrue(kept.isDirectory() && kept.list().length > 0);
             for (String sent : new ArrayList<>(pictureKeys)) assertEquals(key, sent);
         } finally {
             norish.stop(0);
@@ -1219,14 +1258,14 @@ public final class ViewsTest {
         String base = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/";
         picturesHeld = new java.util.concurrent.CountDownLatch(1);
         // These two take both threads, and the rest wait in the queue.
-        for (int number : new int[] {101, 102}) images.load(new ImageView(activity), base + number + ".png", Collections.<String, String>emptyMap(), 100);
+        for (int number : new int[] {101, 102}) images.load(new ImageView(activity), base + number + ".png", NO_HEADERS, 100);
         long until = System.currentTimeMillis() + 10_000;
         while (picturesAsked.isEmpty() && System.currentTimeMillis() < until) Thread.yield();
-        for (int number : new int[] {1, 2, 3}) images.load(new ImageView(activity), base + number + ".png", Collections.<String, String>emptyMap(), 100);
+        for (int number : new int[] {1, 2, 3}) images.load(new ImageView(activity), base + number + ".png", NO_HEADERS, 100);
         images.newest();
-        images.load(new ImageView(activity), base + "4.png", Collections.<String, String>emptyMap(), 100);
+        images.load(new ImageView(activity), base + "4.png", NO_HEADERS, 100);
         images.newest();
-        images.load(new ImageView(activity), base + "3.png", Collections.<String, String>emptyMap(), 100);
+        images.load(new ImageView(activity), base + "3.png", NO_HEADERS, 100);
         picturesHeld.countDown();
         picturesHeld = null;
         until = System.currentTimeMillis() + 10_000;
@@ -1244,29 +1283,29 @@ public final class ViewsTest {
         Images images = new Images();
         String base = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/";
         ImageView small = new ImageView(activity);
-        images.load(small, base + "7.png", Collections.<String, String>emptyMap(), 100);
+        images.load(small, base + "7.png", NO_HEADERS, 100);
         waitUntil(() -> small.getDrawable() != null);
         // Another size, as on another page or after the panel opens again, comes from the bytes already here.
         ImageView large = new ImageView(activity);
-        images.load(large, base + "7.png", Collections.<String, String>emptyMap(), 400);
+        images.load(large, base + "7.png", NO_HEADERS, 400);
         waitUntil(() -> large.getDrawable() != null);
         assertNotNull(large.getDrawable());
         assertEquals(picturesAsked.toString(), 1, Collections.frequency(picturesAsked, "7"));
         // A picture the server says does not exist is asked for once, also when asked again while on its way.
         ImageView gone = new ImageView(activity);
-        images.load(gone, base + "404.png", Collections.<String, String>emptyMap(), 100);
-        images.load(gone, base + "404.png", Collections.<String, String>emptyMap(), 100);
+        images.load(gone, base + "404.png", NO_HEADERS, 100);
+        images.load(gone, base + "404.png", NO_HEADERS, 100);
         waitUntil(() -> picturesAsked.contains("404"));
         later(500);
-        images.load(new ImageView(activity), base + "404.png", Collections.<String, String>emptyMap(), 100);
+        images.load(new ImageView(activity), base + "404.png", NO_HEADERS, 100);
         later(500);
         assertEquals(picturesAsked.toString(), 1, Collections.frequency(picturesAsked, "404"));
         assertNull(gone.getDrawable());
         // A proxy's own page says nothing of the picture, so it is asked for again.
-        images.load(new ImageView(activity), base + "405.png", Collections.<String, String>emptyMap(), 100);
+        images.load(new ImageView(activity), base + "405.png", NO_HEADERS, 100);
         waitUntil(() -> picturesAsked.contains("405"));
         later(500);
-        images.load(new ImageView(activity), base + "405.png", Collections.<String, String>emptyMap(), 100);
+        images.load(new ImageView(activity), base + "405.png", NO_HEADERS, 100);
         waitUntil(() -> Collections.frequency(picturesAsked, "405") == 2);
         assertEquals(picturesAsked.toString(), 2, Collections.frequency(picturesAsked, "405"));
         images.close();
@@ -1280,7 +1319,7 @@ public final class ViewsTest {
         Images first = new Images();
         first.keepIn(folder);
         ImageView one = new ImageView(activity);
-        first.load(one, url, Collections.<String, String>emptyMap(), 100);
+        first.load(one, url, NO_HEADERS, 100);
         waitUntil(() -> one.getDrawable() != null);
         assertNotNull(one.getDrawable());
         first.close();
@@ -1288,12 +1327,139 @@ public final class ViewsTest {
         Images second = new Images();
         second.keepIn(folder);
         ImageView two = new ImageView(activity);
-        second.load(two, url, Collections.<String, String>emptyMap(), 300);
+        second.load(two, url, NO_HEADERS, 300);
         waitUntil(() -> two.getDrawable() != null);
         assertNotNull(two.getDrawable());
         assertEquals(picturesAsked.toString(), 1, Collections.frequency(picturesAsked, "8"));
         assertTrue(new File(folder, Images.name(url)).isFile());
         second.close();
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aPictureAskedForAtTwoSizesAtOnceIsFetchedOnce() {
+        begin("pictures-sizes", true, settings("English"));
+        Images images = new Images();
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/9.png";
+        picturesHeld = new java.util.concurrent.CountDownLatch(1);
+        ImageView small = new ImageView(activity);
+        ImageView large = new ImageView(activity);
+        images.load(small, url, NO_HEADERS, 100);
+        long until = System.currentTimeMillis() + 10_000;
+        while (!picturesAsked.contains("9") && System.currentTimeMillis() < until) Thread.yield();
+        // Another size while the first is on its way, as the plan and the list show the same recipe.
+        images.load(large, url, NO_HEADERS, 400);
+        picturesHeld.countDown();
+        picturesHeld = null;
+        waitUntil(() -> small.getDrawable() != null && large.getDrawable() != null);
+        assertNotNull(small.getDrawable());
+        assertNotNull(large.getDrawable());
+        assertEquals(picturesAsked.toString(), 1, Collections.frequency(picturesAsked, "9"));
+        images.close();
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aPictureRefusedForTheKeyOrMetWithASignInPageIsAskedForAgain() {
+        begin("pictures-again", true, settings("English"));
+        Images images = new Images();
+        String base = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/";
+        for (String name : new String[] {"406", "407"}) {
+            ImageView first = new ImageView(activity);
+            images.load(first, base + name + ".png", NO_HEADERS, 100);
+            waitUntil(() -> picturesAsked.contains(name));
+            later(500);
+            assertNull(name, first.getDrawable());
+            // Once the key is served again, as after Norish's wait, the next answer to the list brings it.
+            ImageView again = new ImageView(activity);
+            images.load(again, base + name + ".png", NO_HEADERS, 100);
+            waitUntil(() -> again.getDrawable() != null);
+            assertNotNull(name, again.getDrawable());
+            assertEquals(picturesAsked.toString(), 2, Collections.frequency(picturesAsked, name));
+        }
+        images.close();
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aPictureThisTabletCannotReadIsAskedForOnceWhileThePluginRuns() {
+        begin("pictures-unreadable", true, settings("English"));
+        Images images = new Images();
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/408.png";
+        images.load(new ImageView(activity), url, NO_HEADERS, 100);
+        waitUntil(() -> picturesAsked.contains("408"));
+        later(500);
+        // Long after a picture that does not exist would be asked for again.
+        later(Images.MISSING_MS + 60_000);
+        images.load(new ImageView(activity), url, NO_HEADERS, 100);
+        later(500);
+        assertEquals(picturesAsked.toString(), 1, Collections.frequency(picturesAsked, "408"));
+        images.close();
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void anEmptyPictureLeftOnTheTabletIsFetchedOnceAndKeptWhole() throws IOException {
+        begin("pictures-empty", true, settings("English"));
+        File folder = Files.createTempDirectory("kept").toFile();
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/12.png";
+        // As a power cut soon after it was named can leave it.
+        assertTrue(new File(folder, Images.name(url)).createNewFile());
+        Images first = new Images();
+        first.keepIn(folder);
+        ImageView one = new ImageView(activity);
+        first.load(one, url, NO_HEADERS, 100);
+        waitUntil(() -> one.getDrawable() != null);
+        assertNotNull(one.getDrawable());
+        first.close();
+        assertTrue(new File(folder, Images.name(url)).length() > 0);
+        Images second = new Images();
+        second.keepIn(folder);
+        ImageView two = new ImageView(activity);
+        second.load(two, url, NO_HEADERS, 100);
+        waitUntil(() -> two.getDrawable() != null);
+        assertNotNull(two.getDrawable());
+        second.close();
+        assertEquals(picturesAsked.toString(), 1, Collections.frequency(picturesAsked, "12"));
+        assertEquals(java.util.Arrays.toString(folder.list()), 1, folder.list().length);
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void thePicturesThePanelAsksForStayAndOnlyOlderOnesMakeRoom() throws IOException {
+        begin("pictures-room", true, settings("English"));
+        File folder = Files.createTempDirectory("kept").toFile();
+        String base = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/";
+        // Room for less than one: the pictures asked for now all stay, past the size, so the next opening fetches none.
+        Images first = new Images(1);
+        first.keepIn(folder);
+        List<ImageView> views = new ArrayList<>();
+        for (int number = 21; number <= 26; number++) {
+            ImageView view = new ImageView(activity);
+            views.add(view);
+            first.load(view, base + number + ".png", NO_HEADERS, 100);
+        }
+        waitUntil(() -> views.stream().allMatch(view -> view.getDrawable() != null));
+        first.close();
+        assertEquals(java.util.Arrays.toString(folder.list()), 6, folder.list().length);
+        // After a start, with room for about three, the pictures used longest ago make room for a new one.
+        long size = new File(folder, Images.name(base + "21.png")).length();
+        for (int number = 21; number <= 26; number++) assertTrue(new File(folder, Images.name(base + number + ".png")).setLastModified(1_000_000_000L * number));
+        Images second = new Images(size * 3);
+        second.keepIn(folder);
+        ImageView fresh = new ImageView(activity);
+        second.load(fresh, base + "27.png", NO_HEADERS, 100);
+        waitUntil(() -> fresh.getDrawable() != null);
+        second.close();
+        assertTrue(new File(folder, Images.name(base + "27.png")).isFile());
+        assertFalse(new File(folder, Images.name(base + "21.png")).isFile());
+        long total = 0;
+        for (File file : folder.listFiles()) total += file.length();
+        assertTrue(total + " of " + size * 3, total <= size * 3);
+        // The next start counts what is kept, and removes nothing while that is within its size.
+        int before = folder.list().length;
+        Images third = new Images(total + size * 6 / 5);
+        third.keepIn(folder);
+        ImageView another = new ImageView(activity);
+        third.load(another, base + "28.png", NO_HEADERS, 100);
+        waitUntil(() -> another.getDrawable() != null);
+        third.close();
+        assertEquals(java.util.Arrays.toString(folder.list()), before + 1, folder.list().length);
     }
 
     /** Wait for the picture threads, letting the main thread run what they post. */

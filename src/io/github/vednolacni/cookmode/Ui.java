@@ -52,7 +52,7 @@ interface Ui extends Awake.Scheduler {
         List<Timers.Timer> timers();
         /** Something on the tablet does not work, such as its voice. Goes to the plugin page. */
         void problem(String message);
-        /** Headers a picture at this address needs. Never blocks. */
+        /** Headers a picture at this address needs, or null when it is not to be asked for now. Asked on a picture thread just before each request. Never blocks. */
         Map<String, String> imageHeaders(String url);
     }
 

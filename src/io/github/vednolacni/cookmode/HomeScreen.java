@@ -204,7 +204,7 @@ final class HomeScreen implements Screen {
             ImageView picture = (ImageView) view;
             Object url = picture.getTag();
             if (url instanceof String && !((String) url).isEmpty() && picture.getDrawable() == null) {
-                images.load(picture, (String) url, actions.imageHeaders((String) url), parts.px(widthDp));
+                images.load(picture, (String) url, actions::imageHeaders, parts.px(widthDp));
             }
         } else if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
@@ -326,7 +326,7 @@ final class HomeScreen implements Screen {
         card.setBackground(parts.ripple(parts.theme().color("primaryContainer"), parts.theme().radiusRow()));
         card.setPadding(parts.px(12), parts.px(12), parts.px(12), parts.px(12));
         ImageView picture = parts.picture(parts.theme().radiusControl());
-        images.load(picture, model.recipeImage, actions.imageHeaders(model.recipeImage), parts.px(THUMBNAIL_WIDTH_DP));
+        images.load(picture, model.recipeImage, actions::imageHeaders, parts.px(THUMBNAIL_WIDTH_DP));
         card.addView(picture, new LinearLayout.LayoutParams(parts.px(72), parts.px(72)));
         LinearLayout words = parts.column();
         words.addView(parts.text(strings.cooking, 13, 600, "onSurfaceVariant", 1), parts.wide());
@@ -348,7 +348,7 @@ final class HomeScreen implements Screen {
         boolean recipe = meal.recipeId != null;
         if (recipe) {
             ImageView picture = parts.picture(parts.theme().radiusControl());
-            images.load(picture, meal.image, actions.imageHeaders(meal.image), parts.px(THUMBNAIL_WIDTH_DP));
+            images.load(picture, meal.image, actions::imageHeaders, parts.px(THUMBNAIL_WIDTH_DP));
             int size = parts.px(today ? 84 : 56);
             LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(size, size);
             at.setMarginEnd(parts.px(14));
@@ -443,7 +443,7 @@ final class HomeScreen implements Screen {
         cell.setBackground(parts.ripple(parts.theme().color("surfaceContainerHigh"), parts.theme().radiusRow()));
         cell.setPadding(parts.px(8), parts.px(8), parts.px(8), parts.px(10));
         ImageView picture = parts.picture(parts.theme().radiusControl());
-        images.load(picture, recipe.image, actions.imageHeaders(recipe.image), parts.px(CELL_WIDTH_DP));
+        images.load(picture, recipe.image, actions::imageHeaders, parts.px(CELL_WIDTH_DP));
         cell.addView(picture, new LinearLayout.LayoutParams(Parts.MATCH, parts.px(112)));
         cell.addView(parts.text(recipe.name, 15, 600, "onSurface", 2), parts.wide(8));
         if (recipe.minutes > 0) cell.addView(parts.text(recipe.minutes + " min", 13, 400, "onSurfaceVariant", 1), parts.wide(2));

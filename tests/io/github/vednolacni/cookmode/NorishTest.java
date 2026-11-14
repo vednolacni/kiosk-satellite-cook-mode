@@ -37,6 +37,10 @@ public final class NorishTest {
     static final java.util.concurrent.atomic.AtomicInteger revokedAnswers = new java.util.concurrent.atomic.AtomicInteger();
     /** How many answers the tired 0.25 server has given its key. */
     static final java.util.concurrent.atomic.AtomicInteger tiredAnswers = new java.util.concurrent.atomic.AtomicInteger();
+    /** How many answers the 0.25 server that refuses two calls at once has given its key this round. */
+    static final java.util.concurrent.atomic.AtomicInteger pairAnswers = new java.util.concurrent.atomic.AtomicInteger();
+    /** Holds two refused calls until both are there, so they are refused at the same moment. */
+    static volatile java.util.concurrent.CyclicBarrier pair;
 
     static String json(String quoted) {
         return quoted.replace('\'', '"');
@@ -131,6 +135,12 @@ public final class NorishTest {
     public static void main(String[] args) throws Exception {
         HttpServer http = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         http.createContext("/", NorishTest::answer);
+        // Two calls at once, as the plugin's two network threads make them.
+        http.setExecutor(java.util.concurrent.Executors.newCachedThreadPool(task -> {
+            Thread thread = new Thread(task, "fake-norish");
+            thread.setDaemon(true);
+            return thread;
+        }));
         http.start();
         server = "http://127.0.0.1:" + http.getAddress().getPort();
         try {
@@ -138,6 +148,7 @@ public final class NorishTest {
             modern();
             pictures();
             older();
+            together();
             failures();
             waiting();
             words();
@@ -168,6 +179,8 @@ public final class NorishTest {
         assert new Settings(values).problem().contains("Settings > User > API keys");
         values.put("serverUrl", "home.example");
         assert new Settings(values).problem().startsWith("The server address");
+        values.put("serverUrl", "");
+        assert "Set the server address under Recipe server.".equals(new Settings(values).problem());
         // The same address in another app is another server.
         values.put("serverUrl", "https://home.example/norish");
         values.put("apiToken", KEY);
@@ -180,9 +193,9 @@ public final class NorishTest {
         // Norish shares this week and this month, as its server counts them, and nothing after the later of their ends.
         NorishSource reach = new NorishSource("http://h", KEY, new Http());
         assert reach.planReach(LocalDate.of(2026, 10, 30)).equals(LocalDate.of(2026, 11, 1)) && reach.planReach(LocalDate.of(2026, 11, 21)).equals(LocalDate.of(2026, 11, 30));
-        assert reach.planReach(LocalDate.of(2026, 11, 29)).equals(LocalDate.of(2026, 11, 30)) && reach.planReach(LocalDate.of(2026, 12, 1)).equals(LocalDate.of(2026, 12, 6));
-        // On the first day of a week Norish may still be on the last one, so its plan is not counted on past that.
-        assert reach.planReach(LocalDate.of(2026, 11, 30)).equals(LocalDate.of(2026, 11, 30));
+        assert reach.planReach(LocalDate.of(2026, 11, 29)).equals(LocalDate.of(2026, 11, 30)) && reach.planReach(LocalDate.of(2026, 12, 1)).equals(LocalDate.of(2026, 12, 31));
+        // A Monday's week runs to its Sunday, also past the month's end.
+        assert reach.planReach(LocalDate.of(2026, 11, 30)).equals(LocalDate.of(2026, 12, 6));
         assert new TandoorSource("http://h", "t", new Http()).planReach(TODAY).equals(LocalDate.MAX);
         // Its slots have no time, so they count as the hours they are usually cooked at, in Norish's order.
         assert NorishSource.slotOrder("Breakfast") == 8 * 60 && NorishSource.slotOrder("Lunch") == 12 * 60 && NorishSource.slotOrder("Dinner") == 18 * 60;
@@ -299,27 +312,34 @@ public final class NorishTest {
         NorishSource norish = new NorishSource(server + "/norish", KEY, new Http());
         String picture = server + "/norish/recipes/" + JOTA + "/prvi.jpg";
         assert Collections.singletonMap("x-api-key", KEY).equals(norish.imageHeaders(picture));
-        assert !norish.imageHeaders(server + "/norish/recipes/" + JOTA + "/steps/..korak.jpg").isEmpty();
-        // Never to another host, scheme or port, outside the base path, or with a user name in front.
+        // A step's picture too, named as Norish names them.
+        assert !norish.imageHeaders(server + "/norish/recipes/" + JOTA + "/steps/a1b2-c3_d4.jpeg").isEmpty();
+        // Never to another host, scheme or port, outside the base path, or with a user name in front. Nor to anything of
+        // Norish's but its pictures: its health and API routes, its pages, and names it never gives.
         String port = server.substring(server.lastIndexOf(':') + 1);
         for (String other : new String[] {"https://cdn.example/kruh.jpg", "http://localhost:" + port + "/norish/recipes/x.jpg", "https://127.0.0.1:" + port + "/norish/recipes/x.jpg",
             "http://127.0.0.1:1/norish/recipes/x.jpg", server + "/other/recipes/x.jpg", server + "/norishx/recipes/x.jpg", "http://user@127.0.0.1:" + port + "/norish/recipes/x.jpg", "nonsense",
             server + "/norish/../other/x.jpg", server + "/norish/%2e%2E/other/x.jpg", server + "/norish/recipes/./x.jpg", server + "/norish/recipes/..%5cadmin", server + "/norish/..",
-            server + "/norish/recipes/%2e%2e%2f%2e%2e/admin"}) {
-            assert norish.imageHeaders(other).isEmpty() : other;
+            server + "/norish/recipes/%2e%2e%2f%2e%2e/admin", server + "/norish/recipes/" + JOTA + "/steps/..korak.jpg", server + "/norish/api/v1/health/ready",
+            server + "/norish/api/v1/recipes/" + JOTA, server + "/norish/recipes/" + JOTA, server + "/norish/login", server + "/norish/recipes/x/prvi.jpg",
+            server + "/norish/recipes/" + JOTA + "/%70rvi.jpg"}) {
+            Map<String, String> headers = norish.imageHeaders(other);
+            assert headers == null || headers.isEmpty() : other;
         }
+        // Anything else of Norish's is not asked for at all, since it needs the key. Another server's picture goes as it is.
+        assert norish.imageHeaders(server + "/norish/api/v1/health/ready") == null && norish.imageHeaders(server + "/norish/recipes/x/prvi.jpg") == null;
+        assert norish.imageHeaders("https://cdn.example/kruh.jpg").isEmpty() && norish.imageHeaders(server + "/other/recipes/x.jpg").isEmpty();
         Http http = new Http();
         Http.Response image = http.request("GET", picture, norish.imageHeaders(picture), null, 1024);
-        assert image.ok() && "JPEG".equals(image.text());
-        // Without the key Norish sends the picture's request to its login page, and the plugin does not follow it there.
-        try {
-            http.request("GET", picture, Collections.<String, String>emptyMap(), null, 1024);
-            assert false : "A picture without the key goes to the login page";
-        } catch (Http.Refused refused) {
-            assert refused.getMessage().contains("login.invalid") : refused.getMessage();
-        }
+        assert image.ok() && "JPEG".equals(image.text()) && "image/jpeg".equals(image.header("Content-Type"));
+        // Without the key Norish sends the picture's request on to its sign-in page: a page, which says nothing of the picture.
+        Http.Response page = http.request("GET", picture, Collections.<String, String>emptyMap(), null, 1024);
+        assert page.ok() && page.header("Content-Type").startsWith("text/html") && page.text().contains("Sign in") : page.status + " " + page.text();
+        // A key it does not serve gets a 404 marked not to be kept, which a picture that is not there does not have.
+        Http.Response refused = http.request("GET", picture, Collections.singletonMap("x-api-key", KEY.toLowerCase(Locale.ROOT)), null, 1024);
+        assert refused.status == 404 && refused.header("Cache-Control").contains("no-store") : refused.status;
         // No key to the server at all without one.
-        assert new NorishSource(server + "/norish", "", new Http()).imageHeaders(picture).isEmpty();
+        assert new NorishSource(server + "/norish", "", new Http()).imageHeaders(picture) == null;
     }
 
     static void older() throws Exception {
@@ -350,20 +370,29 @@ public final class NorishTest {
         assert waits.kind == RecipeSource.SourceException.Kind.LIMIT && waits.getMessage().startsWith("The plugin waits") && requests.size() == sent : waits.getMessage();
         // Test connection asks through a twin that knows the wait, not a new source that would call the key wrong.
         RecipeSource twin = tired.twin();
-        assert twin instanceof NorishSource && kind(twin::probe) == RecipeSource.SourceException.Kind.LIMIT;
+        RecipeSource.SourceException twinWaits = twin instanceof NorishSource ? failure(twin::probe) : null;
+        assert twinWaits != null && twinWaits.kind == RecipeSource.SourceException.Kind.LIMIT && twinWaits.getMessage().startsWith("The plugin waits") : twinWaits;
         // It asks only the health routes, which take no key.
         for (String request : new ArrayList<>(requests.subList(sent, requests.size()))) assert request.contains("/api/v1/health") && request.contains(" - ") : request;
         sent = requests.size();
-        assert tired.imageHeaders(server + "/tired/recipes/" + JOTA + "/x.jpg").isEmpty();
+        // Its pictures are not asked for during the wait, with the key or without.
+        assert tired.imageHeaders(server + "/tired/recipes/" + JOTA + "/x.jpg") == null;
         now[0] += 3_600_000;
         assert !tired.imageHeaders(server + "/tired/recipes/" + JOTA + "/x.jpg").isEmpty();
         // Refused again with nothing answered in between, it is the key after all, though 0.25's limit may be why.
         RecipeSource.SourceException wrong = failure(() -> tired.recipes("", RecipeSource.Order.NAME, 1));
-        assert wrong.kind == RecipeSource.SourceException.Kind.AUTH && wrong.getMessage().contains("Norish 0.25 also refuses a good key") : wrong.getMessage();
+        // So the panel says that it may pass by itself.
+        assert wrong.kind == RecipeSource.SourceException.Kind.AUTH && wrong.getMessage().contains("Norish 0.25 also refuses a good key") && wrong.passing : wrong.getMessage();
         // A key refused at its first request is a wrong one.
         assert kind(() -> new NorishSource(server + "/tired", "aBcDe", new Http()).recipe(JOTA)) == RecipeSource.SourceException.Kind.AUTH;
+        // A twin made once the key has worked knows that too, so 0.25 refusing it then is the key's hour and not a wrong key.
+        tiredAnswers.set(0);
+        NorishSource rested = new NorishSource(server + "/tired", KEY, new Http());
+        assert rested.recipes("", RecipeSource.Order.NAME, 1).items.size() == 1;
+        RecipeSource.SourceException twinRefused = failure(() -> rested.twin().probe());
+        assert twinRefused.kind == RecipeSource.SourceException.Kind.LIMIT && twinRefused.getMessage().startsWith("The plugin waits") : twinRefused.kind + " " + twinRefused.getMessage();
         RecipeSource.SourceException down = failure(() -> new NorishSource(server + "/olddown", KEY, new Http()).recipe(JOTA));
-        assert down.kind == RecipeSource.SourceException.Kind.SERVER && down.getMessage().startsWith("Norish is not ready: Database is error.") : down.getMessage();
+        assert down.kind == RecipeSource.SourceException.Kind.SERVER && down.getMessage().startsWith("Norish is not ready: Database is error.") && down.passing : down.getMessage();
         // Only its parser down has nothing to do with the key.
         assert kind(() -> new NorishSource(server + "/oldparser", KEY, new Http()).recipe(JOTA)) == RecipeSource.SourceException.Kind.AUTH;
         // A Norish updated from 0.25 in place says so, and a key it refuses is refused.
@@ -374,6 +403,33 @@ public final class NorishTest {
         flipped = true;
         RecipeSource.SourceException revoked = failure(() -> updated.recipe(JOTA));
         assert revoked.kind == RecipeSource.SourceException.Kind.AUTH && updated.planRefresh(30 * 60_000L) == 30 * 60_000L : revoked.kind + " " + revoked.getMessage();
+    }
+
+    static void together() throws Exception {
+        // Two calls 0.25 refuses at the same moment, once the key has worked, both wait: neither calls the key wrong.
+        int wrongKey = 0;
+        for (int round = 0; round < 200; round++) {
+            pairAnswers.set(0);
+            pair = new java.util.concurrent.CyclicBarrier(2);
+            NorishSource both = new NorishSource(server + "/pair", KEY, new Http());
+            assert both.recipes("", RecipeSource.Order.NAME, 1).items.size() == 1;
+            RecipeSource.SourceException[] refused = new RecipeSource.SourceException[2];
+            Thread plan = new Thread(() -> {
+                try {
+                    both.mealPlan(TODAY, TODAY);
+                } catch (RecipeSource.SourceException failed) {
+                    refused[0] = failed;
+                }
+            });
+            plan.start();
+            refused[1] = failure(() -> both.recipes("", RecipeSource.Order.NAME, 1));
+            plan.join();
+            for (RecipeSource.SourceException one : refused) {
+                assert one != null && (one.kind == RecipeSource.SourceException.Kind.LIMIT || one.kind == RecipeSource.SourceException.Kind.AUTH) : one;
+                if (one.kind == RecipeSource.SourceException.Kind.AUTH) wrongKey++;
+            }
+        }
+        assert wrongKey == 0 : wrongKey + " of 400 refusals called the key wrong";
     }
 
     static void failures() throws Exception {
@@ -390,10 +446,12 @@ public final class NorishTest {
         assert down.kind == RecipeSource.SourceException.Kind.SERVER && down.getMessage().startsWith("Norish is not ready: Database is error.") : down.getMessage();
         RecipeSource.SourceException downProbe = failure(() -> new NorishSource(server + "/down", KEY, new Http()).probe());
         assert downProbe.kind == RecipeSource.SourceException.Kind.SERVER && downProbe.getMessage().equals("Norish is not ready: Database is error.") : downProbe.getMessage();
+        // Not ready may pass by itself, and asking again costs the key nothing.
+        assert down.passing && downProbe.passing;
 
         // A server error says Norish's own words.
         RecipeSource.SourceException broken = failure(() -> new NorishSource(server + "/broken", KEY, new Http()).recipe(JOTA));
-        assert broken.kind == RecipeSource.SourceException.Kind.SERVER && broken.getMessage().contains("Failed to parse FullRecipeDTO") : broken.getMessage();
+        assert broken.kind == RecipeSource.SourceException.Kind.SERVER && broken.getMessage().contains("Failed to parse FullRecipeDTO") && !broken.passing : broken.getMessage();
 
         // What is not Norish: a proxy's own 404, a web page, and another app's JSON.
         NorishSource proxy = new NorishSource(server + "/proxy", KEY, new Http());
@@ -414,7 +472,7 @@ public final class NorishTest {
         NorishSource revoked = new NorishSource(server + "/revoked", KEY, new Http());
         assert revoked.recipes("", RecipeSource.Order.NAME, 1).items.size() == 1;
         RecipeSource.SourceException gone = failure(() -> revoked.recipes("", RecipeSource.Order.NAME, 1));
-        assert gone.kind == RecipeSource.SourceException.Kind.AUTH && !gone.getMessage().contains("0.25") : gone.kind + " " + gone.getMessage();
+        assert gone.kind == RecipeSource.SourceException.Kind.AUTH && !gone.getMessage().contains("0.25") && !gone.passing : gone.kind + " " + gone.getMessage();
         // A sign-in service in front of Norish sends every call to its own host, where the key never goes.
         NorishSource sso = new NorishSource(server + "/sso", KEY, new Http());
         for (Call call : new Call[] {sso::probe, () -> sso.mealPlan(TODAY, TODAY), () -> sso.recipe(JOTA), () -> sso.recipes("", RecipeSource.Order.NAME, 1)}) {
@@ -446,7 +504,7 @@ public final class NorishTest {
         assert limited.kind == RecipeSource.SourceException.Kind.LIMIT && limited.getMessage().startsWith("Norish asks to wait 31 minutes") : limited.getMessage();
         int sent = requests.size();
         String picture = server + "/busy/recipes/" + JOTA + "/x.jpg";
-        assert busy.imageHeaders(picture).isEmpty();
+        assert busy.imageHeaders(picture) == null;
         now[0] += 1_000_000;
         RecipeSource.SourceException still = failure(() -> busy.mealPlan(TODAY, TODAY));
         assert still.kind == RecipeSource.SourceException.Kind.LIMIT && still.getMessage().startsWith("Norish asks to wait 14 minutes") : still.getMessage();
@@ -593,6 +651,19 @@ public final class NorishTest {
                 else if (KEY.equals(key) && tiredAnswers.getAndIncrement() < 1) send(exchange, 200, json("{'recipes':[{'id':'" + JOTA + "','name':'Jota'}],'total':1,'nextCursor':null}"), null);
                 else send(exchange, 401, UNAUTHORIZED, null);
                 return;
+            case "/pair":
+                if (rest.equals("/api/v1/health")) send(exchange, 200, json("{'status':'ok','versions':{'root':'0.25.1-beta'}}"), null);
+                else if (rest.startsWith("/api/v1/health")) send(exchange, 404, NO_ROUTE, null);
+                else if (KEY.equals(key) && pairAnswers.getAndIncrement() < 1) send(exchange, 200, json("{'recipes':[{'id':'" + JOTA + "','name':'Jota'}],'total':1,'nextCursor':null}"), null);
+                else {
+                    try {
+                        pair.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                    } catch (Exception alone) {
+                        // The other call did not come, and this one is refused all the same.
+                    }
+                    send(exchange, 401, UNAUTHORIZED, null);
+                }
+                return;
             case "/oldparser":
                 if (rest.equals("/api/v1/health")) send(exchange, 503, json("{'message':'Parser service is unreachable','code':'SERVICE_UNAVAILABLE'}"), null);
                 else if (rest.startsWith("/api/v1/health")) send(exchange, 404, NO_ROUTE, null);
@@ -649,15 +720,19 @@ public final class NorishTest {
     static void norish(HttpExchange exchange, String method, String rest, String query, String key, String body) throws IOException {
         boolean keyed = KEY.equals(key);
         if (rest.startsWith("/recipes/")) {
-            // Pictures: to the login page without a key, not found with a wrong one.
+            // Pictures: to its own sign-in page without a key, and not found, not to be kept, with a key it does not serve.
             if (key == null) {
-                exchange.getResponseHeaders().add("Location", "http://login.invalid/norish/login?callbackUrl=" + rest);
+                exchange.getResponseHeaders().add("Location", server + "/norish/login?callbackUrl=" + rest);
                 send(exchange, 307, "", null);
             } else if (!keyed) {
-                send(exchange, 404, json("{'error':'Not found'}"), null);
+                sendAs(exchange, 404, json("{'error':'Not found'}"), "application/json", "no-store");
             } else {
-                send(exchange, 200, "JPEG", null);
+                sendAs(exchange, 200, "JPEG", "image/jpeg", "private, max-age=31536000, immutable");
             }
+            return;
+        }
+        if (rest.startsWith("/login")) {
+            send(exchange, 200, "<!DOCTYPE html><html><body>Sign in</body></html>", null);
             return;
         }
         if (rest.equals("/api/v1/health/ready") && "GET".equals(method)) {
@@ -739,6 +814,16 @@ public final class NorishTest {
         boolean isJson = text.startsWith("{") || text.startsWith("[");
         exchange.getResponseHeaders().add("Content-Type", isJson ? "application/json" : "text/html");
         if (retryAfter != null) exchange.getResponseHeaders().add("Retry-After", retryAfter);
+        exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
+        try (OutputStream out = exchange.getResponseBody()) {
+            out.write(bytes);
+        }
+    }
+
+    static void sendAs(HttpExchange exchange, int status, String text, String type, String cache) throws IOException {
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().add("Content-Type", type);
+        exchange.getResponseHeaders().add("Cache-Control", cache);
         exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
         try (OutputStream out = exchange.getResponseBody()) {
             out.write(bytes);

@@ -71,7 +71,16 @@ final class Http {
 
     private final Set<HttpURLConnection> open = Collections.newSetFromMap(new ConcurrentHashMap<HttpURLConnection, Boolean>());
 
-    /** Send a request and read the answer's body, up to limit bytes. A larger body throws. */
+    /** An answer larger than its reader takes, which it will be every time. */
+    static final class TooLarge extends IOException {
+        private static final long serialVersionUID = 1L;
+
+        TooLarge(int limit) {
+            super("The answer is larger than " + limit / 1024 + " KB");
+        }
+    }
+
+    /** Send a request and read the answer's body, up to limit bytes. A larger body throws TooLarge. */
     Response request(String method, String url, Map<String, String> headers, byte[] body, int limit) throws IOException {
         URL target = new URL(url);
         if (!web(target)) throw new Refused("Not a web address: " + target.getProtocol());
@@ -108,6 +117,8 @@ final class Http {
                     String name = field.getKey().toLowerCase(Locale.ROOT);
                     if (!answered.containsKey(name)) answered.put(name, field.getValue().get(0));
                 }
+                // Not read at all when the server says it is too large.
+                if (connection.getContentLengthLong() > limit) throw new TooLarge(limit);
                 InputStream in = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
                 return new Response(status, in == null ? new byte[0] : read(in, limit), answered);
             } finally {
@@ -148,7 +159,7 @@ final class Http {
             while ((count = stream.read(buffer)) != -1) {
                 if (System.nanoTime() - started > ANSWER_MS * 1_000_000L) throw new IOException("The answer took longer than " + ANSWER_MS / 1000 + " seconds");
                 total += count;
-                if (total > limit) throw new IOException("The answer is larger than " + limit / 1024 + " KB");
+                if (total > limit) throw new TooLarge(limit);
                 out.write(buffer, 0, count);
             }
             return out.toByteArray();

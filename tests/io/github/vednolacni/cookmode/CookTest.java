@@ -155,12 +155,14 @@ public final class CookTest {
         public void cooked(String id, double servings) throws SourceException { calls.add("cooked " + id + " " + servings); if (fail != null) throw fail; }
         public Map<String, String> imageHeaders(String url) { return Collections.emptyMap(); }
         LocalDate reach = LocalDate.MAX;
-        public LocalDate planReach(LocalDate first) { return reach; }
+        LocalDate reachFrom;
+        public LocalDate planReach(LocalDate serverDay) { reachFrom = serverDay; return reach; }
         long refresh;
         public long planRefresh(long usual) { return refresh > 0 ? refresh : usual; }
         boolean counts;
         public boolean countsRequests() { return counts; }
-        public RecipeSource twin() { calls.add("twin"); return null; }
+        RecipeSource twinSource;
+        public RecipeSource twin() { calls.add("twin"); return twinSource; }
         public void cancel() { calls.add("cancel"); }
     }
 
@@ -171,6 +173,8 @@ public final class CookTest {
     static Net net;
     static Source source;
     static Cook cook;
+    /** How many sources the plugin has made. */
+    static int created;
 
     static Map<String, Object> settings() {
         Map<String, Object> values = new LinkedHashMap<>();
@@ -214,7 +218,10 @@ public final class CookTest {
         source.recipe = recipe();
         source.plan = new ArrayList<>(Arrays.asList(meal("1", "Pancakes", "7", 12 * 60, 2), meal("2", "Leftovers", null, 19 * 60, 0)));
         source.list = new ArrayList<>(Arrays.asList(new RecipeSource.Summary("7", "Pancakes", "", 30), new RecipeSource.Summary("8", "Soup", "", 45)));
-        cook = new Cook(ui, clock, net, settings -> source);
+        cook = new Cook(ui, clock, net, settings -> {
+            created++;
+            return source;
+        });
         cook.start(host, values);
     }
 
@@ -263,6 +270,15 @@ public final class CookTest {
         cook.refresh();
         net.runAll();
         assert ui.model.strings.problemLimit.equals(ui.model.banner) && host.statusError && "Norish asks to wait 31 minutes.".equals(host.status) : ui.model.banner;
+        // A key Norish 0.25 refuses may only be in its hour after too many requests, and the panel says that too.
+        source.fail = new RecipeSource.SourceException(RecipeSource.SourceException.Kind.AUTH, "Norish refused the API key.", true);
+        cook.refresh();
+        net.runAll();
+        assert ui.model.strings.problemAuthPassing.equals(ui.model.banner) && ui.model.banner.startsWith("Norish refused the API key. If it has worked before, wait up to an hour") : ui.model.banner;
+        source.fail = new RecipeSource.SourceException(RecipeSource.SourceException.Kind.AUTH, "Norish refused the API key.");
+        cook.refresh();
+        net.runAll();
+        assert ui.model.strings.problemAuth.equals(ui.model.banner) : ui.model.banner;
         source.fail = null;
         cook.refresh();
         net.runAll();
@@ -302,6 +318,37 @@ public final class CookTest {
             cook.close();
         }
 
+        // Cook today's meal from a plan read more than five minutes ago reads it again first: someone may have changed
+        // tonight's dinner since. With the panel closed, and with it up on the first page.
+        for (boolean up : new boolean[] {false, true}) {
+            fresh(values);
+            source.plan = new ArrayList<>(Arrays.asList(new RecipeSource.Planned("d", TODAY, "Dinner", NorishSource.slotOrder("Dinner"), 0, "3", "Ričet", "", 0, "", 0)));
+            net.runAll();
+            if (up) {
+                cook.execute("openCookMode");
+                net.runAll();
+            }
+            clock.now = ZonedDateTime.of(2026, 11, 1, 17, 50, 0, 0, ZONE).toInstant();
+            source.plan = new ArrayList<>(Arrays.asList(new RecipeSource.Planned("d2", TODAY, "Dinner", NorishSource.slotOrder("Dinner"), 0, "2", "Jota", "", 0, "", 0)));
+            int asked = source.calls.size();
+            cook.execute("cookToday");
+            net.runAll();
+            List<String> since = source.calls.subList(asked, source.calls.size());
+            assert since.contains("recipe 2") && !since.contains("recipe 3") && since.indexOf("recipe 2") > since.indexOf("plan 2026-11-01 2026-11-07") : up + " " + since;
+            assert ui.model.page == Model.Page.RECIPE;
+            cook.close();
+        }
+        // A plan read just now is chosen from at once, with no read of its own.
+        fresh(values);
+        net.runAll();
+        clock.minutes(2);
+        int before = source.calls.size();
+        cook.execute("cookToday");
+        net.runAll();
+        List<String> then = source.calls.subList(before, source.calls.size());
+        assert then.contains("recipe 7") && then.stream().noneMatch(call -> call.startsWith("plan ")) : then;
+        cook.close();
+
         // An app that needs pauses between plan reads gets them.
         fresh(values);
         net.runAll();
@@ -309,6 +356,20 @@ public final class CookTest {
         ui.run(Cook.PLAN_REFRESH_MS);
         net.runAll();
         assert ui.posted(65 * 60_000L) && !ui.posted(Cook.PLAN_REFRESH_MS);
+        // But a first page in use is read half-hourly, once for each half hour.
+        cook.execute("openCookMode");
+        net.runAll();
+        int plans = 0;
+        for (String call : source.calls) if (call.startsWith("plan ")) plans++;
+        clock.minutes(31);
+        cook.touched();
+        net.runAll();
+        clock.minutes(1);
+        cook.touched();
+        net.runAll();
+        int after = 0;
+        for (String call : source.calls) if (call.startsWith("plan ")) after++;
+        assert after == plans + 1 : plans + " " + after;
         cook.close();
 
         // Where Norish's plan ends before the days asked for, the first page says so.
@@ -324,7 +385,17 @@ public final class CookTest {
         source.reach = TODAY.plusDays(6);
         cook.refresh();
         net.runAll();
-        assert "".equals(ui.model.planNote);
+        assert "".equals(ui.model.planNote) && TODAY.equals(source.reachFrom) : source.reachFrom;
+        // Norish's day is the tablet's or, as it runs by default, UTC's. At 0:30 on the first of December in Ljubljana a UTC
+        // Norish is still in November, and from 1:00 on it is not.
+        clock.now = ZonedDateTime.of(2026, 12, 1, 0, 30, 0, 0, ZONE).toInstant();
+        cook.refresh();
+        net.runAll();
+        assert LocalDate.of(2026, 11, 30).equals(source.reachFrom) : source.reachFrom;
+        clock.now = ZonedDateTime.of(2026, 12, 1, 1, 0, 0, 0, ZONE).toInstant();
+        cook.refresh();
+        net.runAll();
+        assert LocalDate.of(2026, 12, 1).equals(source.reachFrom) : source.reachFrom;
         cook.close();
     }
 
@@ -394,6 +465,15 @@ public final class CookTest {
         assert host.setup.equals(Arrays.asList("r1 running Connecting to http://tandoor.local:8080", "r1 success Connected to Tandoor 2.7.2, 2 recipes.")) : host.setup;
         // It asks the running source for a twin that knows what it has learned, and makes a new one only when there is none.
         assert source.calls.contains("twin");
+        // The twin's own answer is the one reported, and no new source is made.
+        Source twin = new Source();
+        twin.fail = new RecipeSource.SourceException(RecipeSource.SourceException.Kind.LIMIT, "The plugin waits 42 minutes before it uses this API key again.");
+        source.twinSource = twin;
+        int made = created;
+        cook.onEvent("settings.button", new HashMap<String, Object>() {{ put("id", "testConnection"); put("run", "r2"); }});
+        net.runAll();
+        assert host.setup.contains("r2 error The plugin waits 42 minutes before it uses this API key again.") && twin.calls.contains("probe") && created == made : host.setup;
+        source.twinSource = null;
         cook.stop();
         assert ui.shutdown && source.calls.contains("cancel");
     }
@@ -1210,7 +1290,8 @@ public final class CookTest {
         newUi.run(Cook.RESUME_AGAIN_MS);
         newNet.runAll();
         assert newUi.posted(Cook.RESUME_SLOWLY_MS) && !newUi.posted(Cook.RESUME_AGAIN_MS) && newUi.model.resumeAt == 2;
-        source.fail = down();
+        // One that answers but is not ready yet, which costs the key nothing, is asked again every minute.
+        source.fail = new RecipeSource.SourceException(RecipeSource.SourceException.Kind.SERVER, "Norish is not ready: Database is error. That, and not the key, is why it refused it.", true);
         newUi.run(Cook.RESUME_SLOWLY_MS);
         newNet.runAll();
         assert newUi.posted(Cook.RESUME_AGAIN_MS) && !newUi.posted(Cook.RESUME_SLOWLY_MS);

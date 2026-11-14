@@ -4,6 +4,7 @@ package io.github.vednolacni.cookmode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -125,6 +126,12 @@ final class Cook implements Ui.Actions {
     private int planGeneration;
     private boolean planLoading;
     private long planReadAt = -1;
+    /** When the plan was last asked for, whether it came or not. */
+    private long planAskedAt = -1;
+    /** Cook today's meal came while the plan was old: the page it came on, until the plan read again is in. */
+    private Model.Page chooseOn;
+    /** And the recipe open then. */
+    private String chooseWith = "";
 
     private String query = "";
     private RecipeSource.Order order = RecipeSource.Order.NAME;
@@ -363,6 +370,8 @@ final class Cook implements Ui.Actions {
             source = settings.configured() ? sources.create(settings) : null;
             plan = Collections.emptyList();
             planReadAt = -1;
+            planAskedAt = -1;
+            chooseOn = null;
             recipes = new ArrayList<>();
             recipesPage = 0;
             banner = null;
@@ -549,6 +558,7 @@ final class Cook implements Ui.Actions {
         if (current == null) return;
         final int generation = ++planGeneration;
         planLoading = true;
+        planAskedAt = clock.millis();
         final LocalDate first = LocalDate.now(clock);
         final LocalDate last = first.plusDays(settings.planDays - 1);
         background(() -> {
@@ -573,6 +583,13 @@ final class Cook implements Ui.Actions {
                     failed(problem, Trouble.PLAN);
                 }
                 publishState();
+                if (chooseOn != null) {
+                    // Cook today's meal waited for this plan, or for the one in memory when none came, unless the cook has
+                    // gone elsewhere meanwhile.
+                    boolean still = shown && page == chooseOn && recipeId.equals(chooseWith);
+                    chooseOn = null;
+                    if (still) chooseToday();
+                }
                 if (page == Model.Page.HOME) changed();
             }
         });
@@ -629,7 +646,7 @@ final class Cook implements Ui.Actions {
         if ((from == Trouble.PLAN || from == Trouble.LIST) && page != Model.Page.HOME) return;
         bannerOwner = from;
         switch (problem.kind) {
-            case AUTH: banner = strings.problemAuth; break;
+            case AUTH: banner = problem.passing ? strings.problemAuthPassing : strings.problemAuth; break;
             case HOST: banner = strings.problemHost; break;
             case NETWORK: banner = strings.problemNetwork; break;
             case NOT_FOUND: banner = strings.recipeMissing; break;
@@ -935,9 +952,9 @@ final class Cook implements Ui.Actions {
             updateDock();
         } else if (resume != null) {
             ui.cancel(resumeTask);
-            // A server that is not up yet costs nothing to ask again soon. One that answers with an error may well count it.
+            // A server that is not up or not ready yet costs nothing to ask again soon. One that answers with an error may well count it.
             boolean answered = problem != null && (problem.kind == RecipeSource.SourceException.Kind.SERVER || problem.kind == RecipeSource.SourceException.Kind.PARSE)
-                && source != null && source.countsRequests();
+                && !problem.passing && source != null && source.countsRequests();
             ui.post(resumeTask, answered ? RESUME_SLOWLY_MS : RESUME_AGAIN_MS);
         } else if (stash != null) {
             comeBack();
@@ -1130,8 +1147,24 @@ final class Cook implements Ui.Actions {
         else previous();
     }
 
-    /** Today's next meal: the first planned from two hours ago on, or the day's last. */
+    /**
+     * Today's next meal: the first planned from two hours ago on, or the day's last. From a plan read just now, since the
+     * household may have changed tonight's dinner since the last read, which can be an hour ago.
+     */
     private void cookToday() {
+        boolean old = planReadAt < 0 || clock.millis() - planReadAt > PLAN_STALE_MS;
+        open();
+        if (old && source != null) {
+            // Opening the panel reads the plan when it was closed. When it was up already, this does.
+            if (!planLoading) loadPlan();
+            chooseOn = page;
+            chooseWith = recipeId;
+            return;
+        }
+        chooseToday();
+    }
+
+    private void chooseToday() {
         LocalDate today = LocalDate.now(clock);
         LocalTime time = LocalTime.now(clock);
         int minutes = time.getHour() * 60 + time.getMinute() - 120;
@@ -1144,7 +1177,6 @@ final class Cook implements Ui.Actions {
                 break;
             }
         }
-        open();
         if (chosen != null) openPlanned(chosen);
         else home();
     }
@@ -1486,6 +1518,8 @@ final class Cook implements Ui.Actions {
             idleExpired = false;
             updateAwake();
         }
+        // A first page in use shows a plan read half-hourly, though an app such as Norish 0.25 is read less often while nobody looks.
+        if (shown && page == Model.Page.HOME && !planLoading && planAskedAt >= 0 && clock.millis() - planAskedAt > PLAN_REFRESH_MS) loadPlan();
     }
 
     /** Held while a recipe is up, a timer rings or a KS page opened from here may be up, until the idle limit. */
@@ -1526,7 +1560,7 @@ final class Cook implements Ui.Actions {
         }
     }
 
-    /** How often the plan is read while nobody asks: half-hourly, unless the app needs pauses, as Norish 0.25 does. */
+    /** How often the plan is read while nobody asks: half-hourly, unless the app needs pauses, as Norish 0.25 does. The save rides along. */
     private long planEvery() {
         RecipeSource current = source;
         return current == null ? PLAN_REFRESH_MS : current.planRefresh(PLAN_REFRESH_MS);
@@ -1747,8 +1781,10 @@ final class Cook implements Ui.Actions {
             }
         }
         boolean canLog = (settings.markCooked == Settings.MarkCooked.ASK || logFailed) && recipe != null && !logged;
-        // Norish tells only this week and this month, so the days after them are not known to be free.
-        boolean cut = source != null && source.planReach(today).isBefore(today.plusDays(settings.planDays - 1));
+        // Norish tells only this week and this month, so the days after them are not known to be free. Its day is the
+        // tablet's or, as it runs by default, UTC's, so its week and month are counted from the earlier of the two.
+        LocalDate utc = clock.instant().atZone(ZoneOffset.UTC).toLocalDate();
+        boolean cut = source != null && source.planReach(utc.isBefore(today) ? utc : today).isBefore(today.plusDays(settings.planDays - 1));
         int resumeAt = cooking ? pageIndex + 1 : resume != null ? Math.max(0, resume.page) + 1 : 0;
         // The plan and the list are for the first page. Trouble with them has no place over a recipe that is here.
         boolean homeOnly = bannerOwner == Trouble.PLAN || bannerOwner == Trouble.LIST;

@@ -50,7 +50,7 @@ English and Slovenian, including Slovenian's four plural forms and decimal comma
 | | Let the screen rest after | How long without a touch before a forgotten recipe lets go, 15 to 240 minutes. |
 | | Close the list when the screensaver starts | Only the first page. A recipe being cooked stays. |
 | Advanced | Show advanced settings | Shows the row below. |
-| | Saved session | Written by the plugin, for a restart. Emptied, it is forgotten at the next restart, unless a change writes it again first, or the half-hourly save while a recipe is being cooked. End cooking and stopping the timers forget it for good. |
+| | Saved session | Written by the plugin, for a restart. Emptied, it is forgotten at the next restart, unless a change writes it again first, or the save every half hour while a recipe is being cooked, every 65 minutes with Norish 0.25. End cooking and stopping the timers forget it for good. |
 
 ### Creating the token or key
 
@@ -70,7 +70,7 @@ With **Norish**:
 
 Norish allows each key 500 requests an hour, and every picture counts. Give each tablet its own key, so one busy tablet cannot use up another's. A Fleet Management profile that includes **Plugin secrets** would put the leader's key on every tablet, so keep Cook Mode out of such a profile and type each tablet's own key on it. Over the limit Norish asks the tablet to wait, and the plugin sends nothing with that key until the wait is over, pictures included.
 
-Norish 0.26 or newer works best, and from 0.26.1 the plan also shows Norish's notes. Norish 0.25 starts its hour again at each request it allows, and refuses a key that has made 500 requests with no hour's pause as if the key were wrong. With 0.25 the plugin therefore reads the plan only every 65 minutes while nobody uses it. If 0.25 refuses a key that has worked, the plugin says so and waits an hour.
+Norish 0.26 or newer works best, and from 0.26.1 the plan also shows Norish's notes. Norish 0.25 starts its hour again at each request it allows, and refuses a key that has made 500 requests with no hour's pause as if the key were wrong. With 0.25 the plugin therefore reads the plan only every 65 minutes while nobody uses it, and half-hourly while the first page is in use. If 0.25 refuses a key that has worked, the plugin says so and waits an hour. After a restart it cannot tell that from a wrong key, so the panel says it may be 0.25's hour.
 
 Norish counts its today, its week and its month in its own time zone, which is UTC unless `TZ` is set for its container. Set `TZ` to your own, such as `Europe/Ljubljana`, so its days change at your midnight.
 
@@ -80,7 +80,7 @@ Norish counts its today, its week and its month in its own time zone, which is U
 | --- | --- |
 | Tandoor refused the API token | Create a new token. Tandoor 2.5.0 and 2.5.1 also need the scope `mealplan`, so use `read write mealplan` there, or update Tandoor. |
 | Tandoor refused this address | From 2.6.1, Tandoor's `ALLOWED_HOSTS` is empty unless you set it. Add the host you use here, or the address you use in a browser. |
-| Norish refused the API key | Create a new key and copy all of it. The message says when the one you pasted is shorter than Norish's keys. |
+| Norish refused the API key | Create a new key and copy all of it. The message says when the one you pasted is shorter than Norish's keys. With Norish 0.25, a key that has worked may only be in its hour after 500 requests, so wait an hour before you replace it. |
 | Norish is not ready | Norish cannot reach its database or its cache, and then it refuses every key. Its own logs say why. |
 | Norish asks to wait | That key made its 500 requests within the hour. It works again after the time it names. |
 | The plugin waits before it uses the key again | Norish 0.25 refused a key that had worked, which it does after 500 requests with no hour's pause. It works again within the hour. Norish 0.26 or newer does not do this. |
@@ -103,7 +103,7 @@ Opening one recipe can also say it is private and not shared with the token's us
 | Action | What it does |
 | --- | --- |
 | Open Cook Mode, Close Cook Mode, Toggle Cook Mode | The panel. Opening wakes the screen and closes the screensaver. |
-| Cook today's meal | Goes straight to the next meal planned today. Norish's meals have no time, so they count as breakfast at 8:00, lunch at 12:00, dinner at 18:00 and a snack at 21:00. |
+| Cook today's meal | Goes straight to the next meal planned today, reading the plan first when what it has is more than five minutes old, so a meal changed meanwhile counts. Norish's meals have no time, so they count as breakfast at 8:00, lunch at 12:00, dinner at 18:00 and a snack at 21:00. |
 | Next step, Previous step | Move through the recipe. On the first page Next opens today's meal. With the panel closed or under a screensaver, the first one only brings it back. A ringing timer comes first, and the panel comes back after it is cleared. |
 | Read step | Reads the current step aloud. |
 | Start the step's timer | Starts the first of the step's timers that does not run yet. |
@@ -133,7 +133,7 @@ Kiosk Mode's exit gesture of several fast taps counts taps anywhere, also on the
 ## Where data goes
 
 - **Your recipe server.** The plugin calls the address in **Server address** with your token or key, to read the meal plan and recipes and, with Tandoor unless **Record the meal in Tandoor** is **Never**, to record what you opened and cooked. Norish's health check, which Test connection asks first, gets no key. The token or key never goes to any other host: a redirect to another host is not followed, nor to another port unless it goes from http up to https on the same host, nor from https back to http, and a next-page link from another host is rewritten to your server. With Fleet Management, Kiosk Satellite copies it to other kiosks only if a profile includes **Plugin secrets**. Plugin settings are not part of a configuration export, so a replaced tablet needs it again.
-- **Pictures.** They load from wherever the app says they are, which can be S3 storage if you set that up in Tandoor. Each is fetched once and kept in a folder of Kiosk Satellite's cache on the tablet, at most 48 MB, which Android may empty. One the server says does not exist is not asked for again for a quarter of an hour. Tandoor's media is public, so the token is not sent with them. Norish's pictures need the key, so it goes with the pictures on your Norish server, under its base path, and with no others. While Norish has asked the plugin to wait, they go without it.
+- **Pictures.** They load from wherever the app says they are, which can be S3 storage if you set that up in Tandoor. Each is fetched once and kept in a folder of Kiosk Satellite's cache on the tablet, at most 48 MB unless the pictures the panel shows take more, which Android may empty. Tandoor's signed S3 links change with every answer, so those are fetched each time and not kept. One the server says does not exist is not asked for again for a quarter of an hour, and one the tablet cannot show, such as AVIF before Android 12 or one over 8 MB, not until the plugin starts again. Tandoor's media is public, so the token is not sent with them. Norish's pictures need the key, so it goes with the pictures on your Norish server, under its base path, and with no others. While Norish has asked the plugin to wait, the pictures the tablet does not have yet wait too.
 - **Home Assistant.** Only with the Home Assistant voice: the text of a step or the ingredient list goes through Kiosk Satellite's own connection to the kiosk's announce action, and on to whichever text-to-speech engine you chose, which may be a cloud service. The plugin never sees your Home Assistant token.
 - **ESPHome entities.** With them on, the recipe, the step, the timers and today's meals go to Home Assistant.
 - **The tablet.** With the tablet voice, Android's text-to-speech engine reads the step. Which engine that is, and what it does with the text, is up to the tablet. The **Saved session** setting holds the recipe's id and name, the servings, the step and the timers, in Kiosk Satellite's settings. It never holds the token. It is stored as a secret, so Fleet Management leaves it out unless a profile includes **Plugin secrets**. With Plugin secrets the leader's value replaces each follower's, so a follower's session does not survive a restart and every step syncs the fleet: keep Cook Mode out of such a profile, or turn Plugin secrets off in it and type the token on each kiosk.

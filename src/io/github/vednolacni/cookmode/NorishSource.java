@@ -64,6 +64,8 @@ final class NorishSource implements RecipeSource {
      * read every half hour never has the pause that resets its 500, and is refused every few days.
      */
     static final long OLDER_PLAN_MS = 65 * 60_000L;
+    /** Norish's two picture routes below its base path, with a recipe's id and a file's name as Norish accepts them. */
+    private static final Pattern PICTURE = Pattern.compile("/recipes/[0-9a-fA-F-]{36}/(?:steps/)?[A-Za-z0-9_-]+\\.[A-Za-z0-9]+");
 
     private final String base;
     private final String key;
@@ -138,9 +140,10 @@ final class NorishSource implements RecipeSource {
             if (ready.status >= 500) throw inFront(ready.status);
             throw notApi(ready.status, text.isEmpty());
         }
-        if (ready.status == 503) throw new SourceException(SourceException.Kind.SERVER, "Norish is not ready" + said(ready) + ".");
-        checked = true;
+        if (ready.status == 503) throw new SourceException(SourceException.Kind.SERVER, "Norish is not ready" + said(ready) + ".", true);
+        // The version before the word that it is known, so a call on the other thread that finds it known has it.
         older = ready.status == 404;
+        checked = true;
         // Anything else but 0.25's missing route is for the search to say.
         if (!older) return "";
         Http.Response health = send("GET", "/api/v1/health", null, false);
@@ -201,15 +204,11 @@ final class NorishSource implements RecipeSource {
         return index < 0 ? 24 * 60 + SLOTS.size() : SLOT_MINUTES[index];
     }
 
-    /**
-     * Norish tells this week and this month, as its server counts them, and nothing after the later of their ends. Counted
-     * from the day before, since the server's day may not have turned yet when the tablet's has.
-     */
+    /** Norish tells this week and this month, as its server counts them from its own day, and nothing after the later of their ends. */
     @Override
-    public LocalDate planReach(LocalDate first) {
-        LocalDate day = first.minusDays(1);
-        LocalDate sunday = day.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY));
-        LocalDate monthEnd = day.with(TemporalAdjusters.lastDayOfMonth());
+    public LocalDate planReach(LocalDate serverDay) {
+        LocalDate sunday = serverDay.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY));
+        LocalDate monthEnd = serverDay.with(TemporalAdjusters.lastDayOfMonth());
         return sunday.isAfter(monthEnd) ? sunday : monthEnd;
     }
 
@@ -242,8 +241,8 @@ final class NorishSource implements RecipeSource {
         if (checked) return;
         Http.Response ready = health("/api/v1/health/ready");
         if (ready == null || ready.status == 503) return;
-        checked = true;
         older = ready.status == 404;
+        checked = true;
     }
 
     @Override
@@ -446,26 +445,43 @@ final class NorishSource implements RecipeSource {
     }
 
     /**
-     * Norish's pictures need the key as much as its API. They get it only on the configured server, under its base path,
-     * and not while Norish has asked to wait, when each would only count against the key.
+     * Norish's pictures need the key as much as its API. They get it only on the configured server, under its base path.
+     * While Norish has asked to wait they are not asked for at all: with the key each would count, and without it Norish
+     * sends its sign-in page. Nor is anything else of Norish's, which needs the key too. Another server's picture goes as it is.
      */
     @Override
     public Map<String, String> imageHeaders(String url) {
-        return ours(url) && !waiting() ? Collections.singletonMap("x-api-key", key) : Collections.<String, String>emptyMap();
+        if (ours(url)) return waiting() ? null : Collections.singletonMap("x-api-key", key);
+        return under(url) ? null : Collections.<String, String>emptyMap();
     }
 
-    /** Whether an address is on the configured server, with its scheme and port, under its base path. */
+    /**
+     * Whether an address is one of Norish's pictures on the configured server, with its scheme and port, under its base
+     * path: a recipe's or a step's, as Norish names them. Its health and API routes, its pages, and anything that would
+     * leave the base path once resolved, written out or encoded, get no key.
+     */
     boolean ours(String url) {
         if (url == null || base.isEmpty() || key.isEmpty()) return false;
         try {
             URL target = new URL(url);
             URL server = new URL(base);
             String path = target.getPath();
-            // Dot segments, written out or encoded, leave the base path once the request resolves them.
-            String plain = path.replaceAll("(?i)%2e", ".").replaceAll("(?i)%2f", "/").replaceAll("(?i)%5c", "\\\\");
-            if (plain.contains("\\") || ("/" + plain + "/").matches("(?s).*/\\.{1,2}/.*")) return false;
+            String below = server.getPath();
             return target.getProtocol().equals(server.getProtocol()) && target.getHost().equalsIgnoreCase(server.getHost()) && port(target) == port(server)
-                && target.getUserInfo() == null && path.startsWith(server.getPath() + "/");
+                && target.getUserInfo() == null && path.startsWith(below + "/") && PICTURE.matcher(path.substring(below.length())).matches();
+        } catch (MalformedURLException notAnAddress) {
+            return false;
+        }
+    }
+
+    /** Whether an address is on the configured server, with its scheme and port, at its base path or below. */
+    private boolean under(String url) {
+        if (url == null || base.isEmpty()) return false;
+        try {
+            URL target = new URL(url);
+            URL server = new URL(base);
+            return target.getProtocol().equals(server.getProtocol()) && target.getHost().equalsIgnoreCase(server.getHost()) && port(target) == port(server)
+                && (target.getPath() + "/").startsWith(server.getPath() + "/");
         } catch (MalformedURLException notAnAddress) {
             return false;
         }
@@ -534,17 +550,20 @@ final class NorishSource implements RecipeSource {
             // 0.25 refuses a key that has made 500 requests with no hour's pause as it refuses a wrong one. A key that has
             // worked is that, and so is one refused while another call's refusal already started the wait.
             if (older && (keyWorked || waiting())) {
-                keyWorked = false;
+                // The wait before the key stops counting as one that worked, so a call refused at the same moment finds
+                // the one or the other.
                 if (!waiting()) {
                     olderWait = true;
                     quietUntil = millis.getAsLong() + OLDER_WAIT_SECONDS * 1000;
                 }
+                keyWorked = false;
                 stillWaiting();
             }
             String length = key.length() < KEY_LENGTH ? " This one has " + key.length() + " characters and Norish's have " + KEY_LENGTH + ", so part of it may be missing." : "";
             String older = this.older ? " Norish 0.25 also refuses a good key for up to an hour once it has made 500 requests with no hour's pause between them." : "";
+            // On 0.25 a key that has worked before, also before a restart of the plugin, may only be in its hour.
             throw new SourceException(SourceException.Kind.AUTH, "Norish refused the API key. Create one under Settings > User > API keys and copy all of it: Norish shows it only once."
-                + length + older);
+                + length + older, this.older);
         }
         if (!json) {
             // Norish answers everything under /api/v1 in JSON. This came from something in front of it.
@@ -580,8 +599,8 @@ final class NorishSource implements RecipeSource {
         if (ready == null) return;
         if (ready.status == 503) throw unready(ready);
         // A server updated from 0.25 has the route now.
-        checked = true;
         older = ready.status == 404;
+        checked = true;
         if (!older) return;
         // 0.25's one route also fails while only its parser is down, which has nothing to do with the key.
         Http.Response health = health("/api/v1/health");
@@ -599,7 +618,7 @@ final class NorishSource implements RecipeSource {
     }
 
     private static SourceException unready(Http.Response health) {
-        return new SourceException(SourceException.Kind.SERVER, "Norish is not ready" + said(health) + ". That, and not the key, is why it refused it.");
+        return new SourceException(SourceException.Kind.SERVER, "Norish is not ready" + said(health) + ". That, and not the key, is why it refused it.", true);
     }
 
     /** A proxy's own answer while Norish is stopped or starting, which Norish neither sees nor counts. */
@@ -613,13 +632,15 @@ final class NorishSource implements RecipeSource {
         return until != null && until - millis.getAsLong() > 0;
     }
 
-    /** Norish asked to wait. Until then the key goes nowhere: each request would count, and none would be answered. */
+    /**
+     * Norish asked to wait. Until then the key goes nowhere: each request would count, and none would be answered. A wait
+     * that is over stays as it is, since clearing it could clear a newer one that a call on the other thread has just set.
+     */
     private void stillWaiting() throws SourceException {
         Long until = quietUntil;
         if (until == null) return;
         long left = until - millis.getAsLong();
         if (left > 0) throw limited((left + 999) / 1000);
-        quietUntil = null;
     }
 
     private SourceException limited(long seconds) {

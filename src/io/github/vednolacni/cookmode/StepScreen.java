@@ -238,7 +238,7 @@ final class StepScreen implements Screen {
         if (!model.recipeImage.equals(shownImage)) {
             shownImage = model.recipeImage;
             images.newest();
-            images.load(thumbnail, model.recipeImage, actions.imageHeaders(model.recipeImage), parts.px(112));
+            images.load(thumbnail, model.recipeImage, actions::imageHeaders, parts.px(112));
         }
         subtitle.setText(model.stepTitle.isEmpty() ? strings.stepWord + " " + model.pageNumber : strings.stepWord + " " + model.pageNumber + " · " + model.stepTitle);
         counter.setText(model.pageNumber + " / " + model.pageCount);

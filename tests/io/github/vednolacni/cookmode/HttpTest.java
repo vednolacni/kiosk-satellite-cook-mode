@@ -24,6 +24,15 @@ public final class HttpTest {
             send(exchange, 201, exchange.getRequestMethod() + " " + new String(body, StandardCharsets.UTF_8));
         });
         server.createContext("/big", exchange -> send(exchange, 200, new String(new char[5000]).replace('\0', 'x')));
+        server.createContext("/flood", exchange -> {
+            // No length said, so it shows only as it comes.
+            exchange.sendResponseHeaders(200, 0);
+            try (java.io.OutputStream out = exchange.getResponseBody()) {
+                out.write(new byte[5000]);
+            } catch (IOException gone) {
+                // The reader stopped.
+            }
+        });
         server.createContext("/same", exchange -> redirect(exchange, "/ok"));
         server.createContext("/away", exchange -> redirect(exchange, "http://example.invalid/steal"));
         server.createContext("/loop", exchange -> redirect(exchange, "/loop"));
@@ -49,7 +58,16 @@ public final class HttpTest {
             assert !follows("https://a.test/x", "http://a.test/y") && !follows("http://a.test:8080/x", "http://a.test:9090/y");
             assert !follows("http://a.test/x", "http://b.test/x") && !follows("http://a.test/x", "ftp://a.test/x");
             assert fails(http, base + "/loop", "Too many redirects");
-            assert fails(http, base + "/big", "larger than");
+            assert fails(http, base + "/big", "larger than") && fails(http, base + "/flood", "larger than");
+            // Too large is a kind of its own, which is the same every time.
+            for (String path : new String[] {"/big", "/flood"}) {
+                try {
+                    http.request("GET", base + path, auth, null, 1024);
+                    assert false : path;
+                } catch (Http.TooLarge expected) {
+                    assert expected.getMessage().equals("The answer is larger than 1 KB") : expected.getMessage();
+                }
+            }
         } finally {
             server.stop(0);
         }

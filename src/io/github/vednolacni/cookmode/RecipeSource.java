@@ -23,15 +23,26 @@ interface RecipeSource {
         enum Kind { AUTH, READ_ONLY, HOST, NOT_API, NOT_FOUND, PRIVATE, NETWORK, LOCAL_NAME, TLS, SERVER, PARSE, UNSUPPORTED, LIMIT }
 
         final Kind kind;
+        /**
+         * The trouble may pass by itself soon, and asking again costs the key nothing: a server that answers but is not
+         * ready yet, or Norish 0.25, which refuses a key in its hour after too many requests as it refuses a wrong one.
+         */
+        final boolean passing;
 
         SourceException(Kind kind, String message) {
+            this(kind, message, false);
+        }
+
+        SourceException(Kind kind, String message, boolean passing) {
             super(message);
             this.kind = kind;
+            this.passing = passing;
         }
 
         SourceException(Kind kind, String message, Throwable cause) {
             super(message, cause);
             this.kind = kind;
+            this.passing = false;
         }
     }
 
@@ -136,8 +147,8 @@ interface RecipeSource {
     /** The meals planned from first to last, both included, in date and slot order. */
     List<Planned> mealPlan(LocalDate first, LocalDate last) throws SourceException;
 
-    /** The last day the app can tell the meals of, when the plan is read from first on. Most can tell any day. */
-    default LocalDate planReach(LocalDate first) {
+    /** The last day the app can tell the meals of while its server is on serverDay, or later. Most can tell any day. */
+    default LocalDate planReach(LocalDate serverDay) {
         return LocalDate.MAX;
     }
 
@@ -167,7 +178,10 @@ interface RecipeSource {
     /** Tell the app the recipe was cooked. Throws UNSUPPORTED when the app cannot record it. */
     void cooked(String recipeId, double servings) throws SourceException;
 
-    /** Headers an image request needs, such as a key for apps that protect their pictures. Never the token for another host. */
+    /**
+     * Headers an image request needs, such as a key for apps that protect their pictures. Never the token for another
+     * host. Null when the picture is not to be asked for now.
+     */
     Map<String, String> imageHeaders(String url);
 
     /** Close open connections, so a stopping plugin is not held up by a slow server. */

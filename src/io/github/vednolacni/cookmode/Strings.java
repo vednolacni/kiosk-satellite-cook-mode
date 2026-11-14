@@ -82,6 +82,7 @@ final class Strings {
     final String problemLimit;
     /** Where the app's meal plan ends before the days asked for. */
     final String planCut;
+    final String problemAuthPassing;
     private final DateTimeFormatter longDate;
     private final DateTimeFormatter shortDate;
     /** Norish's meal slots in this language, by the name Norish sends. Empty where they stay as they come. */
@@ -109,6 +110,7 @@ final class Strings {
         "This recipe is private and not shared with the {key's} user.",
         "{app} is not answering this API {key} for a while, because it made too many requests. Give each tablet its own {key}.",
         "{app} shares only this week and this month of the meal plan.",
+        "{app} refused the API {key}. If it has worked before, wait up to an hour: Norish 0.25 refuses a good {key} after 500 requests with no hour's pause. Otherwise create a new one under Settings > User > API keys.",
     };
 
     private static final String[] SLOVENIAN_WORDS = {
@@ -130,6 +132,7 @@ final class Strings {
         "Ta recept je zaseben in ni deljen z uporabnikom tega {key's}.",
         "{app} temu API {key}u nekaj časa ne odgovarja, ker je poslal preveč zahtev. Vsaka tablica naj ima svoj {key}.",
         "{app} deli le jedilnik tega tedna in tega meseca.",
+        "{app} je zavrnil API {key}. Če je prej deloval, počakaj do eno uro: Norish 0.25 zavrne tudi dober {key}, ki je poslal 500 zahtev brez urnega premora. Sicer ustvari novega v Norishu pod Settings > User > API keys.",
     };
 
     static final Strings ENGLISH = english(Settings.App.TANDOOR);
@@ -253,6 +256,7 @@ final class Strings {
         problemPrivate = words[i++];
         problemLimit = words[i++];
         planCut = words[i++];
+        problemAuthPassing = words[i++];
     }
 
     /** The Language setting's choice, for the recipe app. Auto follows the device. */
