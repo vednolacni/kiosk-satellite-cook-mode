@@ -4,7 +4,7 @@ A real cook mode for a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satel
 
 Tandoor Recipes and Norish are supported. Mealie, KitchenOwl and Grocy fit the same design: see [docs/DESIGN.md](docs/DESIGN.md).
 
-> **Status:** early development. Not listed in Community Plugins yet. The views run in CI under Robolectric, with real drawing, but nothing has been tried on a real tablet yet. Norish support is tested against a stand-in server built from Norish's API and source, not yet against a running Norish.
+> **Status:** first release. Not listed in Community Plugins yet. It has been tried on a kiosk tablet with Norish 0.25, from the list of recipes through every step of one to its last page. Tandoor has run only in the tests so far: the views under Robolectric, with real drawing, and the source against a stand-in server.
 
 ## What it does
 
@@ -149,7 +149,7 @@ Kiosk Mode's exit gesture of several fast taps counts taps anywhere, also on the
 
 Once the plugin is listed in [Community Plugins](https://kiosksatellite.com/plugins/), this section gets the **Install in Kiosk Satellite** button.
 
-Until there is a public release, take the ZIP from the latest [**Build** run on `main`](https://github.com/vednolacni/kiosk-satellite-cook-mode/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush), never from a run for a pull request, and install it with **Plugin Manager > Developer Tools > Install from ZIP**.
+Each [release](https://github.com/vednolacni/kiosk-satellite-cook-mode/releases/latest) also has the ZIP, for **Plugin Manager > Developer Tools > Install from ZIP**. A ZIP from a [**Build** run on `main`](https://github.com/vednolacni/kiosk-satellite-cook-mode/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush) is what comes next, never one from a run for a pull request.
 
 ## Development
 
