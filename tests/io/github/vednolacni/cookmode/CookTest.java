@@ -408,6 +408,16 @@ public final class CookTest {
         assert source.calls.contains("plan 2026-11-01 2026-11-07") : source.calls;
         assert "Lunch: Pancakes; Lunch: Leftovers".equals(host.entities.get("today_meals")) : host.entities.get("today_meals");
         assert host.status.startsWith("Connected. 2 meals planned today. Read at 11:00") && !host.statusError : host.status;
+        // Just after midnight today moves on with the plan in hand, for Home Assistant and the plugin's page too, with no read.
+        int reads = source.calls.size();
+        clock.now = ZonedDateTime.of(2026, 11, 2, 0, 0, 5, 0, ZONE).toInstant();
+        ui.run(13 * 3_600_000L + 5_000L);
+        assert "".equals(host.entities.get("today_meals")) && source.calls.size() == reads : host.entities.get("today_meals") + " " + source.calls;
+        assert host.status.startsWith("Connected. 0 meals planned today. Read at 11:00") : host.status;
+        assert ui.posted(24 * 3_600_000L) : ui.tasks.values();
+        clock.now = ZonedDateTime.of(2026, 11, 1, 11, 0, 0, 0, ZONE).toInstant();
+        ui.run(24 * 3_600_000L);
+        assert "Lunch: Pancakes; Lunch: Leftovers".equals(host.entities.get("today_meals")) : host.entities.get("today_meals");
 
         // Opening: full screen, the screensaver goes, the select follows and the recipe list loads.
         cook.execute("openCookMode");

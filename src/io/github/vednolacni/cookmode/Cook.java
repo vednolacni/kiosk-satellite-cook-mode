@@ -2,6 +2,8 @@
 package io.github.vednolacni.cookmode;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
@@ -105,6 +107,7 @@ final class Cook implements Ui.Actions {
     private final Timers timers = new Timers();
     private final Runnable dueTask = this::due;
     private final Runnable planTask = this::planTick;
+    private final Runnable midnightTask = this::midnight;
     private final Runnable idleTask = this::idleCheck;
     private final Runnable saveTask = this::save;
     private final Runnable deviceTask = this::askDevice;
@@ -227,6 +230,7 @@ final class Cook implements Ui.Actions {
         // The word KS listens for to stop its own timers silences ours too.
         host.subscribe("stopword.detected");
         ui.post(planTask, planEvery());
+        ui.post(midnightTask, untilMidnight());
         Object saved = values.get("resumeState");
         boolean anySaved = saved instanceof String && !((String) saved).isEmpty();
         // What is stored must be replaced the first time, whatever it holds.
@@ -411,6 +415,7 @@ final class Cook implements Ui.Actions {
     synchronized void stop() {
         ui.cancel(dueTask);
         ui.cancel(planTask);
+        ui.cancel(midnightTask);
         ui.cancel(idleTask);
         ui.cancel(saveTask);
         ui.cancel(deviceTask);
@@ -690,7 +695,8 @@ final class Cook implements Ui.Actions {
             int count = 0;
             LocalDate today = LocalDate.now(clock);
             for (RecipeSource.Planned meal : plan) if (meal.date.equals(today)) count++;
-            status("Connected. " + count + (count == 1 ? " meal" : " meals") + " planned today. Read at " + LocalTime.now(clock).withSecond(0).withNano(0) + "." + missed, false);
+            LocalTime read = Instant.ofEpochMilli(planReadAt).atZone(clock.getZone()).toLocalTime().withSecond(0).withNano(0);
+            status("Connected. " + count + (count == 1 ? " meal" : " meals") + " planned today. Read at " + read + "." + missed, false);
         }
     }
 
@@ -1583,6 +1589,31 @@ final class Cook implements Ui.Actions {
                 // As above.
             }
         }
+    }
+
+    /**
+     * Runs on the main thread just after midnight. Today's meals are then the ones the plan in hand has for the new day,
+     * also for Home Assistant and the plugin's page, with no read, so the day turns on time however seldom the plan is read.
+     */
+    private void midnight() {
+        synchronized (this) {
+            if (host == null) return;
+            try {
+                report();
+                publishState();
+                if (shown) changed();
+                ui.post(midnightTask, untilMidnight());
+            } catch (RuntimeException sessionEnded) {
+                // As in planTick.
+            }
+        }
+    }
+
+    /** From now until a few seconds after the next midnight on the tablet's clock. */
+    private long untilMidnight() {
+        ZonedDateTime now = ZonedDateTime.now(clock);
+        ZonedDateTime next = now.toLocalDate().plusDays(1).atStartOfDay(now.getZone()).plusSeconds(5);
+        return Math.max(1_000L, Duration.between(now, next).toMillis());
     }
 
     @Override public synchronized void openFromDock() {
