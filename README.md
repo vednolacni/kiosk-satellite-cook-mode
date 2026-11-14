@@ -6,6 +6,13 @@ Tandoor Recipes and Norish are supported. Mealie, KitchenOwl and Grocy fit the s
 
 > **Status:** first release. Not listed in Community Plugins yet. It has been tried on a kiosk tablet with Norish 0.25, from the list of recipes through every step of one to its last page. Tandoor has run only in the tests so far: the views under Robolectric, with real drawing, and the source against a stand-in server.
 
+<p align="center"><img src="docs/images/home.png" alt="The first page: today's meals beside every recipe, with a search" width="720"></p>
+
+| A recipe | A step | Timers |
+| :---: | :---: | :---: |
+| <img src="docs/images/recipe.png" alt="A recipe's ingredients to tick off and its servings" width="260"> | <img src="docs/images/step.png" alt="A step with a timer chip in its words and its own ingredients" width="260"> | <img src="docs/images/timers.png" alt="The timer sheet with a running timer and new ones to start" width="260"> |
+| Ingredients to tick off, and servings that rescale every amount | One big step, with its own ingredients and a timer from its words | Several timers at once, with pause and a minute more or less |
+
 ## What it does
 
 - **Today's meal, one tap away.** The first page shows today's meals from the meal plan, then the next days. A tap lands on exactly that recipe. The **Cook today's meal** action goes there without any tap, from a gesture or from Home Assistant.
@@ -22,6 +29,41 @@ Tandoor Recipes and Norish are supported. Mealie, KitchenOwl and Grocy fit the s
 - **It remembers.** Closing the panel keeps your place. Opening it again returns to the same step, until you end cooking. Closing the last page ends cooking, because the meal is ready. The step also survives a restart of the kiosk, unless it stays off for about 12 hours. The timers survive however long it stays off. A timer that ended less than half an hour ago rings when the kiosk comes back, and the plugin's page mentions an older one.
 
 English and Slovenian, including Slovenian's four plural forms and decimal commas.
+
+<details>
+<summary><b>More screenshots</b></summary>
+
+| A step on a portrait tablet, in the light theme | When a timer ends |
+| :---: | :---: |
+| <img src="docs/images/step-portrait.png" alt="A step on a portrait tablet, in the light theme" width="240"> | <img src="docs/images/alarm.png" alt="A timer that has ended, with Stop and one more minute" width="400"> |
+
+</details>
+
+## Installation
+
+Needs Kiosk Satellite **2026.10.42** or newer. Kiosk Satellite shows the requirement before it installs or updates, and an older release keeps running the version it has.
+
+### Install in Kiosk Satellite
+
+Cook Mode is not listed in [Community Plugins](https://kiosksatellite.com/plugins/) yet. The button still opens it in your kiosk's remote admin, which says so, and nothing installs until you choose **Trust and install**. The remote admin must be on, under **Settings > Device > Remote Administration** on the kiosk.
+
+[![Install in Kiosk Satellite](https://kiosksatellite.com/img/badges/plugin-add.svg)](https://kiosksatellite.com/redirect/plugin/?repository=vednolacni/kiosk-satellite-cook-mode)
+
+### Manual
+
+1. Open **Settings > Plugin Manager** in Kiosk Satellite and turn on **Enable Plugins**.
+2. Choose **Add plugin**, paste `https://github.com/vednolacni/kiosk-satellite-cook-mode` and choose **Preview**.
+3. Review the plugin and choose **Trust and install**.
+
+Each [release](https://github.com/vednolacni/kiosk-satellite-cook-mode/releases/latest) also has the ZIP, for **Plugin Manager > Developer Tools > Install from ZIP**. A ZIP from a [**Build** run on `main`](https://github.com/vednolacni/kiosk-satellite-cook-mode/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush) is what comes next, never one from a run for a pull request.
+
+### First steps
+
+1. Turn on **Cook Mode** in the Plugin Manager and open its page, on the kiosk or in the remote admin.
+2. Under **Recipe server**, pick Tandoor or Norish, enter the server's address and the API token or key, and press **Test connection**. [Creating the token or key](#creating-the-token-or-key) says how to make one.
+3. Press **Test the timer sound**, so a silent alarm shows before dinner.
+4. Give the panel a way to open: **Open Cook Mode** or **Toggle Cook Mode** on a gesture, in the kiosk drawer or as a Home Assistant button. See [Actions and Home Assistant](#actions-and-home-assistant).
+
 
 ## Settings
 
@@ -74,7 +116,8 @@ Norish 0.26 or newer works best, and from 0.26.1 the plan also shows Norish's no
 
 Norish counts its today, its week and its month in its own time zone, which is UTC unless `TZ` is set for its container. Set `TZ` to your own, such as `Europe/Ljubljana`, so its days change at your midnight.
 
-### When Test connection fails
+<details>
+<summary><b>When Test connection fails</b></summary>
 
 | What it says | What to do |
 | --- | --- |
@@ -91,6 +134,8 @@ Norish counts its today, its week and its month in its own time zone, which is U
 | The recipe server cannot be reached | Check the address from the tablet's own network. |
 
 Opening one recipe can also say it is private and not shared with the token's user. That is about the recipe, not the token. Norish says such a recipe is no longer available, since it answers the same for both.
+
+</details>
 
 ### Reading aloud
 
@@ -126,9 +171,12 @@ With ESPHome entities on, the plugin adds:
 
 So an automation can dim the kitchen light when a timer rings, or show today's meals on a dashboard, with no recipe app integration in Home Assistant.
 
-### Kiosk Mode
+<details>
+<summary><b>Kiosk Mode</b></summary>
 
 Kiosk Mode's exit gesture of several fast taps counts taps anywhere, also on the search keys, so fast typing can trigger it. Its variant that holds the last tap avoids this. The servings and timer buttons repeat while held, so they need no fast taps.
+
+</details>
 
 ## Where data goes
 
@@ -139,19 +187,12 @@ Kiosk Mode's exit gesture of several fast taps counts taps anywhere, also on the
 - **The tablet.** With the tablet voice, Android's text-to-speech engine reads the step. Which engine that is, and what it does with the text, is up to the tablet. The **Saved session** setting holds the recipe's id and name, the servings, the step and the timers, in Kiosk Satellite's settings. It never holds the token. It is stored as a secret, so Fleet Management leaves it out unless a profile includes **Plugin secrets**. With Plugin secrets the leader's value replaces each follower's, so a follower's session does not survive a restart and every step syncs the fleet: keep Cook Mode out of such a profile, or turn Plugin secrets off in it and type the token on each kiosk.
 - Nothing is sent anywhere else, and there is no telemetry.
 
-## Installation
+## Changes
 
-### Manual
+[CHANGELOG.md](CHANGELOG.md) says what each release changed.
 
-1. Open **Settings > Plugin Manager** in Kiosk Satellite and turn on **Enable Plugins**.
-2. Choose **Add plugin**, paste `https://github.com/vednolacni/kiosk-satellite-cook-mode` and choose **Preview**.
-3. Review the plugin and choose **Trust and install**.
-
-Once the plugin is listed in [Community Plugins](https://kiosksatellite.com/plugins/), this section gets the **Install in Kiosk Satellite** button.
-
-Each [release](https://github.com/vednolacni/kiosk-satellite-cook-mode/releases/latest) also has the ZIP, for **Plugin Manager > Developer Tools > Install from ZIP**. A ZIP from a [**Build** run on `main`](https://github.com/vednolacni/kiosk-satellite-cook-mode/actions/workflows/ci.yml?query=branch%3Amain+event%3Apush) is what comes next, never one from a run for a pull request.
-
-## Development
+<details>
+<summary><b>Development</b></summary>
 
 The plugin is built from the [Kiosk Satellite plugin template](https://github.com/jxlarrea/kiosk-satellite-plugins). `sdk/` and `tools/` are the template's, unchanged except for the test list in `tools/test.py`.
 
@@ -175,8 +216,16 @@ Without a local Android SDK, push to `main` or run **Build** by hand on your bra
 
 ### Release
 
-Publish a GitHub release with a tag such as `v0.1.0`. The **Release** workflow builds it and attaches the manifest, the ZIP and its checksum.
+Raise `version` in `kiosk-satellite-plugin.json`, add the release to [CHANGELOG.md](CHANGELOG.md), then publish a GitHub release with the tag `v` and that version, such as `v0.1.0`. The **Release** workflow builds it and attaches the manifest, the ZIP and its checksum.
+
+</details>
+
+## Credits
+
+Built for [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) by [@jxlarrea](https://github.com/jxlarrea), whose plugin SDK, overlays and theme give it a native look, and started from the [Kiosk Satellite plugin template](https://github.com/jxlarrea/kiosk-satellite-plugins). The cooking view takes ideas from [Norish](https://norish.dev/), but no code. `NorishSource` is written from Norish's API docs and its source, read only to learn how its API answers, and no Norish code is in the plugin.
+
+The food photos in the screenshots are from Wikimedia Commons, under CC0 or in the public domain. [SOURCES.md](tests-views/src/test/resources/food/SOURCES.md) names each photo and who took it.
 
 ## License
 
-[Apache-2.0](LICENSE). The icon is this project's own. Not affiliated with Kiosk Satellite, Tandoor Recipes, Norish or any other recipe app. The cooking view takes ideas from [Norish](https://norish.dev/), but no code, and `NorishSource` is written from Norish's API docs and its source, read only to learn how its API answers. No Norish code is in the plugin.
+[Apache-2.0](LICENSE). The icon is this project's own. Not affiliated with Kiosk Satellite, Tandoor Recipes, Norish or any other recipe app.

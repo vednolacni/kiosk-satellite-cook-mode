@@ -5,7 +5,7 @@ The views test serves these as recipe pictures for the README screenshots. Each 
 | File | Dish | Source | Author | License |
 | --- | --- | --- | --- | --- |
 | `1.jpg` | Beef goulash | [Goulash hungarian.jpg](https://commons.wikimedia.org/wiki/File:Goulash_hungarian.jpg) | RitaE | CC0 |
-| `2.jpg` | Pancakes | [Pancakes with Berries (Unsplash).jpg](https://commons.wikimedia.org/wiki/File:Pancakes_with_Berries_(Unsplash).jpg) | Herson Rodriguez hero | CC0 |
+| `2.jpg` | Pancakes | [Pancakes with Berries (Unsplash).jpg](https://commons.wikimedia.org/wiki/File:Pancakes_with_Berries_(Unsplash).jpg) | Herson Rodriguez | CC0 |
 | `3.jpg` | Vegetable soup | [Minestrone Soup.JPG](https://commons.wikimedia.org/wiki/File:Minestrone_Soup.JPG) | Intothewoods29 | Public domain |
 | `4.jpg` | Lemon roast chicken | [Roasted chicken half, Frauenstein.jpg](https://commons.wikimedia.org/wiki/File:Roasted_chicken_half,_Frauenstein.jpg) | Gerda Arendt | CC0 |
 | `5.jpg` | Lasagne | [Lasagna Serving.jpg](https://commons.wikimedia.org/wiki/File:Lasagna_Serving.jpg) | Miansari66 | CC0 |
