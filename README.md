@@ -2,15 +2,15 @@
 
 A real cook mode for a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) kitchen tablet. It connects straight to your recipe server and draws its own screens, so the recipe app is only the place the recipes live. There is no web page in a frame and no Home Assistant integration to install.
 
-Tandoor Recipes and Norish are supported. Mealie, KitchenOwl and Grocy fit the same design: see [docs/DESIGN.md](docs/DESIGN.md).
+Tandoor Recipes and Norish are supported, and Mealie is planned as the third. KitchenOwl and Grocy fit the same design too: see [docs/DESIGN.md](docs/DESIGN.md).
 
 > **Status:** first release. Not listed in Community Plugins yet. It has been tried on a kiosk tablet with Norish 0.25, from the list of recipes through every step of one to its last page. Tandoor has run only in the tests so far: the views under Robolectric, with real drawing, and the source against a stand-in server.
 
-<p align="center"><img src="docs/images/home.png" alt="The first page: today's meals beside every recipe, with a search" width="720"></p>
+![The first page: today's meals beside every recipe, with a search](docs/images/home.png)
 
 | A recipe | A step | Timers |
 | :---: | :---: | :---: |
-| <img src="docs/images/recipe.png" alt="A recipe's ingredients to tick off and its servings" width="260"> | <img src="docs/images/step.png" alt="A step with a timer chip in its words and its own ingredients" width="260"> | <img src="docs/images/timers.png" alt="The timer sheet with a running timer and new ones to start" width="260"> |
+| ![A recipe with its photo, servings and ingredients to tick off](docs/images/recipe.png) | ![A step with a timer chip in its words and its own ingredients](docs/images/step.png) | ![The timer sheet with two running timers and new ones to start](docs/images/timers.png) |
 | Ingredients to tick off, and servings that rescale every amount | One big step, with its own ingredients and a timer from its words | Several timers at once, with pause and a minute more or less |
 
 ## What it does
@@ -32,16 +32,15 @@ English and Slovenian, including Slovenian's four plural forms and decimal comma
 
 <details>
 <summary><b>More screenshots</b></summary>
-
-| A step on a portrait tablet, in the light theme | When a timer ends |
-| :---: | :---: |
-| <img src="docs/images/step-portrait.png" alt="A step on a portrait tablet, in the light theme" width="240"> | <img src="docs/images/alarm.png" alt="A timer that has ended, with Stop and one more minute" width="400"> |
-
+<table>
+<tr><th>A step on a portrait tablet, in the light theme</th><th>When a timer ends</th></tr>
+<tr><td align="center"><img src="docs/images/step-portrait.png" alt="A step on a portrait tablet, in the light theme" width="240"></td><td align="center"><img src="docs/images/alarm.png" alt="A timer that has ended, with Stop and one more minute" width="400"></td></tr>
+</table>
 </details>
 
 ## Installation
 
-Needs Kiosk Satellite **2026.10.42** or newer. Kiosk Satellite shows the requirement before it installs or updates, and an older release keeps running the version it has.
+Needs Kiosk Satellite **2026.10.42** or newer. From 2026.10.40 on, Kiosk Satellite shows the requirement before it installs or updates, and keeps running the version of Cook Mode it has. Older releases do not check it, so update Kiosk Satellite first.
 
 ### Install in Kiosk Satellite
 
@@ -60,8 +59,8 @@ Each [release](https://github.com/vednolacni/kiosk-satellite-cook-mode/releases/
 ### First steps
 
 1. Turn on **Cook Mode** in the Plugin Manager and open its page, on the kiosk or in the remote admin.
-2. Under **Recipe server**, pick Tandoor or Norish, enter the server's address and the API token or key, and press **Test connection**. [Creating the token or key](#creating-the-token-or-key) says how to make one.
-3. Press **Test the timer sound**, so a silent alarm shows before dinner.
+2. Under **Recipe server**, pick Tandoor or Norish, enter the server's address and the API token or key, and press **Test** on the **Test connection** row. [Creating the token or key](#creating-the-token-or-key) says how to make one.
+3. Press **Ring** on the **Test the timer sound** row, so a silent alarm shows before dinner.
 4. Give the panel a way to open: **Open Cook Mode** or **Toggle Cook Mode** on a gesture, in the kiosk drawer or as a Home Assistant button. See [Actions and Home Assistant](#actions-and-home-assistant).
 
 
@@ -100,7 +99,7 @@ With **Tandoor**:
 
 1. Open **Settings > API** and create a token with the scope `read write`.
 2. Copy it right after saving. Tandoor shows it only for a few seconds.
-3. Paste it into **API token or key** and press **Test connection**.
+3. Paste it into **API token or key** and press **Test** on the **Test connection** row.
 
 A token with the scope `read` is enough to cook, but Tandoor then refuses the cook log and the recently viewed list.
 
@@ -108,7 +107,7 @@ With **Norish**:
 
 1. Sign in as the user whose meal plan the kitchen follows. Norish shows each user the plan of their whole household, so a household member of its own for the tablets is the safest choice: a key can do anything its user can, also change recipes, and an admin's key reaches Norish's admin settings.
 2. Open **Settings > User > API keys**, create a key, and copy all of it at once. Norish shows it only once. It has 64 letters.
-3. Paste it into **API token or key** and press **Test connection**.
+3. Paste it into **API token or key** and press **Test** on the **Test connection** row.
 
 Norish allows each key 500 requests an hour, and every picture counts. Give each tablet its own key, so one busy tablet cannot use up another's. A Fleet Management profile that includes **Plugin secrets** would put the leader's key on every tablet, so keep Cook Mode out of such a profile and type each tablet's own key on it. Over the limit Norish asks the tablet to wait, and the plugin sends nothing with that key until the wait is over, pictures included.
 
@@ -116,8 +115,10 @@ Norish 0.26 or newer works best, and from 0.26.1 the plan also shows Norish's no
 
 Norish counts its today, its week and its month in its own time zone, which is UTC unless `TZ` is set for its container. Set `TZ` to your own, such as `Europe/Ljubljana`, so its days change at your midnight.
 
+### When Test connection fails
+
 <details>
-<summary><b>When Test connection fails</b></summary>
+<summary>The messages and what to do</summary>
 
 | What it says | What to do |
 | --- | --- |
@@ -171,12 +172,9 @@ With ESPHome entities on, the plugin adds:
 
 So an automation can dim the kitchen light when a timer rings, or show today's meals on a dashboard, with no recipe app integration in Home Assistant.
 
-<details>
-<summary><b>Kiosk Mode</b></summary>
+### Kiosk Mode
 
 Kiosk Mode's exit gesture of several fast taps counts taps anywhere, also on the search keys, so fast typing can trigger it. Its variant that holds the last tap avoids this. The servings and timer buttons repeat while held, so they need no fast taps.
-
-</details>
 
 ## Where data goes
 
@@ -191,8 +189,10 @@ Kiosk Mode's exit gesture of several fast taps counts taps anywhere, also on the
 
 [CHANGELOG.md](CHANGELOG.md) says what each release changed.
 
+## Development
+
 <details>
-<summary><b>Development</b></summary>
+<summary>How it is built, tested and released</summary>
 
 The plugin is built from the [Kiosk Satellite plugin template](https://github.com/jxlarrea/kiosk-satellite-plugins). `sdk/` and `tools/` are the template's, unchanged except for the test list in `tools/test.py`.
 
@@ -222,7 +222,7 @@ Raise `version` in `kiosk-satellite-plugin.json`, add the release to [CHANGELOG.
 
 ## Credits
 
-Built for [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) by [@jxlarrea](https://github.com/jxlarrea), whose plugin SDK, overlays and theme give it a native look, and started from the [Kiosk Satellite plugin template](https://github.com/jxlarrea/kiosk-satellite-plugins). The cooking view takes ideas from [Norish](https://norish.dev/), but no code. `NorishSource` is written from Norish's API docs and its source, read only to learn how its API answers, and no Norish code is in the plugin.
+Built for [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite), the kiosk app by [@jxlarrea](https://github.com/jxlarrea), whose plugin SDK, overlays and theme give Cook Mode a native look. It started from the [Kiosk Satellite plugin template](https://github.com/jxlarrea/kiosk-satellite-plugins). The cooking view takes ideas from [Norish](https://norish.dev/), but no code. `NorishSource` is written from Norish's API docs and its source, read only to learn how its API answers, and no Norish code is in the plugin.
 
 The food photos in the screenshots are from Wikimedia Commons, under CC0 or in the public domain. [SOURCES.md](tests-views/src/test/resources/food/SOURCES.md) names each photo and who took it.
 
