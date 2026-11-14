@@ -173,6 +173,8 @@ public final class ViewsTest {
     private volatile boolean foodPhotos;
     /** Cook from the kitchen in English. */
     private boolean english;
+    /** Draw with colors taken from Norish's screenshots instead of Kiosk Satellite's, to compare the two looks. */
+    private boolean norishLook;
     private volatile java.util.concurrent.CountDownLatch picturesHeld;
     private final List<String> picturesAsked = Collections.synchronizedList(new ArrayList<String>());
     private String prefix = "";
@@ -1625,26 +1627,49 @@ public final class ViewsTest {
 
     private KsTheme theme(boolean dark) {
         float density = activity.getResources().getDisplayMetrics().density;
-        return new KsTheme(dark, density, colors(dark), ViewsTest::font, ViewsTest::icon);
+        return new KsTheme(dark, density, norishLook ? norishColors(dark) : colors(dark), ViewsTest::font, ViewsTest::icon);
     }
 
-    /** Only the roles the SDK documents: any other throws, as it may on a real kiosk. */
+    /**
+     * Kiosk Satellite's own colors, from its lib/ui/theme.dart: teal on charcoal, or on warm paper in the light theme.
+     * Only the roles the SDK documents: any other throws, as it may on a real kiosk.
+     */
     private static Map<String, Integer> colors(boolean dark) {
         Map<String, Integer> colors = new HashMap<>();
-        colors.put("surface", dark ? 0xFF141218 : 0xFFFEF7FF);
-        colors.put("onSurface", dark ? 0xFFE6E0E9 : 0xFF1D1B20);
-        colors.put("onSurfaceVariant", dark ? 0xFFCAC4D0 : 0xFF49454F);
-        colors.put("surfaceContainerHigh", dark ? 0xFF2B2930 : 0xFFECE6F0);
-        colors.put("surfaceContainerHighest", dark ? 0xFF36343B : 0xFFE6E0E9);
-        colors.put("primary", dark ? 0xFFD0BCFF : 0xFF6750A4);
-        colors.put("onPrimary", dark ? 0xFF381E72 : 0xFFFFFFFF);
-        colors.put("primaryContainer", dark ? 0xFF4F378B : 0xFFEADDFF);
-        colors.put("secondary", dark ? 0xFFCCC2DC : 0xFF625B71);
-        colors.put("tertiary", dark ? 0xFFEFB8C8 : 0xFF7D5260);
-        colors.put("error", dark ? 0xFFF2B8B5 : 0xFFB3261E);
-        colors.put("outline", dark ? 0xFF938F99 : 0xFF79747E);
-        colors.put("outlineVariant", dark ? 0xFF49454F : 0xFFCAC4D0);
-        colors.put("success", dark ? 0xFF81C784 : 0xFF2E7D32);
+        colors.put("surface", dark ? 0xFF202124 : 0xFFF5F4F2);
+        colors.put("onSurface", dark ? 0xFFE8EAED : 0xFF444444);
+        colors.put("onSurfaceVariant", dark ? 0xFFB6BABF : 0xFF5D6066);
+        colors.put("surfaceContainerHigh", dark ? 0xFF303136 : 0xFFEFEDE9);
+        colors.put("surfaceContainerHighest", dark ? 0xFF37383D : 0xFFE8E6E1);
+        colors.put("primary", 0xFF488284);
+        colors.put("onPrimary", 0xFFFFFFFF);
+        colors.put("primaryContainer", dark ? 0xFF2F4649 : 0xFFD4E3E4);
+        colors.put("secondary", dark ? 0xFF6C9B9F : 0xFF44686C);
+        colors.put("tertiary", dark ? 0xFFCE9C3E : 0xFF9C742A);
+        colors.put("error", dark ? 0xFFD97E4C : 0xFFA9501F);
+        colors.put("outline", dark ? 0xFF5F6368 : 0xFFB4B1AB);
+        colors.put("outlineVariant", dark ? 0xFF3C3E43 : 0xFFE3E0DA);
+        colors.put("success", dark ? 0xFF749C6F : 0xFF56814F);
+        return colors;
+    }
+
+    /** Colors read off Norish's own screenshots: deep brown or cream, warm white cards and a herb green. Only for comparing. */
+    private static Map<String, Integer> norishColors(boolean dark) {
+        Map<String, Integer> colors = new HashMap<>();
+        colors.put("surface", dark ? 0xFF1E0F07 : 0xFFFBEFDA);
+        colors.put("onSurface", dark ? 0xFFFAF7EE : 0xFF231C15);
+        colors.put("onSurfaceVariant", dark ? 0xFFD8C8AA : 0xFF6B5E4E);
+        colors.put("surfaceContainerHigh", dark ? 0xFF2A211C : 0xFFFFFCF4);
+        colors.put("surfaceContainerHighest", dark ? 0xFF362B24 : 0xFFF2E3CB);
+        colors.put("primary", dark ? 0xFF4E8C5D : 0xFF35653F);
+        colors.put("onPrimary", 0xFFFFFFFF);
+        colors.put("primaryContainer", dark ? 0xFF2C4A33 : 0xFFD8E8D5);
+        colors.put("secondary", dark ? 0xFF9DBFA3 : 0xFF4D6B54);
+        colors.put("tertiary", dark ? 0xFFE6B08A : 0xFFB0683A);
+        colors.put("error", dark ? 0xFFE07B55 : 0xFFB0471E);
+        colors.put("outline", dark ? 0xFF6E5E52 : 0xFFC8B79E);
+        colors.put("outlineVariant", dark ? 0xFF3E322A : 0xFFEADBC2);
+        colors.put("success", dark ? 0xFF6FAE7C : 0xFF3E7A4B);
         return colors;
     }
 
@@ -2030,6 +2055,10 @@ public final class ViewsTest {
         shot("step");
         tap(described(s.timers));
         assertNotNull(find(s.newTimer));
+        tap(find(s.duration(5)));
+        assertEquals(2, cook.timers().size());
+        tap(described(s.timers));
+        assertNotNull(find(s.newTimer));
         shot("timers");
         tapAt(4, 4);
         assertNull(find(s.newTimer));
@@ -2049,6 +2078,46 @@ public final class ViewsTest {
         begin("readme-portrait", false, settings("English"));
         open();
         tap(find("Beef goulash"));
+        tap(find(s.startCooking));
+        TextView step = containing("Finely chop");
+        assertNotNull(step);
+        settle();
+        tapChip(step);
+        advance(3);
+        shot("step");
+    }
+
+    // The same pages in Kiosk Satellite's light theme and in colors like Norish's, to choose a look by.
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void theKioskLookInLight() {
+        looks("look-ks-light", false);
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aNorishLookInDark() {
+        norishLook = true;
+        looks("look-norish-dark", true);
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aNorishLookInLight() {
+        norishLook = true;
+        looks("look-norish-light", false);
+    }
+
+    /** The first page, a recipe and its first step with a timer running, in English with food photos. */
+    private void looks(String prefix, boolean dark) {
+        foodPhotos = true;
+        english = true;
+        begin(prefix, dark, settings("English"));
+        open();
+        assertNotNull(find("Leftovers"));
+        assertFalse("the photos are in", picturesPending(content));
+        shot("home");
+        tap(find("Beef goulash"));
+        assertNotNull(find(s.startCooking));
+        shot("recipe");
         tap(find(s.startCooking));
         TextView step = containing("Finely chop");
         assertNotNull(step);
