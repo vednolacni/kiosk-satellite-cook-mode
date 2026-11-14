@@ -270,6 +270,14 @@ public final class CookTest {
         cook.refresh();
         net.runAll();
         assert ui.model.strings.problemLimit.equals(ui.model.banner) && host.statusError && "Norish asks to wait 31 minutes.".equals(host.status) : ui.model.banner;
+        // Midnight does not tell over a trouble that is still there, and neither does a change of settings.
+        ui.run(13 * 3_600_000L + 5_000L);
+        assert host.statusError && "Norish asks to wait 31 minutes.".equals(host.status) : host.status;
+        Map<String, Object> other = new LinkedHashMap<>(values);
+        other.put("closeOnScreensaver", false);
+        cook.configure(other);
+        assert host.statusError && "Norish asks to wait 31 minutes.".equals(host.status) : host.status;
+        cook.configure(values);
         // A key Norish 0.25 refuses may only be in its hour after too many requests, and the panel says that too.
         source.fail = new RecipeSource.SourceException(RecipeSource.SourceException.Kind.AUTH, "Norish refused the API key.", true);
         cook.refresh();
@@ -338,6 +346,43 @@ public final class CookTest {
             assert ui.model.page == Model.Page.RECIPE;
             cook.close();
         }
+        // A touch on the panel meanwhile is the cook doing something else, so the meal is not opened over it.
+        fresh(values);
+        net.runAll();
+        cook.execute("openCookMode");
+        net.runAll();
+        clock.now = ZonedDateTime.of(2026, 11, 1, 17, 50, 0, 0, ZONE).toInstant();
+        int touchedAt = source.calls.size();
+        cook.execute("cookToday");
+        cook.touched();
+        net.runAll();
+        List<String> meanwhile = source.calls.subList(touchedAt, source.calls.size());
+        assert meanwhile.stream().noneMatch(call -> call.startsWith("recipe ")) && ui.model.page == Model.Page.HOME : meanwhile;
+        cook.close();
+        // So is closing the panel, also when it opens again before the plan is in.
+        fresh(values);
+        net.runAll();
+        clock.now = ZonedDateTime.of(2026, 11, 1, 17, 50, 0, 0, ZONE).toInstant();
+        int closedAt = source.calls.size();
+        cook.execute("cookToday");
+        cook.close();
+        cook.execute("openCookMode");
+        net.runAll();
+        List<String> reopened = source.calls.subList(closedAt, source.calls.size());
+        assert reopened.stream().noneMatch(call -> call.startsWith("recipe ")) && ui.model.page == Model.Page.HOME : reopened;
+        cook.close();
+        // Opening the panel while the plan is on its way waits for that read rather than starting another.
+        fresh(values);
+        net.runAll();
+        clock.minutes(10);
+        ui.run(Cook.PLAN_REFRESH_MS);
+        cook.execute("openCookMode");
+        // And so does the next tick.
+        ui.run(Cook.PLAN_REFRESH_MS);
+        long reads = source.calls.stream().filter(call -> call.startsWith("plan ")).count();
+        net.runAll();
+        assert source.calls.stream().filter(call -> call.startsWith("plan ")).count() == reads + 1 : source.calls;
+        cook.close();
         // A plan read just now is chosen from at once, with no read of its own.
         fresh(values);
         net.runAll();
@@ -391,6 +436,10 @@ public final class CookTest {
         clock.now = ZonedDateTime.of(2026, 12, 1, 0, 30, 0, 0, ZONE).toInstant();
         cook.refresh();
         net.runAll();
+        assert LocalDate.of(2026, 11, 30).equals(source.reachFrom) : source.reachFrom;
+        // Until it is read again, the plan reaches as far as it did when it was read.
+        clock.now = ZonedDateTime.of(2026, 12, 1, 1, 10, 0, 0, ZONE).toInstant();
+        cook.home();
         assert LocalDate.of(2026, 11, 30).equals(source.reachFrom) : source.reachFrom;
         clock.now = ZonedDateTime.of(2026, 12, 1, 1, 0, 0, 0, ZONE).toInstant();
         cook.refresh();

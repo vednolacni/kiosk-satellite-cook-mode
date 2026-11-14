@@ -1358,6 +1358,53 @@ public final class ViewsTest {
     }
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aSizeWaitingOnAnotherIsAskedForOnceMoreWhenThatTryFails() {
+        begin("pictures-parked", true, settings("English"));
+        Images images = new Images();
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/14.png";
+        picturesFail = true;
+        picturesHeld = new java.util.concurrent.CountDownLatch(1);
+        ImageView small = new ImageView(activity);
+        ImageView large = new ImageView(activity);
+        images.load(small, url, NO_HEADERS, 100);
+        long until = System.currentTimeMillis() + 10_000;
+        while (!picturesAsked.contains("14") && System.currentTimeMillis() < until) Thread.yield();
+        // The recipe opens while the list's picture is on its way, and that try fails though the server is back.
+        images.newest();
+        images.load(large, url, NO_HEADERS, 400);
+        picturesFail = false;
+        picturesHeld.countDown();
+        picturesHeld = null;
+        waitUntil(() -> large.getDrawable() != null && small.getDrawable() != null);
+        assertNotNull(large.getDrawable());
+        assertNotNull(small.getDrawable());
+        assertEquals(picturesAsked.toString(), 2, Collections.frequency(picturesAsked, "14"));
+        images.close();
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aSignedPictureTooLargeForMemoryIsFetchedOnceForTwoSizes() {
+        begin("pictures-signed", true, settings("English"));
+        // Memory too small to hold the picture, and a signed link, which is not kept on the tablet.
+        Images images = new Images(Images.KEPT_MOST, 64 * 1024);
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/15.png?X-Amz-Signature=abc";
+        picturesHeld = new java.util.concurrent.CountDownLatch(1);
+        ImageView small = new ImageView(activity);
+        ImageView large = new ImageView(activity);
+        images.load(small, url, NO_HEADERS, 100);
+        long until = System.currentTimeMillis() + 10_000;
+        while (!picturesAsked.contains("15") && System.currentTimeMillis() < until) Thread.yield();
+        images.load(large, url, NO_HEADERS, 400);
+        picturesHeld.countDown();
+        picturesHeld = null;
+        waitUntil(() -> small.getDrawable() != null && large.getDrawable() != null);
+        assertNotNull(small.getDrawable());
+        assertNotNull(large.getDrawable());
+        assertEquals(picturesAsked.toString(), 1, Collections.frequency(picturesAsked, "15"));
+        images.close();
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
     public void aPictureRefusedForTheKeyOrMetWithASignInPageIsAskedForAgain() {
         begin("pictures-again", true, settings("English"));
         Images images = new Images();
@@ -1384,8 +1431,8 @@ public final class ViewsTest {
         Images images = new Images();
         String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/408.png";
         images.load(new ImageView(activity), url, NO_HEADERS, 100);
-        waitUntil(() -> picturesAsked.contains("408"));
-        later(500);
+        waitUntil(() -> picturesAsked.contains("408") && images.idle());
+        assertTrue(images.idle());
         // Long after a picture that does not exist would be asked for again.
         later(Images.MISSING_MS + 60_000);
         images.load(new ImageView(activity), url, NO_HEADERS, 100);

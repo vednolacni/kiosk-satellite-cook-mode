@@ -18,11 +18,9 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -75,22 +73,17 @@ final class Images {
         return thread;
     });
     /** About a sixteenth of the app's memory, in KB. */
-    private final LruCache<String, Bitmap> cache = new LruCache<String, Bitmap>((int) Math.min(Integer.MAX_VALUE, Runtime.getRuntime().maxMemory() / 1024 / 16)) {
-        @Override protected int sizeOf(String key, Bitmap bitmap) {
-            return Math.max(1, bitmap.getByteCount() / 1024);
-        }
-    };
+    private final LruCache<String, Bitmap> cache;
     /** The pictures as they came, by address alone. About a twenty-fourth of the app's memory, in KB. */
-    private final LruCache<String, byte[]> bytes = new LruCache<String, byte[]>((int) Math.min(Integer.MAX_VALUE, Runtime.getRuntime().maxMemory() / 1024 / 24)) {
-        @Override protected int sizeOf(String key, byte[] picture) {
-            return Math.max(1, picture.length / 1024);
-        }
-    };
+    private final LruCache<String, byte[]> bytes;
     /** What the kept pictures may take: KEPT_MOST, or less in a test. */
     private final long keptMost;
     /** Where pictures are kept on the tablet, or null until the first view brings a place for them. */
     private volatile File keptIn;
-    /** When each address was last asked for, on the steady clock. Written on the main thread, read on the picture threads. */
+    /**
+     * When each picture was last asked for, on the steady clock, by the name of its file on the tablet. Written on the main
+     * thread, read on the picture threads.
+     */
     private final Map<String, Long> wanted = new ConcurrentHashMap<>();
     /** What the kept pictures take, or -1 before they were counted. Guarded by itself. */
     private final long[] kept = {-1};
@@ -107,7 +100,22 @@ final class Images {
     }
 
     Images(long keptMost) {
+        this(keptMost, Runtime.getRuntime().maxMemory());
+    }
+
+    /** With the caches sized for memory bytes of the app's, as a test may want them small. */
+    Images(long keptMost, long memory) {
         this.keptMost = keptMost;
+        cache = new LruCache<String, Bitmap>((int) Math.max(1, Math.min(Integer.MAX_VALUE, memory / 1024 / 16))) {
+            @Override protected int sizeOf(String key, Bitmap bitmap) {
+                return Math.max(1, bitmap.getByteCount() / 1024);
+            }
+        };
+        bytes = new LruCache<String, byte[]>((int) Math.max(1, Math.min(Integer.MAX_VALUE, memory / 1024 / 24))) {
+            @Override protected int sizeOf(String key, byte[] picture) {
+                return Math.max(1, picture.length / 1024);
+            }
+        };
     }
 
     /** One picture on its way, and who waits for it. */
@@ -119,6 +127,11 @@ final class Images {
         final List<ImageView> views = new ArrayList<>();
         /** Views that want the same picture at other sizes. Its bytes, once here, make theirs with no request. */
         final List<Parked> parked = new ArrayList<>();
+        /**
+         * The picture's bytes once here, or the ones the job this size waited on had. They go to the parked sizes, also when
+         * memory is too small to hold them and the address is not kept on the tablet. Set before the answer is posted.
+         */
+        byte[] body;
         Fetch fetch;
         long batch;
         /** Asked for while on its way, perhaps because the server has just come back. */
@@ -154,6 +167,11 @@ final class Images {
         keptIn = folder;
     }
 
+    /** Whether nothing is on its way. Main thread only. */
+    boolean idle() {
+        return jobs.isEmpty();
+    }
+
     /** What is asked for from here on goes before everything still waiting. Main thread only. */
     void newest() {
         batch++;
@@ -165,13 +183,18 @@ final class Images {
      * A null url clears the view.
      */
     void load(ImageView view, String url, Function<String, Map<String, String>> headers, int width) {
+        load(view, url, headers, width, null);
+    }
+
+    /** As load, with the picture's bytes when they are here already, from the job another size waited on. */
+    private void load(ImageView view, String url, Function<String, Map<String, String>> headers, int width, byte[] given) {
         view.setTag(url);
         if (url == null || url.isEmpty()) {
             view.setImageDrawable(null);
             return;
         }
         long now = SystemClock.elapsedRealtime();
-        wanted.put(url, now);
+        wanted.put(name(url), now);
         if (wanted.size() > WANTED_MOST) wanted.values().removeIf(at -> now - at > WANTED_MS);
         String key = url + "@" + width;
         Bitmap cached = cache.get(key);
@@ -205,10 +228,13 @@ final class Images {
             Job sibling = jobs.get(other);
             for (int i = sibling.parked.size() - 1; i >= 0; i--) if (sibling.parked.get(i).view == view) sibling.parked.remove(i);
             sibling.parked.add(new Parked(view, headers, width));
+            // As for the same size: a try that fails now gets one more, which brings this size too.
+            sibling.askedAgain = true;
             if (sibling.batch != batch && pool.remove(sibling.fetch)) start(other, sibling);
             return;
         }
         job = new Job(url, headers, width);
+        job.body = given;
         job.views.add(view);
         jobs.put(key, job);
         start(key, job);
@@ -251,7 +277,7 @@ final class Images {
         if (bitmap == null) return;
         for (ImageView view : job.views) if (job.url.equals(view.getTag())) view.setImageBitmap(bitmap);
         // The other sizes, from the bytes now in memory or on the tablet.
-        for (Parked waiting : job.parked) if (job.url.equals(waiting.view.getTag())) load(waiting.view, job.url, waiting.headers, waiting.width);
+        for (Parked waiting : job.parked) if (job.url.equals(waiting.view.getTag())) load(waiting.view, job.url, waiting.headers, waiting.width, job.body);
     }
 
     /** Stop fetching and drop the cache. */
@@ -269,15 +295,17 @@ final class Images {
     /** The picture at the job's size, from the bytes kept in memory or on the tablet, or else from the server. */
     private Bitmap fetch(Job job) {
         try {
-            byte[] picture = bytes.get(job.url);
+            byte[] picture = job.body != null ? job.body : bytes.get(job.url);
             if (picture == null) picture = kept(job.url);
             if (picture != null) {
                 Bitmap bitmap = decode(picture, job.width);
                 if (bitmap != null) {
                     bytes.put(job.url, picture);
+                    job.body = picture;
                     return bitmap;
                 }
                 // Kept bytes that no longer read, as a power cut can leave them. The server still has the picture.
+                job.body = null;
                 bytes.remove(job.url);
                 forget(job.url);
             }
@@ -298,9 +326,12 @@ final class Images {
             }
             bytes.put(job.url, response.body);
             keep(job.url, response.body);
+            job.body = response.body;
             return bitmap;
         } catch (Http.TooLarge large) {
-            job.leave = UNREADABLE_MS;
+            // A picture too large to take is so every time. A page that large, such as a proxy's, says nothing of the picture.
+            boolean picture = large.status >= 200 && large.status < 300 && large.type.toLowerCase(Locale.ROOT).startsWith("image/");
+            job.leave = picture ? UNREADABLE_MS : 0;
             return null;
         } catch (Exception | OutOfMemoryError unavailable) {
             // A missing picture is not worth failing over. The row shows without it.
@@ -400,14 +431,13 @@ final class Images {
                 kept[0] = total;
                 return;
             }
-            long now = SystemClock.elapsedRealtime();
-            Set<String> asked = new HashSet<>();
-            for (Map.Entry<String, Long> picture : wanted.entrySet()) if (now - picture.getValue() <= WANTED_MS) asked.add(name(picture.getKey()));
             Arrays.sort(order, (a, b) -> Long.compare(used[a], used[b]));
             for (Integer i : order) {
                 if (total <= keptMost * 3 / 4) break;
                 File file = files.get(i);
-                if (asked.contains(file.getName())) continue;
+                // Asked for as it is now, not when this began: the panel may ask for a picture while older ones go.
+                Long asked = wanted.get(file.getName());
+                if (asked != null && SystemClock.elapsedRealtime() - asked <= WANTED_MS) continue;
                 long length = file.length();
                 if (file.delete()) total -= length;
             }

@@ -131,6 +131,12 @@ final class Cook implements Ui.Actions {
     private long planReadAt = -1;
     /** When the plan was last asked for, whether it came or not. */
     private long planAskedAt = -1;
+    /** Whether the plugin's page now says something is wrong. */
+    private boolean statusError;
+    /** Why the last read of the plan failed, until one comes in. */
+    private RecipeSource.SourceException planProblem;
+    /** The earliest day the server may have been on when the plan in hand was read, which says how far that plan reaches. */
+    private LocalDate planFrom;
     /** Cook today's meal came while the plan was old: the page it came on, until the plan read again is in. */
     private Model.Page chooseOn;
     /** And the recipe open then. */
@@ -375,6 +381,8 @@ final class Cook implements Ui.Actions {
             plan = Collections.emptyList();
             planReadAt = -1;
             planAskedAt = -1;
+            planFrom = null;
+            planProblem = null;
             chooseOn = null;
             recipes = new ArrayList<>();
             recipesPage = 0;
@@ -499,7 +507,8 @@ final class Cook implements Ui.Actions {
             host.showOverlay(MAIN, OverlaySpec.fullScreen().enter(OverlaySpec.FADE).exit(OverlaySpec.FADE).transitionDuration(150), ui.main(this));
             shown = true;
             hideDockNow();
-            if (planReadAt < 0 || clock.millis() - planReadAt > PLAN_STALE_MS) loadPlan();
+            // A read already on its way is waited for, not started over.
+            if (!planLoading && (planReadAt < 0 || clock.millis() - planReadAt > PLAN_STALE_MS)) loadPlan();
             if (recipesPage == 0 && !recipesLoading) loadRecipes(1);
             retryResume();
             // The panel shows what it is loading as soon as it opens.
@@ -518,6 +527,7 @@ final class Cook implements Ui.Actions {
     /** The main view went away, by the close button or by back. The session stays until End cooking, or the meal is ready. */
     private void closed() {
         shown = false;
+        chooseOn = null;
         quiet();
         if (page == Model.Page.FINISH) {
             endSession();
@@ -564,6 +574,7 @@ final class Cook implements Ui.Actions {
         final int generation = ++planGeneration;
         planLoading = true;
         planAskedAt = clock.millis();
+        final LocalDate serverDay = serverDay();
         final LocalDate first = LocalDate.now(clock);
         final LocalDate last = first.plusDays(settings.planDays - 1);
         background(() -> {
@@ -582,9 +593,12 @@ final class Cook implements Ui.Actions {
                 if (read != null) {
                     plan = read;
                     planReadAt = clock.millis();
+                    planFrom = serverDay;
+                    planProblem = null;
                     cleared(Trouble.PLAN);
                     report();
                 } else {
+                    planProblem = problem;
                     failed(problem, Trouble.PLAN);
                 }
                 publishState();
@@ -680,6 +694,7 @@ final class Cook implements Ui.Actions {
     }
 
     private void status(String message, boolean error) {
+        statusError = error;
         if (host != null) host.status(message.length() > 1000 ? message.substring(0, 1000) : message, error);
     }
 
@@ -689,6 +704,9 @@ final class Cook implements Ui.Actions {
         String missed = missedTimers == 0 ? "" : " " + missedTimers + (missedTimers == 1 ? " timer" : " timers") + " ended long ago, while the kiosk was restarting.";
         if (problem != null) {
             status(problem, true);
+        } else if (planProblem != null) {
+            // No page says Connected while the plan cannot be read.
+            status(planProblem.getMessage() + missed, true);
         } else if (planReadAt < 0) {
             status("Reading the meal plan." + missed, false);
         } else {
@@ -1520,6 +1538,8 @@ final class Cook implements Ui.Actions {
     @Override public synchronized void touched() {
         if (host == null) return;
         lastTouch = clock.millis();
+        // The cook is doing something else now, so Cook today's meal does not open over it once the plan is in.
+        chooseOn = null;
         if (idleExpired) {
             idleExpired = false;
             updateAwake();
@@ -1577,7 +1597,7 @@ final class Cook implements Ui.Actions {
         synchronized (this) {
             if (host == null) return;
             try {
-                loadPlan();
+                if (!planLoading) loadPlan();
                 retryResume();
                 // What is saved says when this kiosk was last up, so a long wait on one step does not look like a kiosk that was off.
                 if ((cooking && recipe != null) || resume != null || stash != null || waitingAside != null) {
@@ -1599,7 +1619,8 @@ final class Cook implements Ui.Actions {
         synchronized (this) {
             if (host == null) return;
             try {
-                report();
+                // A trouble on the plugin's page stays until it is over.
+                if (!statusError) report();
                 publishState();
                 if (shown) changed();
                 ui.post(midnightTask, untilMidnight());
@@ -1607,6 +1628,16 @@ final class Cook implements Ui.Actions {
                 // As in planTick.
             }
         }
+    }
+
+    /**
+     * The earliest day the recipe app's server may be on now: the tablet's, or UTC's when that is earlier. A server runs on
+     * UTC by default, or on the tablet's zone when it is set so.
+     */
+    private LocalDate serverDay() {
+        LocalDate today = LocalDate.now(clock);
+        LocalDate utc = clock.instant().atZone(ZoneOffset.UTC).toLocalDate();
+        return utc.isBefore(today) ? utc : today;
     }
 
     /** From now until a few seconds after the next midnight on the tablet's clock. */
@@ -1812,10 +1843,9 @@ final class Cook implements Ui.Actions {
             }
         }
         boolean canLog = (settings.markCooked == Settings.MarkCooked.ASK || logFailed) && recipe != null && !logged;
-        // Norish tells only this week and this month, so the days after them are not known to be free. Its day is the
-        // tablet's or, as it runs by default, UTC's, so its week and month are counted from the earlier of the two.
-        LocalDate utc = clock.instant().atZone(ZoneOffset.UTC).toLocalDate();
-        boolean cut = source != null && source.planReach(utc.isBefore(today) ? utc : today).isBefore(today.plusDays(settings.planDays - 1));
+        // Norish tells only this week and this month, so the days after them are not known to be free. The plan in hand
+        // reaches as far as the server's day allowed when it was read.
+        boolean cut = source != null && source.planReach(planFrom != null ? planFrom : serverDay()).isBefore(today.plusDays(settings.planDays - 1));
         int resumeAt = cooking ? pageIndex + 1 : resume != null ? Math.max(0, resume.page) + 1 : 0;
         // The plan and the list are for the first page. Trouble with them has no place over a recipe that is here.
         boolean homeOnly = bannerOwner == Trouble.PLAN || bannerOwner == Trouble.LIST;

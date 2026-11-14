@@ -24,6 +24,16 @@ public final class HttpTest {
             send(exchange, 201, exchange.getRequestMethod() + " " + new String(body, StandardCharsets.UTF_8));
         });
         server.createContext("/big", exchange -> send(exchange, 200, new String(new char[5000]).replace('\0', 'x')));
+        server.createContext("/withheld", exchange -> {
+            // Says its length at once, and sends nothing for a while.
+            exchange.sendResponseHeaders(200, 5000);
+            try (java.io.OutputStream out = exchange.getResponseBody()) {
+                Thread.sleep(3000);
+                out.write(new byte[5000]);
+            } catch (IOException | InterruptedException gone) {
+                // The reader stopped.
+            }
+        });
         server.createContext("/flood", exchange -> {
             // No length said, so it shows only as it comes.
             exchange.sendResponseHeaders(200, 0);
@@ -65,9 +75,18 @@ public final class HttpTest {
                     http.request("GET", base + path, auth, null, 1024);
                     assert false : path;
                 } catch (Http.TooLarge expected) {
-                    assert expected.getMessage().equals("The answer is larger than 1 KB") : expected.getMessage();
+                    assert expected.getMessage().equals("The answer is larger than 1 KB") && expected.status == 200 : expected.getMessage();
                 }
             }
+            // A length said up front that is too large is refused before the body comes.
+            long started = System.nanoTime();
+            try {
+                http.request("GET", base + "/withheld", auth, null, 1024);
+                assert false : "/withheld";
+            } catch (Http.TooLarge expected) {
+                assert expected.status == 200;
+            }
+            assert System.nanoTime() - started < 2_000_000_000L : (System.nanoTime() - started) / 1_000_000 + " ms";
         } finally {
             server.stop(0);
         }

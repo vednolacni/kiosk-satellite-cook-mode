@@ -37,10 +37,6 @@ public final class NorishTest {
     static final java.util.concurrent.atomic.AtomicInteger revokedAnswers = new java.util.concurrent.atomic.AtomicInteger();
     /** How many answers the tired 0.25 server has given its key. */
     static final java.util.concurrent.atomic.AtomicInteger tiredAnswers = new java.util.concurrent.atomic.AtomicInteger();
-    /** How many answers the 0.25 server that refuses two calls at once has given its key this round. */
-    static final java.util.concurrent.atomic.AtomicInteger pairAnswers = new java.util.concurrent.atomic.AtomicInteger();
-    /** Holds two refused calls until both are there, so they are refused at the same moment. */
-    static volatile java.util.concurrent.CyclicBarrier pair;
 
     static String json(String quoted) {
         return quoted.replace('\'', '"');
@@ -406,30 +402,40 @@ public final class NorishTest {
     }
 
     static void together() throws Exception {
-        // Two calls 0.25 refuses at the same moment, once the key has worked, both wait: neither calls the key wrong.
-        int wrongKey = 0;
-        for (int round = 0; round < 200; round++) {
-            pairAnswers.set(0);
-            pair = new java.util.concurrent.CyclicBarrier(2);
-            NorishSource both = new NorishSource(server + "/pair", KEY, new Http());
-            assert both.recipes("", RecipeSource.Order.NAME, 1).items.size() == 1;
-            RecipeSource.SourceException[] refused = new RecipeSource.SourceException[2];
-            Thread plan = new Thread(() -> {
+        // Two calls 0.25 refuses at once, once the key has worked, both wait: neither calls the key wrong. The second
+        // refusal comes while the first is setting its wait, which the clock holds there.
+        tiredAnswers.set(0);
+        java.util.concurrent.CountDownLatch setting = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        Thread[] first = new Thread[1];
+        NorishSource both = new NorishSource(server + "/tired", KEY, new Http(), () -> {
+            if (Thread.currentThread() == first[0] && setting.getCount() > 0) {
+                setting.countDown();
                 try {
-                    both.mealPlan(TODAY, TODAY);
-                } catch (RecipeSource.SourceException failed) {
-                    refused[0] = failed;
+                    go.await(10, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException stopped) {
+                    Thread.currentThread().interrupt();
                 }
-            });
-            plan.start();
-            refused[1] = failure(() -> both.recipes("", RecipeSource.Order.NAME, 1));
-            plan.join();
-            for (RecipeSource.SourceException one : refused) {
-                assert one != null && (one.kind == RecipeSource.SourceException.Kind.LIMIT || one.kind == RecipeSource.SourceException.Kind.AUTH) : one;
-                if (one.kind == RecipeSource.SourceException.Kind.AUTH) wrongKey++;
             }
+            return 0L;
+        });
+        assert both.recipes("", RecipeSource.Order.NAME, 1).items.size() == 1;
+        RecipeSource.SourceException[] refused = new RecipeSource.SourceException[2];
+        first[0] = new Thread(() -> {
+            try {
+                both.recipe(JOTA);
+            } catch (RecipeSource.SourceException failed) {
+                refused[0] = failed;
+            }
+        });
+        first[0].start();
+        assert setting.await(10, java.util.concurrent.TimeUnit.SECONDS) : "The first refusal never set its wait";
+        refused[1] = failure(() -> both.recipes("", RecipeSource.Order.NAME, 1));
+        go.countDown();
+        first[0].join();
+        for (RecipeSource.SourceException one : refused) {
+            assert one != null && one.kind == RecipeSource.SourceException.Kind.LIMIT : one == null ? "none" : one.kind + " " + one.getMessage();
         }
-        assert wrongKey == 0 : wrongKey + " of 400 refusals called the key wrong";
     }
 
     static void failures() throws Exception {
@@ -650,19 +656,6 @@ public final class NorishTest {
                 else if (rest.startsWith("/api/v1/health")) send(exchange, 404, NO_ROUTE, null);
                 else if (KEY.equals(key) && tiredAnswers.getAndIncrement() < 1) send(exchange, 200, json("{'recipes':[{'id':'" + JOTA + "','name':'Jota'}],'total':1,'nextCursor':null}"), null);
                 else send(exchange, 401, UNAUTHORIZED, null);
-                return;
-            case "/pair":
-                if (rest.equals("/api/v1/health")) send(exchange, 200, json("{'status':'ok','versions':{'root':'0.25.1-beta'}}"), null);
-                else if (rest.startsWith("/api/v1/health")) send(exchange, 404, NO_ROUTE, null);
-                else if (KEY.equals(key) && pairAnswers.getAndIncrement() < 1) send(exchange, 200, json("{'recipes':[{'id':'" + JOTA + "','name':'Jota'}],'total':1,'nextCursor':null}"), null);
-                else {
-                    try {
-                        pair.await(5, java.util.concurrent.TimeUnit.SECONDS);
-                    } catch (Exception alone) {
-                        // The other call did not come, and this one is refused all the same.
-                    }
-                    send(exchange, 401, UNAUTHORIZED, null);
-                }
                 return;
             case "/oldparser":
                 if (rest.equals("/api/v1/health")) send(exchange, 503, json("{'message':'Parser service is unreachable','code':'SERVICE_UNAVAILABLE'}"), null);

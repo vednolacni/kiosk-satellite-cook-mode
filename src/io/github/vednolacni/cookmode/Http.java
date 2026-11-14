@@ -71,12 +71,17 @@ final class Http {
 
     private final Set<HttpURLConnection> open = Collections.newSetFromMap(new ConcurrentHashMap<HttpURLConnection, Boolean>());
 
-    /** An answer larger than its reader takes, which it will be every time. */
+    /** An answer larger than its reader takes, with the status and type it came with. */
     static final class TooLarge extends IOException {
         private static final long serialVersionUID = 1L;
+        final int status;
+        /** The answer's Content-Type, or an empty string. */
+        final String type;
 
-        TooLarge(int limit) {
+        TooLarge(int limit, int status, String type) {
             super("The answer is larger than " + limit / 1024 + " KB");
+            this.status = status;
+            this.type = type == null ? "" : type;
         }
     }
 
@@ -118,9 +123,9 @@ final class Http {
                     if (!answered.containsKey(name)) answered.put(name, field.getValue().get(0));
                 }
                 // Not read at all when the server says it is too large.
-                if (connection.getContentLengthLong() > limit) throw new TooLarge(limit);
+                if (connection.getContentLengthLong() > limit) throw new TooLarge(limit, status, answered.get("content-type"));
                 InputStream in = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-                return new Response(status, in == null ? new byte[0] : read(in, limit), answered);
+                return new Response(status, in == null ? new byte[0] : read(in, limit, status, answered.get("content-type")), answered);
             } finally {
                 open.remove(connection);
                 connection.disconnect();
@@ -149,7 +154,7 @@ final class Http {
         open.clear();
     }
 
-    private static byte[] read(InputStream in, int limit) throws IOException {
+    private static byte[] read(InputStream in, int limit, int status, String type) throws IOException {
         try (InputStream stream = in) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             byte[] buffer = new byte[8192];
@@ -159,7 +164,7 @@ final class Http {
             while ((count = stream.read(buffer)) != -1) {
                 if (System.nanoTime() - started > ANSWER_MS * 1_000_000L) throw new IOException("The answer took longer than " + ANSWER_MS / 1000 + " seconds");
                 total += count;
-                if (total > limit) throw new TooLarge(limit);
+                if (total > limit) throw new TooLarge(limit, status, type);
                 out.write(buffer, 0, count);
             }
             return out.toByteArray();
