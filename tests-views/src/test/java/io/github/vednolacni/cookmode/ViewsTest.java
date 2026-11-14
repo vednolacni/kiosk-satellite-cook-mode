@@ -36,6 +36,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -168,6 +169,10 @@ public final class ViewsTest {
     private Strings s;
     private HttpServer server;
     private volatile boolean picturesFail;
+    /** Serve the food photos in the test resources for the pictures they stand for, as for the README's screenshots. */
+    private volatile boolean foodPhotos;
+    /** Cook from the kitchen in English. */
+    private boolean english;
     private volatile java.util.concurrent.CountDownLatch picturesHeld;
     private final List<String> picturesAsked = Collections.synchronizedList(new ArrayList<String>());
     private String prefix = "";
@@ -248,7 +253,8 @@ public final class ViewsTest {
                 exchange.close();
                 return;
             }
-            byte[] body = picture(name.isEmpty() ? 0 : Integer.parseInt(name));
+            byte[] photo = foodPhotos ? food(name) : null;
+            byte[] body = photo != null ? photo : picture(name.isEmpty() ? 0 : Integer.parseInt(name));
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream out = exchange.getResponseBody()) {
                 out.write(body);
@@ -1577,7 +1583,8 @@ public final class ViewsTest {
         clock = new TestClock();
         net = new Net();
         host = new Host();
-        kitchen = new Kitchen("http://127.0.0.1:" + server.getAddress().getPort() + "/picture");
+        String pictures = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture";
+        kitchen = english ? Kitchen.english(pictures) : new Kitchen(pictures);
         cook = new Cook(new StillUi(), clock, net, settings -> kitchen);
         cook.start(host, values);
         s = Strings.of((String) values.get("language"), Settings.App.TANDOOR);
@@ -1983,6 +1990,73 @@ public final class ViewsTest {
     }
 
     // Pictures of it.
+
+    /** A food photo from the test resources for a picture's number, or null. */
+    private static byte[] food(String number) {
+        try (InputStream in = ViewsTest.class.getResourceAsStream("/food/" + number + ".jpg")) {
+            if (in == null) return null;
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            for (int read = in.read(buffer); read > 0; read = in.read(buffer)) out.write(buffer, 0, read);
+            return out.toByteArray();
+        } catch (IOException unreadable) {
+            return null;
+        }
+    }
+
+    // The README's screenshots, in English and with food photos.
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void screenshotsForTheReadme() {
+        foodPhotos = true;
+        english = true;
+        begin("readme", true, settings("English"));
+        open();
+        assertNotNull(find("Leftovers"));
+        assertFalse("the photos are in", picturesPending(content));
+        shot("home");
+        tap(find("Beef goulash"));
+        assertNotNull(find(s.startCooking));
+        assertNotNull(find("800 g"));
+        assertNotNull(find(s.overnight));
+        shot("recipe");
+        tap(find(s.startCooking));
+        TextView step = containing("Finely chop");
+        assertNotNull(step);
+        settle();
+        tapChip(step);
+        assertEquals(1, cook.timers().size());
+        advance(3);
+        shot("step");
+        tap(described(s.timers));
+        assertNotNull(find(s.newTimer));
+        shot("timers");
+        tapAt(4, 4);
+        assertNull(find(s.newTimer));
+        for (Timers.Timer timer : cook.timers()) cook.cancelTimer(timer.id);
+        settle();
+        cook.startTimer("Onions", 60);
+        settle();
+        advance(61);
+        assertNotNull(find(s.timeIsUp));
+        shot("alarm");
+    }
+
+    @Test @Config(qualifiers = "w600dp-h960dp-port-tvdpi")
+    public void aPortraitScreenshotForTheReadme() {
+        foodPhotos = true;
+        english = true;
+        begin("readme-portrait", false, settings("English"));
+        open();
+        tap(find("Beef goulash"));
+        tap(find(s.startCooking));
+        TextView step = containing("Finely chop");
+        assertNotNull(step);
+        settle();
+        tapChip(step);
+        advance(3);
+        shot("step");
+    }
 
     private void shot(String name) {
         settle();

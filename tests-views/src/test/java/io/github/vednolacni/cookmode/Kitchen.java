@@ -21,13 +21,24 @@ final class Kitchen implements RecipeSource {
     SourceException failNext;
     /** A household that plans only some days. */
     boolean nothingToday;
+    /** The same kitchen in English, whose soup has a picture too, for the README's screenshots. */
+    private final boolean english;
     private final Map<String, Recipe> recipes = new LinkedHashMap<>();
 
     Kitchen(String pictures) {
+        this(pictures, false);
+    }
+
+    private Kitchen(String pictures, boolean english) {
         this.pictures = pictures;
-        recipes.put("1", goulash());
-        recipes.put("2", pancakes());
-        recipes.put("3", soup());
+        this.english = english;
+        recipes.put("1", english ? goulashInEnglish() : goulash());
+        recipes.put("2", english ? pancakesInEnglish() : pancakes());
+        recipes.put("3", english ? new Recipe("3", "Vegetable soup", "", picture(3), 0, "", 0, 0, "http://tandoor.test/view/recipe/3", "", Collections.<Recipe.Step>emptyList()) : soup());
+    }
+
+    static Kitchen english(String pictures) {
+        return new Kitchen(pictures, true);
     }
 
     private String picture(int number) {
@@ -54,6 +65,28 @@ final class Kitchen implements RecipeSource {
                 new Recipe.Step("Postrezi", "Postrezi s polento in svežim kruhom.", Recipe.Format.PLAIN, Collections.<Recipe.Ingredient>emptyList(), 5 * 60)));
     }
 
+    private Recipe goulashInEnglish() {
+        List<Recipe.Ingredient> first = Arrays.asList(food(800, "g", "beef", "for stewing"), food(500, "g", "onions", ""), food(30, "g", "lard", ""));
+        List<Recipe.Ingredient> second = Arrays.asList(food(2, "tbsp", "sweet paprika", ""), food(Double.NaN, "", "salt", "to taste"), food(0.5, "tsp", "caraway", "ground"));
+        List<Recipe.Ingredient> third = Arrays.asList(food(1, "l", "water", ""), Recipe.Ingredient.header("To finish"), food(2, "cloves", "garlic", ""));
+        String longStep = "Meanwhile make the side. Stir polenta into salted boiling water and cook it for 5 minutes, stirring all the time, until thick.\n\n"
+            + "Add crushed garlic and marjoram to the goulash. If it is too thick, add a little water, and if too thin, simmer it uncovered for 10 minutes more. Warm the bread in the oven at 180 °C.\n\n"
+            + "Taste, and add salt if it needs it. Let it stand for 15 minutes so the flavours come together, then warm it up again.";
+        return new Recipe("1", "Beef goulash", "A proper homemade goulash, cooked slowly and even better the next day.", picture(1), 4, "", 30, 120,
+            "http://tandoor.test/view/recipe/1", "", Arrays.asList(
+                new Recipe.Step("Onions", "<p>Finely chop the onions and fry them in <scalable-number v-bind:number=\"30.0\"></scalable-number> g of lard for 10–15 minutes, until golden.</p>", Recipe.Format.TANDOOR_HTML, first, 0),
+                new Recipe.Step("", "Add the diced beef, marinated overnight, with the paprika, salt, caraway and 2 bay leaves. Fry for 5 minutes more over high heat.", Recipe.Format.PLAIN, second, 0),
+                new Recipe.Step("Stewing", "Pour in the water, cover and simmer for 1 hour 30 minutes over low heat. Stir now and then.", Recipe.Format.PLAIN, third, 90 * 60),
+                new Recipe.Step("Side and finish", longStep, Recipe.Format.PLAIN, Collections.<Recipe.Ingredient>emptyList(), 0),
+                new Recipe.Step("Serve", "Serve with polenta and fresh bread.", Recipe.Format.PLAIN, Collections.<Recipe.Ingredient>emptyList(), 5 * 60)));
+    }
+
+    private Recipe pancakesInEnglish() {
+        return new Recipe("2", "Pancakes", "", picture(2), 4, "pieces", 20, 0, "", "", Arrays.asList(
+            new Recipe.Step("", "Whisk the flour, eggs and milk, then let the batter rest for 30 min.", Recipe.Format.PLAIN, Arrays.asList(food(200, "g", "flour", ""), food(2, "", "eggs", ""), food(300, "ml", "milk", "")), 0),
+            new Recipe.Step("", "Fry them in a hot pan, about 1 minute on each side.", Recipe.Format.PLAIN, Collections.<Recipe.Ingredient>emptyList(), 0)));
+    }
+
     private Recipe pancakes() {
         return new Recipe("2", "Palačinke", "", picture(2), 4, "kosov", 20, 0, "", "", Arrays.asList(
             new Recipe.Step("", "Zmešaj moko, jajca in mleko, nato pusti testo počivati 30 min.", Recipe.Format.PLAIN, Arrays.asList(food(200, "g", "moka", ""), food(2, "", "jajci", ""), food(300, "ml", "mleko", "")), 0),
@@ -78,6 +111,13 @@ final class Kitchen implements RecipeSource {
 
     @Override public List<Planned> mealPlan(LocalDate first, LocalDate last) throws SourceException {
         maybeFail();
+        if (english) {
+            return Arrays.asList(
+                new Planned("a", TODAY, "Lunch", 12 * 60, 0xFF43A047, "1", "Beef goulash", "", 4, picture(1), 150),
+                new Planned("b", TODAY, "Dinner", 19 * 60, 0, null, "Leftovers", "What is left from lunch", 0, "", 0),
+                new Planned("c", TODAY.plusDays(1), "Lunch", 12 * 60, 0, "3", "Vegetable soup", "", 0, picture(3), 40),
+                new Planned("d", TODAY.plusDays(2), "Dinner", 19 * 60, 0xFFE53935, "2", "Pancakes", "", 2, picture(2), 20));
+        }
         if (nothingToday) {
             return Arrays.asList(
                 new Planned("c", TODAY.plusDays(1), "Kosilo", 12 * 60, 0, "3", "Zelenjavna juha", "", 0, "", 40),
@@ -93,10 +133,12 @@ final class Kitchen implements RecipeSource {
     @Override public Page recipes(String query, Order order, int page) throws SourceException {
         maybeFail();
         List<Summary> all = new ArrayList<>();
-        all.add(new Summary("1", "Goveji golaž", picture(1), 150));
-        all.add(new Summary("2", "Palačinke", picture(2), 20));
-        all.add(new Summary("3", "Zelenjavna juha", "", 40));
-        String[] names = {"Pečen piščanec z limono in rožmarinom", "Ričet", "Jota", "Štruklji", "Gobova kremna juha", "Lazanja", "Rižota z gobami", "Kruh iz droži", "Potica", "Sirova plošča", "Bučna juha", "Pražen krompir", "Solata s tuno", "Kremšnita"};
+        all.add(new Summary("1", english ? "Beef goulash" : "Goveji golaž", picture(1), 150));
+        all.add(new Summary("2", english ? "Pancakes" : "Palačinke", picture(2), 20));
+        all.add(new Summary("3", english ? "Vegetable soup" : "Zelenjavna juha", english ? picture(3) : "", 40));
+        String[] names = english
+            ? new String[] {"Lemon roast chicken", "Lasagne", "Pumpkin soup", "Sourdough bread", "Barley stew", "Bean and sauerkraut soup", "Cheese dumplings", "Mushroom soup", "Mushroom risotto", "Walnut roll", "Cheese board", "Roast potatoes", "Tuna salad", "Custard slice"}
+            : new String[] {"Pečen piščanec z limono in rožmarinom", "Ričet", "Jota", "Štruklji", "Gobova kremna juha", "Lazanja", "Rižota z gobami", "Kruh iz droži", "Potica", "Sirova plošča", "Bučna juha", "Pražen krompir", "Solata s tuno", "Kremšnita"};
         for (int i = 0; i < names.length; i++) all.add(new Summary(String.valueOf(10 + i), names[i], picture(4 + i), i % 3 == 0 ? 0 : 25 + i * 5));
         if (order == Order.RECENT) Collections.reverse(all);
         List<Summary> found = new ArrayList<>();
