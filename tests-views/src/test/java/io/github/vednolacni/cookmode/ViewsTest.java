@@ -1209,6 +1209,118 @@ public final class ViewsTest {
         assertEquals(300, timerNamed("Pasta").left);
     }
 
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aClickOnAPlusOrMinusTakesOneStep() {
+        begin("click", true, settings("English"));
+        open();
+        // The keypad's erase key, from a screen reader's click and from a finger.
+        TextView search = searchField();
+        tap(search);
+        tap(find("J"));
+        tap(find("U"));
+        tap(find("H"));
+        View erase = described(s.back);
+        assertTrue(erase.isClickable());
+        assertTrue(erase.performClick());
+        settle();
+        assertEquals("ju", search.getText().toString());
+        tap(erase);
+        assertEquals("a finger takes one step too, not two", "j", search.getText().toString());
+        tap(erase);
+        later(600);
+        tap(find(s.close));
+
+        // Servings.
+        tap(find("Goveji golaž"));
+        View plus = described("+");
+        assertNotNull(find(s.servings(4, "")));
+        assertTrue(plus.performClick());
+        settle();
+        assertNotNull(find(s.servings(5, "")));
+        tap(plus);
+        assertNotNull(find(s.servings(6, "")));
+
+        // A minute more on a timer. Its button was not clickable at all before.
+        tap(find(s.startCooking));
+        cook.startTimer("Test", 600);
+        settle();
+        tap(described(s.timers));
+        View minute = find("+1");
+        assertTrue(minute.isClickable());
+        assertEquals("+" + s.duration(1), minute.getContentDescription().toString());
+        assertEquals("−" + s.duration(1), find("−1").getContentDescription().toString());
+        int left = cook.timers().get(0).left;
+        assertTrue(minute.performClick());
+        settle();
+        assertEquals(left + 60, cook.timers().get(0).left);
+        tap(minute);
+        assertEquals(left + 120, cook.timers().get(0).left);
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aPausedTimerSaysSo() {
+        begin("paused", true, settings("English"));
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        cook.startTimer("Test", 600);
+        settle();
+        tap(described(s.timers));
+        assertNull(find(s.paused));
+        tap(described(s.pause));
+        assertEquals(Timers.State.PAUSED, cook.timers().get(0).state);
+
+        // In the sheet: a dimmer time, and the word under it.
+        TextView word = find(s.paused);
+        assertNotNull(word);
+        TextView sheetTime = (TextView) ((ViewGroup) word.getParent()).getChildAt(1);
+        assertEquals(Durations.clock(cook.timers().get(0).left), sheetTime.getText().toString());
+        assertEquals(theme.color("onSurfaceVariant"), sheetTime.getCurrentTextColor());
+        assertEquals(theme.color("onSurfaceVariant"), word.getCurrentTextColor());
+
+        // In the strip: the pause mark before the time.
+        TextView stripTime = null;
+        for (TextView time : allText(mainView(), sheetTime.getText().toString())) {
+            if (time.getCompoundDrawablesRelative()[0] == null) continue;
+            assertNull("only one time has the mark", stripTime);
+            stripTime = time;
+        }
+        assertNotNull("a paused time in the strip has the pause mark", stripTime);
+        assertNotSame(sheetTime, stripTime);
+        assertEquals(28, sizeOf(stripTime));
+        assertEquals(theme.color("onSurfaceVariant"), stripTime.getCurrentTextColor());
+
+        // Running again, both look as they did.
+        tap(described(s.resume));
+        assertNull(find(s.paused));
+        advance(1);
+        String running = Durations.clock(cook.timers().get(0).left);
+        List<TextView> times = allText(mainView(), running);
+        assertTrue("the strip and the sheet", times.size() >= 2);
+        for (TextView time : times) {
+            assertNull(time.getCompoundDrawablesRelative()[0]);
+            assertEquals(theme.color("onSurface"), time.getCurrentTextColor());
+        }
+
+        // Delete is its own glyph, further off than the rest.
+        View delete = described(s.cancel);
+        View pause = described(s.pause);
+        assertEquals(theme.px(16), ((ViewGroup.MarginLayoutParams) delete.getLayoutParams()).getMarginStart());
+        assertEquals(theme.px(8), ((ViewGroup.MarginLayoutParams) pause.getLayoutParams()).getMarginStart());
+    }
+
+    /** Every visible text that reads exactly this. */
+    private static List<TextView> allText(View view, String exact) {
+        List<TextView> found = new ArrayList<>();
+        if (view.getVisibility() != View.VISIBLE) return found;
+        if (view instanceof TextView && exact.equals(((TextView) view).getText().toString())) found.add((TextView) view);
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) found.addAll(allText(group.getChildAt(i), exact));
+        }
+        return found;
+    }
+
     @Test @Config(qualifiers = "w600dp-h960dp-port-tvdpi")
     public void anAnswerTypedOnTheKeysStartsAtItsTop() {
         begin("port-search", false, settings("English"));

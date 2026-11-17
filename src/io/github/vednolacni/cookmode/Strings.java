@@ -53,6 +53,7 @@ final class Strings {
     final String stop;
     final String pause;
     final String resume;
+    final String paused;
     final String cancel;
     final String tooManyTimers;
     final String timeIsUp;
@@ -97,7 +98,7 @@ final class Strings {
         "Ingredients", "{prep}", "Waiting", "Start cooking", "Continue at step %d", "Open {in app}",
         "This recipe has no steps.", "Back", "Close", "Ready around %s", "Next step", "Finish", "Read", "For this step",
         "Enjoy your meal!", "Record {in app} as cooked", "Recorded {in app}.", "Back to the meal plan", "End cooking",
-        "Timers", "New timer", "Timer", "Stop", "Pause", "Resume", "Cancel", "At most 6 timers can run.", "Time is up", "Cooking",
+        "Timers", "New timer", "Timer", "Stop", "Pause", "Resume", "Paused", "Cancel", "At most 6 timers can run.", "Time is up", "Cooking",
         "{app} refused the API {key}. {new key}",
         "{app} refused this address. Use the address you open it with in a browser.",
         "The recipe server cannot be reached.", "The recipe server had a problem.", "This recipe is no longer available.", "Step", "Loading…",
@@ -119,7 +120,7 @@ final class Strings {
         "Sestavine", "{prep}", "Čakanje", "Začni kuhati", "Nadaljuj pri koraku %d", "Odpri {in app}",
         "Ta recept nima korakov.", "Nazaj", "Zapri", "Pripravljeno okoli %s", "Naslednji korak", "Končaj", "Preberi", "Za ta korak",
         "Dober tek!", "Zabeleži {in app} kot skuhano", "Zabeleženo {in app}.", "Nazaj na jedilnik", "Končaj kuhanje",
-        "Časovniki", "Nov časovnik", "Časovnik", "Ustavi", "Premor", "Nadaljuj", "Prekliči", "Teče lahko največ 6 časovnikov.", "Čas je potekel", "Kuhanje",
+        "Časovniki", "Nov časovnik", "Časovnik", "Ustavi", "Premor", "Nadaljuj", "Na pavzi", "Prekliči", "Teče lahko največ 6 časovnikov.", "Čas je potekel", "Kuhanje",
         "{app} je zavrnil API {key}. {new key}",
         "{app} je zavrnil ta naslov. Uporabi naslov, s katerim ga odpreš v brskalniku.",
         "Strežnik z recepti ni dosegljiv.", "Strežnik z recepti ima težavo.", "Ta recept ni več na voljo.", "Korak", "Nalagam …",
@@ -231,6 +232,7 @@ final class Strings {
         stop = words[i++];
         pause = words[i++];
         resume = words[i++];
+        paused = words[i++];
         cancel = words[i++];
         tooManyTimers = words[i++];
         timeIsUp = words[i++];

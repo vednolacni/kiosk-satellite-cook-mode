@@ -142,6 +142,11 @@ final class Parts {
      * itself: a finger starting a drag on a plus or minus in a list only means to move the list.
      */
     void repeating(View view, Runnable action) {
+        // TalkBack, Switch Access and a keyboard send a click, not a touch, so a click takes one step. A finger never
+        // reaches this listener: the touch listener below takes every event, ACTION_UP included, and it must keep
+        // returning true, or a tap would step twice.
+        view.setOnClickListener(clicked -> guard(action));
+        view.setClickable(true);
         final Handler handler = new Handler(Looper.getMainLooper());
         final boolean[] ran = new boolean[1];
         final Runnable[] again = new Runnable[1];
@@ -173,6 +178,7 @@ final class Parts {
                     touched.setPressed(false);
                     handler.removeCallbacks(again[0]);
                     if (tap) guard(action);
+                    // True, so the click listener above does not run as well.
                     return true;
                 case MotionEvent.ACTION_CANCEL:
                     touched.setPressed(false);

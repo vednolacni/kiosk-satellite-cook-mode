@@ -2,6 +2,7 @@
 package io.github.vednolacni.cookmode;
 
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
@@ -101,7 +102,7 @@ final class TimerViews {
         alarmLabels.setGravity(Gravity.CENTER);
         ringing.addView(alarmLabels, parts.wide(6));
         LinearLayout buttons = parts.row();
-        TextView more = parts.pill("+1 min", false, this::oneMoreMinute);
+        TextView more = parts.pill("+" + strings.duration(1), false, this::oneMoreMinute);
         more.setMinHeight(parts.px(72));
         buttons.addView(more, parts.wrap());
         TextView stop = parts.pill(strings.stop, "mdi:bell-off", true, actions::stopAlarm);
@@ -172,9 +173,17 @@ final class TimerViews {
                 TextView label = parts.text(timer.label, 14, 500, "onSurfaceVariant", 1);
                 label.setMaxWidth(parts.px(200));
                 pill.addView(label, parts.wrap());
+                boolean paused = timer.state == Timers.State.PAUSED;
                 // Read from the stove, so large. At this size a ringing time in error is large text and passes 3:1.
-                TextView time = parts.text("", 28, 700, rings ? "error" : timer.state == Timers.State.PAUSED ? "onSurfaceVariant" : "onSurface", 1);
+                TextView time = parts.text("", 28, 700, rings ? "error" : paused ? "onSurfaceVariant" : "onSurface", 1);
                 time.setFontFeatureSettings("tnum");
+                if (paused) {
+                    // A dimmer time alone looked running from across the kitchen, and a cook who thinks it runs gets no ring.
+                    Drawable mark = parts.icon("mdi:pause", "onSurfaceVariant");
+                    if (mark != null) mark.setBounds(0, 0, parts.px(18), parts.px(18));
+                    time.setCompoundDrawablesRelative(mark, null, null, null);
+                    time.setCompoundDrawablePadding(parts.px(4));
+                }
                 pill.addView(time, parts.after(10));
                 Parts.onTap(pill, this::openSheet);
                 stripRow.addView(pill, i == 0 ? parts.wrap() : parts.after(8));
@@ -206,26 +215,35 @@ final class TimerViews {
         LinearLayout row = parts.row();
         LinearLayout words = parts.column();
         words.addView(parts.text(timer.label, 14, 500, "onSurfaceVariant", 2), parts.wide());
-        TextView time = parts.text("", 30, 700, "onSurface", 1);
+        boolean paused = timer.state == Timers.State.PAUSED;
+        TextView time = parts.text("", 30, 700, paused ? "onSurfaceVariant" : "onSurface", 1);
         time.setFontFeatureSettings("tnum");
         words.addView(time, parts.wide());
+        // The play button names what it does, not what the timer is doing, so the state is said in words too.
+        if (paused) words.addView(parts.text(strings.paused, 13, 500, "onSurfaceVariant", 1), parts.wide());
         row.addView(words, parts.fill(1));
         if (timer.state != Timers.State.RINGING) {
-            row.addView(change("−1", -60, timer.id), parts.wrap());
-            row.addView(change("+1", 60, timer.id), parts.after(6));
-            boolean paused = timer.state == Timers.State.PAUSED;
+            row.addView(change("−", -60, timer.id), parts.wrap());
+            row.addView(change("+", 60, timer.id), parts.after(8));
             row.addView(parts.iconButton(paused ? "mdi:play" : "mdi:pause", paused ? strings.resume : strings.pause, "onSurface", 48, () -> {
                 if (paused) actions.resumeTimer(timer.id);
                 else actions.pauseTimer(timer.id);
-            }), gapped(48));
+            }), gap(8));
         }
-        row.addView(parts.iconButton("mdi:close", strings.cancel, "error", 48, () -> actions.cancelTimer(timer.id)), gapped(48));
+        // Deleting a timer cannot be undone, so it sits further off than the rest, with its own glyph rather than the
+        // sheet's close: a wet finger meant for pause should not drop a long braise.
+        row.addView(parts.iconButton("mdi:delete-outline", strings.cancel, "error", 48, () -> actions.cancelTimer(timer.id)), gap(16));
         sheetTimes.add(time);
         return row;
     }
 
-    private TextView change(String label, int seconds, int id) {
-        TextView button = parts.text(label, 16, 700, "onSurface", 1);
+    /**
+     * The round button that takes a minute off or adds one. The clock beside it shows that these are minutes, and "+1 min"
+     * would not fit the circle, so only a screen reader hears the unit.
+     */
+    private TextView change(String sign, int seconds, int id) {
+        TextView button = parts.text(sign + "1", 16, 700, "onSurface", 1);
+        button.setContentDescription(sign + strings.duration(1));
         button.setGravity(Gravity.CENTER);
         button.setBackground(parts.ripple(parts.theme().color("surfaceContainerHighest"), 100));
         button.setMinWidth(parts.px(48));
@@ -280,9 +298,10 @@ final class TimerViews {
         }
     }
 
-    private LinearLayout.LayoutParams gapped(int size) {
-        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(parts.px(size), parts.px(size));
-        at.setMarginStart(parts.px(6));
+    /** A 48 dp button startDp after the one before it. */
+    private LinearLayout.LayoutParams gap(int startDp) {
+        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(parts.px(48), parts.px(48));
+        at.setMarginStart(parts.px(startDp));
         return at;
     }
 }
