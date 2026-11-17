@@ -20,6 +20,7 @@ final class Settings {
     enum Voice { OFF, TABLET, HOME_ASSISTANT }
     enum MarkCooked { ASK, ALWAYS, NEVER }
     enum Tone { ALARM, BEEPS, SILENT }
+    enum Look { KIOSK, WARM }
 
     private static final String KS_ACCENTS = "àáâãäåèéêëìíîïòóôõöùúûüñçýÿ";
     private static final String KS_PLAIN = "aaaaaaeeeeiiiiooooouuuuncyy";
@@ -33,6 +34,8 @@ final class Settings {
     /** The largest, for its shortest steps. */
     final int textMost;
     final String language;
+    /** Warm kitchen recolors the panel after Norish's look. The dock keeps KS's colors. */
+    final Look look;
     final Voice voice;
     /** The kiosk's ESPHome node when voice is Home Assistant, such as ks_kitchen, or empty to work it out from the device's name. */
     final String kioskNode;
@@ -71,6 +74,7 @@ final class Settings {
                 textMost = 44;
         }
         language = text(values.get("language"));
+        look = "Warm kitchen".equals(text(values.get("look"))) ? Look.WARM : Look.KIOSK;
         switch (text(values.get("readAloud"))) {
             case "Tablet voice": voice = Voice.TABLET; break;
             case "Home Assistant": voice = Voice.HOME_ASSISTANT; break;

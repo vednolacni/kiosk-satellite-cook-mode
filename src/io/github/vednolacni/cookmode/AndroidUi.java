@@ -40,6 +40,7 @@ class AndroidUi implements Ui {
     private volatile Settings.Tone tone = Settings.Tone.ALARM;
     private volatile boolean mediaStream;
     private volatile int ringMinutes = 3;
+    private volatile boolean warm;
 
     // Main thread only.
     private Context context;
@@ -130,6 +131,7 @@ class AndroidUi implements Ui {
         Model current = model;
         if (view != null) {
             view.setKeepScreenOn(keepOn);
+            view.look(warm);
             if (current != null) view.show(current);
         }
         if (dock != null) dock.setKeepScreenOn(keepOn);
@@ -151,6 +153,11 @@ class AndroidUi implements Ui {
             ticking = true;
             main.postDelayed(tick, TICK_MS);
         }
+    }
+
+    @Override public void look(boolean warm) {
+        this.warm = warm;
+        queue();
     }
 
     @Override public void sound(Settings.Tone tone, boolean mediaStream, int minutes) {

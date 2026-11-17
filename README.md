@@ -78,6 +78,7 @@ Each [release](https://github.com/vednolacni/kiosk-satellite-cook-mode/releases/
 | | Swipe to change steps | Turn off if a splashing hand keeps changing the step. |
 | | Record the meal in Tandoor | Ask, Always or Never. Never also keeps opened recipes out of Tandoor's recently viewed list. Only with Tandoor. |
 | | Language | Auto, English or Slovenščina. |
+| | Look | Kiosk Satellite, or Warm kitchen for a cream or deep brown ground and a herb green, after Norish's look. The timer card over the dashboard keeps the kiosk's colors. |
 | Timers | Timer sound | Alarm tone, Beeps or Silent. A tablet with no alarm tone beeps. |
 | | Sound stream | Which of the tablet's volumes it follows, Alarm or Media. |
 | | Ring for at most | The sound stops after this long, 1 to 10 minutes. The timer stays on the screen. |

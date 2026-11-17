@@ -79,6 +79,9 @@ interface Ui extends Awake.Scheduler {
     /** How the alarm sounds from now on. Safe on any thread. */
     void sound(Settings.Tone tone, boolean mediaStream, int minutes);
 
+    /** Warm kitchen's colors for the panel, or KS's own. Safe on any thread. */
+    default void look(boolean warm) {}
+
     /** Start or stop the alarm sound. Safe on any thread. */
     void alarm(boolean on);
 

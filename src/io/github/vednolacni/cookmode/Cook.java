@@ -376,6 +376,7 @@ final class Cook implements Ui.Actions {
         strings = Strings.of(settings.language, settings.app);
         if (host == null) return;
         ui.sound(settings.tone, settings.mediaStream, settings.ringMinutes);
+        ui.look(settings.look == Settings.Look.WARM);
         if (previous != null && !settings.kioskNode.equals(previous.kioskNode)) assistantNode = "";
         updateSound();
         boolean changedServer = !settings.sameServer(previous);

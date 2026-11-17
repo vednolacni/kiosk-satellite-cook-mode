@@ -17,6 +17,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -173,8 +174,6 @@ public final class ViewsTest {
     private volatile boolean foodPhotos;
     /** Cook from the kitchen in English. */
     private boolean english;
-    /** Draw with colors taken from Norish's screenshots instead of Kiosk Satellite's, to compare the two looks. */
-    private boolean norishLook;
     private volatile java.util.concurrent.CountDownLatch picturesHeld;
     private final List<String> picturesAsked = Collections.synchronizedList(new ArrayList<String>());
     private String prefix = "";
@@ -1604,6 +1603,7 @@ public final class ViewsTest {
         values.put("planDays", 7.0);
         values.put("textSize", "Large");
         values.put("language", language);
+        values.put("look", "Kiosk Satellite");
         values.put("readAloud", "Off");
         values.put("kioskNode", "");
         values.put("autoRead", false);
@@ -1627,7 +1627,7 @@ public final class ViewsTest {
 
     private KsTheme theme(boolean dark) {
         float density = activity.getResources().getDisplayMetrics().density;
-        return new KsTheme(dark, density, norishLook ? norishColors(dark) : colors(dark), ViewsTest::font, ViewsTest::icon);
+        return new KsTheme(dark, density, colors(dark), ViewsTest::font, ViewsTest::icon);
     }
 
     /**
@@ -1650,26 +1650,6 @@ public final class ViewsTest {
         colors.put("outline", dark ? 0xFF5F6368 : 0xFFB4B1AB);
         colors.put("outlineVariant", dark ? 0xFF3C3E43 : 0xFFE3E0DA);
         colors.put("success", dark ? 0xFF749C6F : 0xFF56814F);
-        return colors;
-    }
-
-    /** Colors read off Norish's own screenshots: deep brown or cream, warm white cards and a herb green. Only for comparing. */
-    private static Map<String, Integer> norishColors(boolean dark) {
-        Map<String, Integer> colors = new HashMap<>();
-        colors.put("surface", dark ? 0xFF1E0F07 : 0xFFFBEFDA);
-        colors.put("onSurface", dark ? 0xFFFAF7EE : 0xFF231C15);
-        colors.put("onSurfaceVariant", dark ? 0xFFD8C8AA : 0xFF6B5E4E);
-        colors.put("surfaceContainerHigh", dark ? 0xFF2A211C : 0xFFFFFCF4);
-        colors.put("surfaceContainerHighest", dark ? 0xFF362B24 : 0xFFF2E3CB);
-        colors.put("primary", dark ? 0xFF4E8C5D : 0xFF35653F);
-        colors.put("onPrimary", 0xFFFFFFFF);
-        colors.put("primaryContainer", dark ? 0xFF2C4A33 : 0xFFD8E8D5);
-        colors.put("secondary", dark ? 0xFF9DBFA3 : 0xFF4D6B54);
-        colors.put("tertiary", dark ? 0xFFE6B08A : 0xFFB0683A);
-        colors.put("error", dark ? 0xFFE07B55 : 0xFFB0471E);
-        colors.put("outline", dark ? 0xFF6E5E52 : 0xFFC8B79E);
-        colors.put("outlineVariant", dark ? 0xFF3E322A : 0xFFEADBC2);
-        colors.put("success", dark ? 0xFF6FAE7C : 0xFF3E7A4B);
         return colors;
     }
 
@@ -2087,33 +2067,42 @@ public final class ViewsTest {
         shot("step");
     }
 
-    // The same pages in Kiosk Satellite's light theme and in colors like Norish's, to choose a look by.
+    // The Look setting: Kiosk Satellite's light theme, and Warm kitchen in both.
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
     public void theKioskLookInLight() {
-        looks("look-ks-light", false);
+        looks("look-ks-light", false, "Kiosk Satellite");
     }
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
-    public void aNorishLookInDark() {
-        norishLook = true;
-        looks("look-norish-dark", true);
+    public void theWarmKitchenLookInDark() {
+        looks("look-warm-dark", true, "Warm kitchen");
+        // Back to Kiosk Satellite's colors as soon as the setting changes.
+        Map<String, Object> values = settings("English");
+        values.put("look", "Kiosk Satellite");
+        cook.configure(values);
+        settle();
+        assertEquals("the panel's ground", theme.color("surface"), ground());
+        assertNotNull(containing("Finely chop"));
     }
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
-    public void aNorishLookInLight() {
-        norishLook = true;
-        looks("look-norish-light", false);
+    public void theWarmKitchenLookInLight() {
+        looks("look-warm-light", false, "Warm kitchen");
     }
 
     /** The first page, a recipe and its first step with a timer running, in English with food photos. */
-    private void looks(String prefix, boolean dark) {
+    private void looks(String prefix, boolean dark, String look) {
         foodPhotos = true;
         english = true;
-        begin(prefix, dark, settings("English"));
+        Map<String, Object> values = settings("English");
+        values.put("look", look);
+        begin(prefix, dark, values);
         open();
         assertNotNull(find("Leftovers"));
         assertFalse("the photos are in", picturesPending(content));
+        int ground = "Warm kitchen".equals(look) ? Looks.warm(dark).get("surface") : theme.color("surface");
+        assertEquals("the panel's ground", ground, ground());
         shot("home");
         tap(find("Beef goulash"));
         assertNotNull(find(s.startCooking));
@@ -2125,6 +2114,11 @@ public final class ViewsTest {
         tapChip(step);
         advance(3);
         shot("step");
+    }
+
+    /** The panel's background color. */
+    private int ground() {
+        return ((ColorDrawable) host.overlays.get(Cook.MAIN).view.getBackground()).getColor();
     }
 
     private void shot(String name) {

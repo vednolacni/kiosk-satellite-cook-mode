@@ -119,6 +119,18 @@
       "description": "Auto follows the device language."
     },
     {
+      "key": "look",
+      "type": "select",
+      "title": "Look",
+      "default": "Kiosk Satellite",
+      "options": [
+        "Kiosk Satellite",
+        "Warm kitchen"
+      ],
+      "group": "Cooking",
+      "description": "Warm kitchen gives the panel a cream or deep brown ground and a herb green, after Norish's look. The timer card over the dashboard keeps the kiosk's colors."
+    },
+    {
       "key": "alarmTone",
       "type": "select",
       "title": "Timer sound",

@@ -53,11 +53,15 @@ final class CookView extends FrameLayout {
     private long movedAt;
     private boolean moved;
     private boolean ignoring;
+    /** KS's own theme, which Warm kitchen recolors. */
+    private KsTheme kiosk;
+    private boolean warm;
 
     CookView(Context context, KsTheme theme, Ui.Actions actions, Images images) {
         super(context);
         this.actions = actions;
         this.images = images;
+        kiosk = theme;
         parts = new Parts(context, theme);
         DisplayMetrics display = context.getResources().getDisplayMetrics();
         width = display.widthPixels;
@@ -76,7 +80,16 @@ final class CookView extends FrameLayout {
     }
 
     void theme(KsTheme theme) {
-        parts.theme(theme);
+        kiosk = theme;
+        parts.theme(Looks.of(theme, warm));
+        if (model != null) rebuild();
+    }
+
+    /** Warm kitchen's colors, or KS's own. */
+    void look(boolean next) {
+        if (next == warm) return;
+        warm = next;
+        parts.theme(Looks.of(kiosk, warm));
         if (model != null) rebuild();
     }
 
