@@ -26,6 +26,9 @@ final class Hints {
         }
     }
 
+    /** The overnight hint's icon. It is the one hint drawn in a color of its own, as it changes when to start. */
+    static final String NIGHT = "mdi:weather-night";
+
     private static final String SCALE = "(?:celsius|celzij\\p{L}*|fahrenheit|[CF](?!\\p{L}))";
     /**
      * A temperature in the words, or a range of two: 180 °C, 350 degrees F, 180/160 °C, 180 do 200 °C, 200 stopinj, 180 st.
@@ -77,7 +80,7 @@ final class Hints {
         }
         Collections.sort(rests, Collections.reverseOrder());
         List<Hint> hints = new ArrayList<>();
-        if (overnight) hints.add(new Hint("mdi:weather-night", strings.overnight));
+        if (overnight) hints.add(new Hint(NIGHT, strings.overnight));
         for (int rest : rests.subList(0, Math.min(MOST_OF_EACH, rests.size()))) hints.add(new Hint("mdi:timer-sand", strings.duration(rest / 60)));
         // A number with no scale takes the recipe's, when it uses only one.
         boolean celsius = temperatures.containsValue("C");

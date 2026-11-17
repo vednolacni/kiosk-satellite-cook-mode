@@ -19,12 +19,14 @@ final class IngredientList {
 
     private static final class Row {
         final Recipe.Ingredient ingredient;
+        final View line;
         final ImageView circle;
         final TextView measure;
         final TextView name;
 
-        Row(Recipe.Ingredient ingredient, ImageView circle, TextView measure, TextView name) {
+        Row(Recipe.Ingredient ingredient, View line, ImageView circle, TextView measure, TextView name) {
             this.ingredient = ingredient;
+            this.line = line;
             this.circle = circle;
             this.measure = measure;
             this.name = name;
@@ -89,7 +91,7 @@ final class IngredientList {
         LinearLayout.LayoutParams nameAt = parts.fill(1);
         nameAt.setMarginStart(parts.px(8));
         line.addView(name, nameAt);
-        Row row = new Row(ingredient, circle, measure, name);
+        Row row = new Row(ingredient, line, circle, measure, name);
         rows.add(row);
         Parts.onTap(line, () -> actions.toggle(ingredient));
         return line;
@@ -118,5 +120,6 @@ final class IngredientList {
         }
         row.circle.setBackground(ring);
         row.circle.setImageDrawable(checked ? parts.icon("mdi:check", "onPrimary") : null);
+        Parts.ticked(row.line, checked);
     }
 }

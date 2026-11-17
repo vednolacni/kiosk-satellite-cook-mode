@@ -16,6 +16,8 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.widget.CheckBox;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -30,6 +32,8 @@ final class Parts {
     private static final long REPEAT_EVERY_MS = 180L;
     /** How far past its edge a finger on a plus or minus may slide and still mean it. */
     private static final int SLIDE_DP = 16;
+    private static final View.AccessibilityDelegate TICKED = new Ticked(true);
+    private static final View.AccessibilityDelegate UNTICKED = new Ticked(false);
 
     private final Context base;
     private Context context;
@@ -143,6 +147,8 @@ final class Parts {
         button.setImageDrawable(icon(icon, role));
         button.setScaleType(ImageView.ScaleType.CENTER);
         button.setContentDescription(description);
+        // An icon alone can leave a first-time cook guessing, and a long press is free on these buttons, so it names them.
+        button.setTooltipText(description);
         button.setBackground(ripple(theme.color("surfaceContainerHigh"), 100));
         button.setLayoutParams(new LinearLayout.LayoutParams(px(size), px(size)));
         onTap(button, action);
@@ -200,6 +206,30 @@ final class Parts {
                     return true;
             }
         });
+    }
+
+    /**
+     * Tells TalkBack that a line to tick off is ticked or not. Sighted cooks see the filled circle and the line through
+     * the words, which a screen reader cannot read.
+     */
+    static void ticked(View view, boolean ticked) {
+        view.setAccessibilityDelegate(ticked ? TICKED : UNTICKED);
+    }
+
+    /** A check box's state for a view that draws its own. It holds no view, so one of each serves them all. */
+    private static final class Ticked extends View.AccessibilityDelegate {
+        private final boolean ticked;
+
+        Ticked(boolean ticked) {
+            this.ticked = ticked;
+        }
+
+        @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+            super.onInitializeAccessibilityNodeInfo(host, info);
+            info.setClassName(CheckBox.class.getName());
+            info.setCheckable(true);
+            info.setChecked(ticked);
+        }
     }
 
     private boolean near(View view, MotionEvent event) {

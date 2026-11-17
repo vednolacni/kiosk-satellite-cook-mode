@@ -67,11 +67,11 @@ final class RecipeScreen implements Screen {
         hints.setVisibility(View.GONE);
 
         servings = parts.row();
-        View minus = parts.iconButton("mdi:minus", "-", "onSurface", 52, () -> {});
+        View minus = parts.iconButton("mdi:minus", strings.fewerServings, "onSurface", 52, () -> {});
         parts.repeating(minus, () -> actions.changeServings(-1));
         servingsText = parts.text("", 18, 600, "onSurface", 1);
         servingsText.setGravity(Gravity.CENTER);
-        View plus = parts.iconButton("mdi:plus", "+", "onSurface", 52, () -> {});
+        View plus = parts.iconButton("mdi:plus", strings.moreServings, "onSurface", 52, () -> {});
         parts.repeating(plus, () -> actions.changeServings(1));
         servings.addView(minus);
         servings.addView(servingsText, parts.fill(1));
@@ -172,15 +172,18 @@ final class RecipeScreen implements Screen {
         ingredients.show(model);
     }
 
-    /** What is worth knowing before starting, such as a night's soaking. */
+    /**
+     * What is worth knowing before starting, such as a night's soaking. A hint is no button, so it has no fill: in a
+     * pill it looked like the plus and minus under it. The night's icon is tertiary, 3:1 or more as an icon in every look,
+     * but under 4.5:1 as text in KS's light colors, so the words stay onSurface.
+     */
     private void showHints(Recipe recipe, Strings strings) {
         hints.removeAllViews();
         for (Hints.Hint hint : Hints.of(recipe, strings)) {
-            TextView chip = parts.text(hint.text, 14, 600, "onSurface", 1);
-            chip.setBackground(parts.round(parts.theme().color("surfaceContainerHigh"), 100));
-            chip.setPadding(parts.px(12), parts.px(6), parts.px(12), parts.px(6));
+            TextView chip = parts.text(hint.text, 15, 600, "onSurface", 1);
+            chip.setPadding(0, parts.px(4), parts.px(10), parts.px(4));
             chip.setGravity(Gravity.CENTER_VERTICAL);
-            Drawable icon = parts.icon(hint.icon, "onSurfaceVariant");
+            Drawable icon = parts.icon(hint.icon, Hints.NIGHT.equals(hint.icon) ? "tertiary" : "onSurfaceVariant");
             if (icon != null) {
                 icon.setBounds(0, 0, parts.px(18), parts.px(18));
                 chip.setCompoundDrawablesRelative(icon, null, null, null);

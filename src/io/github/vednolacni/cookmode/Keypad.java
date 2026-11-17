@@ -48,7 +48,7 @@ final class Keypad {
         view.addView(letters(rows[0]), rowAt());
         view.addView(letters(rows[1]), rowAt());
         LinearLayout third = letters(rows[2]);
-        ImageView erase = parts.iconButton("mdi:backspace-outline", strings.back, "onSurface", keyHeightDp, () -> {});
+        ImageView erase = parts.iconButton("mdi:backspace-outline", strings.erase, "onSurface", keyHeightDp, () -> {});
         erase.setBackground(parts.ripple(parts.theme().color("surfaceContainerHighest"), parts.theme().radiusControl()));
         parts.repeating(erase, keys::erase);
         // The last letters and the erase key fill the row like the eleven above them.

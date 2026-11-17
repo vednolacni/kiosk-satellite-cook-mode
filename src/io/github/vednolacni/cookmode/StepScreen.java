@@ -3,6 +3,7 @@ package io.github.vednolacni.cookmode;
 
 import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
+import android.os.Bundle;
 import android.os.SystemClock;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
@@ -14,6 +15,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewTreeObserver;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -46,6 +48,13 @@ final class StepScreen implements Screen {
     private static final int TITLE_GAP_DP = 20;
     private static final int CHIPS_GAP_DP = 8;
     private static final int STORY_PADDING_DP = 16;
+    /** Next's label and arrow sit together this far apart, with the button's own padding as the least on each side. */
+    private static final int NEXT_PADDING_DP = 20;
+    /**
+     * TalkBack's actions on the step's text that start its timers, one id for each timer in it. Android's own actions
+     * are single bits up to 0x200000 or ids in its own resources, so these cannot be taken for one.
+     */
+    private static final int TIMER_ACTIONS = 0x7C000000;
 
     private final Parts parts;
     private final Ui.Actions actions;
@@ -77,6 +86,9 @@ final class StepScreen implements Screen {
     private final ImageView panelButton;
     private final TextView next;
     private final List<StepChip> stepChips = new ArrayList<>();
+    /** The timers in the step's text, in order, for TalkBack, which cannot touch a chip drawn in the words. */
+    private final List<StepText.Run> textTimers = new ArrayList<>();
+    private String startTimerWords = "%s";
     private final Images images;
     private String shownImage;
     private String shownStep;
@@ -146,7 +158,31 @@ final class StepScreen implements Screen {
         text = parts.text("", 30, 500, "onSurface", 0);
         text.setLineSpacing(0, LINE_SPACING);
         text.setOnTouchListener((view, event) -> touchedText(event));
-        fixedNote = parts.text("", 14, 400, "onSurfaceVariant", 2);
+        text.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(host, info);
+                for (int i = 0; i < textTimers.size(); i++) {
+                    info.addAction(new AccessibilityNodeInfo.AccessibilityAction(TIMER_ACTIONS + i, String.format(startTimerWords, textTimers.get(i).text)));
+                }
+            }
+
+            @Override public boolean performAccessibilityAction(View host, int action, Bundle arguments) {
+                int index = action - TIMER_ACTIONS;
+                if (index < 0 || index >= textTimers.size()) return super.performAccessibilityAction(host, action, arguments);
+                StepText.Run timer = textTimers.get(index);
+                Parts.guard(() -> startOrShow(timer));
+                return true;
+            }
+        });
+        // The amounts in the words are for other servings than the cook chose, which is worth seeing from the stove.
+        fixedNote = parts.text("", 16, 400, "onSurfaceVariant", 2);
+        fixedNote.setGravity(Gravity.CENTER_VERTICAL);
+        Drawable noteIcon = parts.icon("mdi:information-outline", "onSurfaceVariant");
+        if (noteIcon != null) {
+            noteIcon.setBounds(0, 0, parts.px(20), parts.px(20));
+            fixedNote.setCompoundDrawablesRelative(noteIcon, null, null, null);
+            fixedNote.setCompoundDrawablePadding(parts.px(8));
+        }
         fixedNote.setVisibility(View.GONE);
         chipsTitle = parts.text(strings.forThisStep, 13, 600, "onSurfaceVariant", 1);
         chips = new FlowLayout(parts.context(), parts.px(8), parts.px(CHIP_REACH_DP));
@@ -207,6 +243,9 @@ final class StepScreen implements Screen {
         parts.iconAfter(next);
         next.setMinHeight(parts.px(72));
         next.setMinWidth(parts.px(wide ? 240 : 170));
+        next.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (right - left != oldRight - oldLeft) next.post(() -> Parts.guard(this::centerNext));
+        });
 
         LinearLayout tools = parts.row();
         tools.addView(parts.iconButton("mdi:arrow-left", strings.back, "onSurface", 56, backward));
@@ -256,7 +295,11 @@ final class StepScreen implements Screen {
         counter.setText(model.pageNumber + " / " + model.pageCount);
         ready.setText(model.readyAround);
         ready.setVisibility(model.readyAround.isEmpty() ? View.GONE : View.VISIBLE);
-        next.setText(model.pageNumber >= model.pageCount ? strings.finish : strings.nextStep);
+        String nextLabel = model.pageNumber >= model.pageCount ? strings.finish : strings.nextStep;
+        if (!nextLabel.contentEquals(next.getText())) {
+            next.setText(nextLabel);
+            centerNext();
+        }
         readButton.setVisibility(model.canRead ? View.VISIBLE : View.GONE);
         LinearLayout.LayoutParams filled = (LinearLayout.LayoutParams) meter.getLayoutParams();
         filled.weight = model.pageNumber;
@@ -275,6 +318,7 @@ final class StepScreen implements Screen {
     }
 
     private void showStep(Model model) {
+        startTimerWords = model.strings.startTimer;
         textLeast = model.textSize;
         textMost = model.textMost;
         text.setText(spanned(model));
@@ -387,6 +431,7 @@ final class StepScreen implements Screen {
 
     /** The step's words with each duration drawn as a timer chip that starts when tapped. */
     private CharSequence spanned(Model model) {
+        textTimers.clear();
         SpannableStringBuilder words = new SpannableStringBuilder();
         int background = parts.theme().color("primaryContainer");
         int foreground = parts.theme().color("onSurface");
@@ -395,6 +440,7 @@ final class StepScreen implements Screen {
             words.append(run.text);
             if (!run.timer()) continue;
             int end = words.length();
+            textTimers.add(run);
             Runnable tap = () -> startOrShow(run);
             words.setSpan(new ChipSpan(background, foreground, parts.theme().iconPath("mdi:timer-outline"), parts.px(8), tap), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
@@ -453,6 +499,22 @@ final class StepScreen implements Screen {
         chip.view.setTextColor(parts.theme().color(checked ? "onSurfaceVariant" : "onSurface"));
         int flags = chip.view.getPaintFlags();
         chip.view.setPaintFlags(checked ? flags | Paint.STRIKE_THRU_TEXT_FLAG : flags & ~Paint.STRIKE_THRU_TEXT_FLAG);
+        Parts.ticked(chip.view, checked);
+    }
+
+    /**
+     * Next is wider than its words, and a TextView puts its arrow at the far edge, away from them. Even padding on both
+     * sides keeps the label and the arrow together in the middle. It changes only when the width or the words do, and
+     * a padding the same as before is not set again, so the layout it asks for does not come back here.
+     */
+    private void centerNext() {
+        int width = next.getWidth();
+        if (width <= 0) return;
+        int arrow = next.getCompoundPaddingEnd() - next.getPaddingEnd();
+        int words = (int) Math.ceil(next.getPaint().measureText(next.getText().toString()));
+        int side = Math.max(parts.px(NEXT_PADDING_DP), (width - words - arrow) / 2);
+        if (side == next.getPaddingStart() && side == next.getPaddingEnd()) return;
+        next.setPaddingRelative(side, next.getPaddingTop(), side, next.getPaddingBottom());
     }
 
     /**

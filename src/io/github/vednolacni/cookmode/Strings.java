@@ -84,6 +84,12 @@ final class Strings {
     /** Where the app's meal plan ends before the days asked for. */
     final String planCut;
     final String problemAuthPassing;
+    /** The keypad key that erases the last letter, named apart from Back for TalkBack. */
+    final String erase;
+    final String fewerServings;
+    final String moreServings;
+    /** Takes a timer's duration. TalkBack offers it for each timer in the step's text. */
+    final String startTimer;
     private final DateTimeFormatter longDate;
     private final DateTimeFormatter shortDate;
     /** Norish's meal slots in this language, by the name Norish sends. Empty where they stay as they come. */
@@ -112,6 +118,7 @@ final class Strings {
         "{app} is not answering this API {key} for a while, because it made too many requests. Give each tablet its own {key}.",
         "{app} shares only this week and this month of the meal plan.",
         "{app} refused the API {key}. If it has worked before, wait up to an hour: Norish 0.25 refuses a good {key} after 500 requests with no hour's pause. Otherwise create a new one under Settings > User > API keys.",
+        "Delete", "Fewer servings", "More servings", "Start timer %s",
     };
 
     private static final String[] SLOVENIAN_WORDS = {
@@ -134,6 +141,7 @@ final class Strings {
         "{app} temu API {key}u nekaj časa ne odgovarja, ker je poslal preveč zahtev. Vsaka tablica naj ima svoj {key}.",
         "{app} deli le jedilnik tega tedna in tega meseca.",
         "{app} je zavrnil API {key}. Če je prej deloval, počakaj do eno uro: Norish 0.25 zavrne tudi dober {key}, ki je poslal 500 zahtev brez urnega premora. Sicer ustvari novega v Norishu pod Settings > User > API keys.",
+        "Izbriši", "Manj porcij", "Več porcij", "Zaženi časovnik %s",
     };
 
     static final Strings ENGLISH = english(Settings.App.TANDOOR);
@@ -259,6 +267,10 @@ final class Strings {
         problemLimit = words[i++];
         planCut = words[i++];
         problemAuthPassing = words[i++];
+        erase = words[i++];
+        fewerServings = words[i++];
+        moreServings = words[i++];
+        startTimer = words[i++];
     }
 
     /** The Language setting's choice, for the recipe app. Auto follows the device. */

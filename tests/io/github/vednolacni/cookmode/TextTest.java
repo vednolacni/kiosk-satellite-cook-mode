@@ -145,6 +145,9 @@ public final class TextTest {
         // A line break pasted along with the token would end up in the header's error, and so in the status.
         values.put("apiToken", " tda_\nabc\r\n");
         assert "tda_abc".equals(new Settings(values).apiToken);
+        // The words are read by position, so the last ones show that both languages kept their order.
+        assert "Delete".equals(Strings.ENGLISH.erase) && "More servings".equals(Strings.ENGLISH.moreServings) && "Start timer 5 min".equals(String.format(Strings.ENGLISH.startTimer, "5 min"));
+        assert "Izbriši".equals(Strings.SLOVENIAN.erase) && "Manj porcij".equals(Strings.SLOVENIAN.fewerServings) && "Zaženi časovnik %s".equals(Strings.SLOVENIAN.startTimer);
         assert "1 porcijo".equals(Strings.SLOVENIAN.servingsFor(1, "")) && "2 porciji".equals(Strings.SLOVENIAN.servingsFor(2, "")) && "1 serving".equals(Strings.ENGLISH.servingsFor(1, ""));
         assert "ks_a".equals(Settings.node("KS_A_announce")) && "dedo_babi".equals(Settings.slug("Dedo&babi")) && "".equals(Settings.slug("  "));
         // KS knows fewer accents than Android does.
@@ -227,6 +230,9 @@ public final class TextTest {
         assert "2½".equals(Amounts.format(2.5, true)) && "12,3".equals(Amounts.format(12.25, true)) && "0,1".equals(Amounts.format(0.1, true));
         assert Amounts.scale(200, 4, 2) == 100 && Amounts.scale(1, 0, 3) == 1;
         assert "4".equals(Amounts.servings(4)) && "1½".equals(Amounts.servings(1.5));
+        // ½ teaspoon for 4 is 0.625 for 5, and 1½ for 4 is 0.375 for 1: eighths, not 0,63 and 0,38.
+        assert "⅝".equals(Amounts.format(0.625)) && "1⅜".equals(Amounts.format(1.375)) && "⅜".equals(Amounts.format(0.375, true)) : Amounts.format(0.625);
+        assert "⅓".equals(Amounts.format(0.34)) && "⅔".equals(Amounts.format(0.66)) && "0.6".equals(Amounts.format(0.6));
         // A little of something is not nothing.
         assert "0.02".equals(Amounts.format(0.02)) && "0.016".equals(Amounts.format(0.015625)) && "0,01".equals(Amounts.format(0.01, true)) : Amounts.format(0.015625);
 

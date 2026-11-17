@@ -32,6 +32,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.ScrollView;
@@ -365,7 +366,7 @@ public final class ViewsTest {
             assertNull("the plan makes way for the results", find(s.today));
             assertInView(find("Bučna juha"));
         }
-        View erase = described(s.back);
+        View erase = described(s.erase);
         tap(erase);
         assertEquals("ju", search.getText().toString());
         press(erase);
@@ -411,7 +412,7 @@ public final class ViewsTest {
         assertNotNull(find(s.startCooking));
         assertNotNull(find("800 g"));
         assertNotNull(find("goveje meso, za golaž"));
-        assertOnScreen(described("+"));
+        assertOnScreen(described(s.moreServings));
         assertOnScreen(find(s.startCooking));
         assertTrue(kitchen.viewed.contains("1"));
 
@@ -425,16 +426,16 @@ public final class ViewsTest {
         assertReadable("2-recipe");
 
         // Servings rescale in place, so a held plus keeps working.
-        View plus = described("+");
+        View plus = described(s.moreServings);
         tap(plus);
-        assertSame(plus, described("+"));
+        assertSame(plus, described(s.moreServings));
         assertNotNull(find("1000 g"));
         assertNotNull(find(s.servings(5, "")));
         press(plus);
         later(1200);
         release(plus);
         assertNull("a held plus should have gone on", find(s.servings(5, "")));
-        for (int i = 0; i < 40 && find(s.servings(4, "")) == null; i++) tap(described("-"));
+        for (int i = 0; i < 40 && find(s.servings(4, "")) == null; i++) tap(described(s.fewerServings));
         assertNotNull(find(s.servings(4, "")));
         assertNotNull(find("800 g"));
 
@@ -444,6 +445,9 @@ public final class ViewsTest {
         tap(fat);
         assertSame(fat, find("mast"));
         assertTrue((fat.getPaintFlags() & Paint.STRIKE_THRU_TEXT_FLAG) != 0);
+        // TalkBack hears it as a ticked check box, and the lines still to do as not ticked.
+        assertTicked("a ticked line", (View) fat.getParent(), true);
+        assertTicked("a line still to do", (View) find("goveje meso, za golaž").getParent(), false);
         shot("2-recipe-ticked");
         assertReadable("2-recipe-ticked");
 
@@ -458,6 +462,7 @@ public final class ViewsTest {
         assertNotNull(step);
         assertFalse("the template tags must be gone", step.getText().toString().contains("scalable"));
         assertTrue(step.getText().toString().contains("30 g"));
+        assertNextTogether();
         shot("3-step");
         assertReadable("3-step");
 
@@ -489,8 +494,10 @@ public final class ViewsTest {
         under[1] += onion.getHeight() / 2f + theme.px(3);
         tapAt(under[0], under[1]);
         assertTrue("a touch just under a chip is on it", (onion.getPaintFlags() & Paint.STRIKE_THRU_TEXT_FLAG) != 0);
+        assertTicked("a ticked chip", onion, true);
         tapAt(under[0], under[1]);
         assertFalse((onion.getPaintFlags() & Paint.STRIKE_THRU_TEXT_FLAG) != 0);
+        assertTicked("an unticked chip", onion, false);
 
         // The big button stays put, and one press that lands twice moves one step.
         View next = find(s.nextStep);
@@ -839,7 +846,7 @@ public final class ViewsTest {
         begin("note", true, settings("Slovenščina"));
         open();
         tap(find("Goveji golaž"));
-        tap(described("+"));
+        tap(described(s.moreServings));
         tap(find(s.startCooking));
         String note = String.format(s.fixedNumbers, s.servings(4, ""));
         assertNull("only scaled amounts and a time in this step", find(note));
@@ -1320,7 +1327,7 @@ public final class ViewsTest {
         tap(find("J"));
         tap(find("U"));
         tap(find("H"));
-        View erase = described(s.back);
+        View erase = described(s.erase);
         assertTrue(erase.isClickable());
         assertTrue(erase.performClick());
         settle();
@@ -1333,7 +1340,7 @@ public final class ViewsTest {
 
         // Servings.
         tap(find("Goveji golaž"));
-        View plus = described("+");
+        View plus = described(s.moreServings);
         assertNotNull(find(s.servings(4, "")));
         assertTrue(plus.performClick());
         settle();
@@ -1343,6 +1350,8 @@ public final class ViewsTest {
 
         // A minute more on a timer. Its button was not clickable at all before.
         tap(find(s.startCooking));
+        TextView step = containing("Čebulo drobno");
+        assertNotNull(step);
         cook.startTimer("Test", 600);
         settle();
         tap(described(s.timers));
@@ -1356,6 +1365,18 @@ public final class ViewsTest {
         assertEquals(left + 60, cook.timers().get(0).left);
         tap(minute);
         assertEquals(left + 120, cook.timers().get(0).left);
+
+        // TalkBack cannot touch a timer drawn in the step's words, so the words offer to start it.
+        AccessibilityNodeInfo node = step.createAccessibilityNodeInfo();
+        AccessibilityNodeInfo.AccessibilityAction start = null;
+        for (AccessibilityNodeInfo.AccessibilityAction action : node.getActionList()) {
+            CharSequence label = action.getLabel();
+            if (label != null && label.toString().startsWith(String.format(s.startTimer, "")) && label.toString().contains("10")) start = action;
+        }
+        assertNotNull("the step's timer as an action, among " + node.getActionList(), start);
+        assertTrue(step.performAccessibilityAction(start.getId(), null));
+        settle();
+        assertEquals(2, cook.timers().size());
     }
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
@@ -2159,6 +2180,28 @@ public final class ViewsTest {
             }
         }
         return null;
+    }
+
+    /** What TalkBack is told about a line or chip to tick off. */
+    private static void assertTicked(String what, View view, boolean ticked) {
+        AccessibilityNodeInfo node = view.createAccessibilityNodeInfo();
+        assertTrue(what + " is checkable", node.isCheckable());
+        assertEquals(what, ticked, node.isChecked());
+    }
+
+    /** Next's label and its arrow sit 8 dp apart, however much wider than them the button is. */
+    private void assertNextTogether() {
+        settle();
+        TextView next = find(s.nextStep);
+        Layout words = next.getLayout();
+        assertNotNull(words);
+        assertEquals("Next keeps its label on one line", 1, words.getLineCount());
+        float labelEnd = next.getCompoundPaddingLeft() + words.getLineRight(0);
+        Drawable arrow = next.getCompoundDrawablesRelative()[2];
+        assertNotNull(arrow);
+        float arrowStart = next.getWidth() - next.getPaddingRight() - arrow.getBounds().width();
+        float gap = (arrowStart - labelEnd) / next.getResources().getDisplayMetrics().density;
+        assertTrue("the label is " + gap + " dp from its arrow", gap >= 6 && gap <= 10);
     }
 
     private View described(String description) {

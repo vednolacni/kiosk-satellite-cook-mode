@@ -7,9 +7,12 @@ import java.math.RoundingMode;
 
 /** Ingredient amounts the way a cook reads them: ½ rather than 0.5, 438 rather than 437.5. */
 final class Amounts {
-    private static final double[] PARTS = {0, 1.0 / 8, 1.0 / 4, 1.0 / 3, 1.0 / 2, 2.0 / 3, 3.0 / 4, 7.0 / 8, 1};
-    private static final String[] GLYPHS = {"", "⅛", "¼", "⅓", "½", "⅔", "¾", "⅞", ""};
-    /** How close an amount must be to a common fraction to be written as one. */
+    private static final double[] PARTS = {0, 1.0 / 8, 1.0 / 4, 1.0 / 3, 3.0 / 8, 1.0 / 2, 5.0 / 8, 2.0 / 3, 3.0 / 4, 7.0 / 8, 1};
+    private static final String[] GLYPHS = {"", "⅛", "¼", "⅓", "⅜", "½", "⅝", "⅔", "¾", "⅞", ""};
+    /**
+     * How close an amount must be to a common fraction to be written as one. The nearest two parts, ⅓ and ⅜ or ⅝ and ⅔,
+     * are 0.042 apart, more than twice this, so no amount is claimed by two of them.
+     */
     private static final double TOLERANCE = 0.02;
 
     private Amounts() {}
