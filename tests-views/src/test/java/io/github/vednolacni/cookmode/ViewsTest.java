@@ -1373,7 +1373,8 @@ public final class ViewsTest {
         tap(find(s.startCooking));
         TextView step = containing("Čebulo drobno");
         assertNotNull(step);
-        cook.startTimer("Test", 600);
+        // Five minutes, not the step's own ten, which the words below must still be able to start.
+        cook.startTimer("Test", 300);
         settle();
         tap(described(s.timers));
         View minute = find("+1");
