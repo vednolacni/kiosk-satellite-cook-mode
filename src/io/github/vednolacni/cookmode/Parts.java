@@ -98,11 +98,23 @@ final class Parts {
         return column;
     }
 
-    /** A pill button, filled for the main thing on a page. */
+    /**
+     * A pill button, filled for the main thing on a page. KS's white on its teal is 4.37:1, under the 4.5:1 that small
+     * text needs, so a filled label is large and bold, where 3:1 is enough. Its teal as quiet text is under 4:1 on KS's
+     * grounds, so a quiet pill is tonal instead: its own fill under a text color made for it, 7.5:1 or more in every look.
+     */
     TextView pill(String label, boolean filled, Runnable action) {
         TextView pill = new TextView(context);
         pill.setText(label);
         theme.stylePill(pill, filled);
+        if (filled) {
+            theme.styleText(pill, 19, 700, "onPrimary");
+            // A long label, such as logging in the recipe app in Slovenian, takes a second line rather than losing its end.
+            pill.setMaxLines(2);
+        } else {
+            pill.setBackground(ripple(theme.color("primaryContainer"), 100));
+            pill.setTextColor(theme.color("onPrimaryContainer"));
+        }
         // KS's typeface at weight 600 can draw wider than Android measures it, and TextView cuts its text off at the edge it
         // measured, so a long label lost its last letter. A shadow that shows nothing moves that edge into the padding.
         pill.setShadowLayer(pill.getTextSize() / 2, 0, 0, Color.TRANSPARENT);
@@ -113,7 +125,7 @@ final class Parts {
     /** The same with an icon before the label. */
     TextView pill(String label, String icon, boolean filled, Runnable action) {
         TextView pill = pill(label, filled, action);
-        Drawable glyph = icon(icon, filled ? "onPrimary" : "primary");
+        Drawable glyph = icon(icon, filled ? "onPrimary" : "onPrimaryContainer");
         if (glyph != null) glyph.setBounds(0, 0, px(20), px(20));
         pill.setCompoundDrawablesRelative(glyph, null, null, null);
         pill.setCompoundDrawablePadding(px(8));
@@ -233,12 +245,6 @@ final class Parts {
         }
         picture.setClipToOutline(true);
         return picture;
-    }
-
-    /** A role's color at this alpha, from 0 to 255. */
-    int faded(String role, int alpha) {
-        int color = theme.color(role);
-        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color));
     }
 
     Drawable icon(String name, String role) {

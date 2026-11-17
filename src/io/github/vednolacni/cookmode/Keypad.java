@@ -83,7 +83,8 @@ final class Keypad {
     }
 
     private TextView word(String label, boolean filled, Runnable action) {
-        TextView key = parts.text(label, 19, 500, filled ? "onPrimary" : "onSurface", 1);
+        // White on KS's teal is 4.37:1, enough only for large text, which at this size means bold.
+        TextView key = parts.text(label, 19, filled ? 700 : 500, filled ? "onPrimary" : "onSurface", 1);
         key.setGravity(Gravity.CENTER);
         key.setBackground(parts.ripple(filled ? parts.theme().color("primary") : parts.theme().color("surfaceContainerHigh"), parts.theme().radiusControl()));
         Parts.onTap(key, action);

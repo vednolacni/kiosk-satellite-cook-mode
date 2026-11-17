@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package io.github.vednolacni.cookmode;
 
+import android.graphics.drawable.Drawable;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.ImageView;
@@ -53,9 +54,15 @@ final class FinishScreen implements Screen {
         log = parts.pill(strings.logCooked, "mdi:check", true, actions::logCooked);
         log.setMinHeight(parts.px(56));
         center.addView(log, centered(16));
-        logged = parts.text(strings.logged, 16, 600, "success", 2);
+        // Green as text is 4.1:1 on KS's light page, so the words are plain and the green is in a check mark beside them.
+        logged = parts.text(strings.logged, 16, 600, "onSurface", 2);
         logged.setGravity(Gravity.CENTER);
-        center.addView(logged, parts.wide(16));
+        Drawable done = parts.icon("mdi:check-circle", "success");
+        if (done != null) done.setBounds(0, 0, parts.px(22), parts.px(22));
+        logged.setCompoundDrawablesRelative(done, null, null, null);
+        logged.setCompoundDrawablePadding(parts.px(8));
+        // As wide as its words, so the mark sits beside them and not at the page's edge.
+        center.addView(logged, centered(16));
         center.addView(parts.pill(strings.backToPlan, false, actions::backToPlan), centered(8));
         center.addView(parts.pill(strings.endCooking, false, actions::endCooking), centered(2));
 

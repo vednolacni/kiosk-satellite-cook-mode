@@ -192,7 +192,6 @@ final class StepScreen implements Screen {
         panelButton = parts.iconButton("mdi:format-list-checks", strings.ingredients, "onSurface", 56, this::togglePanel);
         next = parts.pill(strings.nextStep, "mdi:arrow-right", true, forward);
         parts.iconAfter(next);
-        parts.theme().styleText(next, 19, 700, "onPrimary");
         next.setMinHeight(parts.px(72));
         next.setMinWidth(parts.px(wide ? 240 : 170));
 
@@ -433,8 +432,6 @@ final class StepScreen implements Screen {
 
     private TextView peek(Runnable action) {
         TextView peek = parts.text("", 16, 400, "onSurfaceVariant", 2);
-        // Fades into the page, so it reads as what is around the step and not as the step.
-        peek.setTextColor(parts.faded("onSurfaceVariant", 150));
         peek.setPadding(0, parts.px(8), 0, parts.px(8));
         peek.setMinHeight(parts.px(44));
         Parts.onTap(peek, action);
@@ -456,7 +453,10 @@ final class StepScreen implements Screen {
         showStepChips();
         // Without the step's own ingredients under them, the words have more room.
         fitText();
-        panelButton.setBackground(parts.ripple(parts.theme().color(panelOpen ? "primaryContainer" : "surfaceContainerHigh"), 100));
+        // Open shows in more than a shade: KS's teal fill stands 3.6:1 or more from the page, and its white icon 4.4:1 from it.
+        panelButton.setBackground(parts.ripple(parts.theme().color(panelOpen ? "primary" : "surfaceContainerHigh"), 100));
+        panelButton.setImageDrawable(parts.icon("mdi:format-list-checks", panelOpen ? "onPrimary" : "onSurface"));
+        panelButton.setSelected(panelOpen);
     }
 
     private LinearLayout.LayoutParams gapped(int size) {

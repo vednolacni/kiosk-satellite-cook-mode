@@ -61,7 +61,8 @@ final class IngredientList {
         boolean first = true;
         for (Recipe.Ingredient ingredient : ingredients) {
             if (ingredient.header) {
-                view.addView(parts.text(ingredient.food, 14, 700, "primary", 2), parts.wide(first ? 4 : 18));
+                // Not KS's teal, which as small text is under 4.5:1 on the panel in the dark.
+                view.addView(parts.text(ingredient.food, 14, 700, "onSurfaceVariant", 2), parts.wide(first ? 4 : 18));
             } else {
                 view.addView(row(ingredient), parts.wide(2));
             }
@@ -112,7 +113,8 @@ final class IngredientList {
             ring.setColor(parts.theme().color("primary"));
         } else {
             ring.setColor(android.graphics.Color.TRANSPARENT);
-            ring.setStroke(Math.max(2, parts.px(2)), parts.theme().color("outline"));
+            // The empty ring marks what is still to do, and outline is under 3:1 on KS's grounds, too faint to see from the stove.
+            ring.setStroke(Math.max(2, parts.px(2)), parts.theme().color("onSurfaceVariant"));
         }
         row.circle.setBackground(ring);
         row.circle.setImageDrawable(checked ? parts.icon("mdi:check", "onPrimary") : null);

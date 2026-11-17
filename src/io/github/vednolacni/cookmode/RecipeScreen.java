@@ -79,7 +79,6 @@ final class RecipeScreen implements Screen {
         ingredientsTitle = parts.text(strings.ingredients, 18, 700, "onSurface", 1);
         ingredients = new IngredientList(parts, actions);
         start = parts.pill(strings.startCooking, true, actions::startCooking);
-        parts.theme().styleText(start, 19, 700, "onPrimary");
         start.setMinHeight(parts.px(64));
 
         LinearLayout summary = parts.column();

@@ -2,6 +2,7 @@
 package io.github.vednolacni.cookmode;
 
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -279,13 +280,31 @@ final class HomeScreen implements Screen {
         chip.setGravity(Gravity.CENTER);
         chip.setMinHeight(parts.px(40));
         chip.setPadding(parts.px(16), parts.px(8), parts.px(16), parts.px(8));
+        // Measured with its check mark and kept that wide, so the row does not move when the order changes.
+        chip.setCompoundDrawablesRelative(check(), null, null, null);
+        chip.setCompoundDrawablePadding(parts.px(6));
+        int any = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+        chip.measure(any, any);
+        chip.setMinWidth(chip.getMeasuredWidth());
         Parts.onTap(chip, () -> actions.showOrder(order));
         return chip;
     }
 
+    /**
+     * The chosen order shows in more than a shade, which is under 1.3:1 from the other chip in KS's colors: it has a check
+     * mark, and TalkBack hears that it is selected.
+     */
     private void order(TextView chip, boolean selected) {
         chip.setBackground(parts.ripple(parts.theme().color(selected ? "primaryContainer" : "surfaceContainerHigh"), 100));
-        chip.setTextColor(parts.theme().color(selected ? "onSurface" : "onSurfaceVariant"));
+        chip.setTextColor(parts.theme().color(selected ? "onPrimaryContainer" : "onSurfaceVariant"));
+        chip.setCompoundDrawablesRelative(selected ? check() : null, null, null, null);
+        chip.setSelected(selected);
+    }
+
+    private Drawable check() {
+        Drawable check = parts.icon("mdi:check", "onPrimaryContainer");
+        if (check != null) check.setBounds(0, 0, parts.px(18), parts.px(18));
+        return check;
     }
 
     // The meal plan.
@@ -306,7 +325,15 @@ final class HomeScreen implements Screen {
         if (model.resumeAt > 0) plan.addView(resumeCard(model), parts.wide(4));
         boolean first = true;
         for (Model.Day day : model.days) {
-            plan.addView(parts.text(day.label, first ? 18 : 15, 700, first ? "primary" : "onSurfaceVariant", 1), parts.wide(first ? 12 : 22));
+            TextView heading = parts.text(day.label, first ? 18 : 15, 700, "onSurfaceVariant", 1);
+            if (first) {
+                // KS's teal as text this size is under 4.5:1, so today keeps it in a bar beside its name.
+                GradientDrawable bar = parts.round(parts.theme().color("primary"), 2);
+                bar.setBounds(0, 0, parts.px(4), parts.px(20));
+                heading.setCompoundDrawablesRelative(bar, null, null, null);
+                heading.setCompoundDrawablePadding(parts.px(8));
+            }
+            plan.addView(heading, parts.wide(first ? 12 : 22));
             for (RecipeSource.Planned meal : day.meals) plan.addView(mealRow(meal, first, model.strings), parts.wide(first ? 10 : 6));
             if (first && day.meals.isEmpty()) {
                 String empty = model.planLoading ? model.strings.loading : model.strings.nothingToday;
@@ -357,7 +384,15 @@ final class HomeScreen implements Screen {
         LinearLayout words = parts.column();
         if (!meal.slot.isEmpty()) {
             TextView slot = parts.text(strings.slot(meal.slot), 13, 600, "onSurfaceVariant", 1);
-            if (meal.color != 0) slot.setTextColor(meal.color);
+            if (meal.color != 0) {
+                // The color picked for the meal in Tandoor promises no contrast as text, so it is a dot beside the name.
+                GradientDrawable dot = new GradientDrawable();
+                dot.setShape(GradientDrawable.OVAL);
+                dot.setColor(meal.color);
+                dot.setBounds(0, 0, parts.px(10), parts.px(10));
+                slot.setCompoundDrawablesRelative(dot, null, null, null);
+                slot.setCompoundDrawablePadding(parts.px(6));
+            }
             words.addView(slot, parts.wide());
         }
         words.addView(parts.text(meal.title, today ? 19 : 16, 600, "onSurface", 2), parts.wide());

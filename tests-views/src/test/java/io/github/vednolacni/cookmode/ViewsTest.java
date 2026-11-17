@@ -11,6 +11,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import android.app.Activity;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -18,7 +19,9 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -53,7 +56,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.Executor;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -316,6 +322,7 @@ public final class ViewsTest {
         assertNotNull(find("Ostanki"));
         assertNotNull(find(s.loadMore));
         shot("1-home");
+        assertReadable("1-home");
 
         // The list: the next page, the other order, and a search that keeps its field and focus.
         tap(find(s.loadMore));
@@ -323,7 +330,17 @@ public final class ViewsTest {
         assertNull(find(s.loadMore));
         tap(find(s.recent));
         assertNotNull(find("Kremšnita"));
+        // The chosen order is more than a shade: a check mark, and selected for TalkBack, at the same width.
+        TextView recent = find(s.recent);
+        int recentWidth = recent.getWidth();
+        assertTrue(recent.isSelected());
+        assertNotNull(recent.getCompoundDrawablesRelative()[0]);
+        assertFalse(find(s.all).isSelected());
         tap(find(s.all));
+        assertFalse(find(s.recent).isSelected());
+        assertNull(find(s.recent).getCompoundDrawablesRelative()[0]);
+        assertEquals("the chips do not move", recentWidth, find(s.recent).getWidth());
+        assertTrue(find(s.all).isSelected());
         // Searching with the plugin's own keys, whatever keyboard the kiosk has or lacks.
         TextView search = searchField();
         assertNull(find(s.space));
@@ -331,6 +348,7 @@ public final class ViewsTest {
         assertNotNull(find(s.space));
         assertOnScreen(find(s.search));
         shot("1-keypad");
+        assertReadable("1-keypad");
         tap(find("J"));
         tap(find("U"));
         tap(find("H"));
@@ -341,6 +359,7 @@ public final class ViewsTest {
         assertSame(search, searchField());
         assertNotNull("the keys stay while the answer comes", find(s.space));
         shot("1-search");
+        assertReadable("1-search");
         View erase = described(s.back);
         tap(erase);
         assertEquals("ju", search.getText().toString());
@@ -384,6 +403,7 @@ public final class ViewsTest {
         assertNotNull(find("1 h 30 min"));
         assertNotNull(find("180 °C"));
         shot("2-recipe");
+        assertReadable("2-recipe");
 
         // Servings rescale in place, so a held plus keeps working.
         View plus = described("+");
@@ -406,6 +426,7 @@ public final class ViewsTest {
         assertSame(fat, find("mast"));
         assertTrue((fat.getPaintFlags() & Paint.STRIKE_THRU_TEXT_FLAG) != 0);
         shot("2-recipe-ticked");
+        assertReadable("2-recipe-ticked");
 
         // Cooking starts.
         tap(find(s.startCooking));
@@ -419,6 +440,7 @@ public final class ViewsTest {
         assertFalse("the template tags must be gone", step.getText().toString().contains("scalable"));
         assertTrue(step.getText().toString().contains("30 g"));
         shot("3-step");
+        assertReadable("3-step");
 
         // The timer in the sentence: its chip starts it, a second tap shows how it is doing, and the space next to it does nothing.
         tapChip(step);
@@ -436,6 +458,7 @@ public final class ViewsTest {
         assertEquals(1, cook.timers().size());
         assertNull(find(s.newTimer));
         shot("3-step-timer");
+        assertReadable("3-step-timer");
 
         // The step's ingredients are chips to tick, and share their state with the list.
         assertNotNull(find("500 g čebula"));
@@ -487,12 +510,16 @@ public final class ViewsTest {
 
         // All the ingredients beside the step, and back.
         View list = described(s.ingredients);
+        assertFalse(list.isSelected());
         tap(list);
         assertNotNull(find("goveje meso, za golaž"));
         assertNotNull(find("Za konec"));
         assertNull("the list beside the step has the step's own ingredients", find(s.forThisStep));
+        assertTrue("the open list's button says so", described(s.ingredients).isSelected());
         shot("4-step-ingredients");
+        assertReadable("4-step-ingredients");
         tap(described(s.ingredients));
+        assertFalse(described(s.ingredients).isSelected());
         assertNull(find("goveje meso, za golaž"));
         assertNotNull(find(s.forThisStep));
 
@@ -500,6 +527,7 @@ public final class ViewsTest {
         tap(described(s.timers));
         assertNotNull(find(s.newTimer));
         shot("5-timers");
+        assertReadable("5-timers");
         tap(find(s.duration(5)));
         assertNull(find(s.newTimer));
         assertEquals(2, cook.timers().size());
@@ -507,6 +535,7 @@ public final class ViewsTest {
         tap(described(s.pause));
         assertEquals(Timers.State.PAUSED, firstStarted().state);
         shot("5-timers-paused");
+        assertReadable("5-timers-paused");
         tap(described(s.resume));
         int left = firstStarted().left;
         tap(find("+1"));
@@ -527,6 +556,7 @@ public final class ViewsTest {
         assertEquals(wakes + 1, count("stopScreensaver"));
         assertEquals(Boolean.TRUE, host.entities.get("timer_ringing"));
         shot("6-alarm");
+        assertReadable("6-alarm");
         tap(find("+1 min"));
         assertNull(find(s.timeIsUp));
         assertEquals(60, cook.timers().get(0).left);
@@ -541,6 +571,7 @@ public final class ViewsTest {
         assertNotNull(find(s.today));
         assertNotNull(find(String.format(s.continueAt, 3)));
         shot("7-home-cooking");
+        assertReadable("7-home-cooking");
 
         // Another recipe would forget this one's place, and ending it too, so both ask.
         String switching = String.format(s.replaceRecipe, "Goveji golaž", 3);
@@ -548,6 +579,7 @@ public final class ViewsTest {
         assertNotNull(find(switching));
         assertNotNull(find(s.replace));
         shot("7-question");
+        assertReadable("7-question");
         tap(find(s.cancel));
         assertNull(find(switching));
         tap(described(s.endCooking));
@@ -588,10 +620,14 @@ public final class ViewsTest {
         tap(find(s.finish));
         assertNotNull(find(s.enjoy));
         shot("9-finish");
+        assertReadable("9-finish");
+        assertWholeLabel(find(s.logCooked));
         tap(find(s.logCooked));
         assertEquals(1, kitchen.cooked.size());
         assertEquals("1 4.0", kitchen.cooked.get(0));
         assertNotNull(find(s.logged));
+        assertNotNull("the green is in a mark beside the words", find(s.logged).getCompoundDrawablesRelative()[0]);
+        assertReadable("9-finish-logged");
         // Room past its measured width for the last letter, which KS's typeface can draw beyond it.
         TextView back = find(s.backToPlan);
         assertTrue(back.getShadowRadius() >= back.getTextSize() / 2 && android.graphics.Color.alpha(back.getShadowColor()) == 0);
@@ -623,6 +659,10 @@ public final class ViewsTest {
         assertNotNull(find(s.problemNetwork));
         assertTrue(host.statusError);
         shot("banner");
+        assertReadable("banner");
+        TextView problem = find(s.problemNetwork);
+        assertEquals(theme.color("onErrorContainer"), problem.getCurrentTextColor());
+        assertNotNull("a failure has its alert mark", problem.getCompoundDrawablesRelative()[0]);
         tap(find(s.retry));
         assertNull(find(s.problemNetwork));
         assertNotNull(find("Goveji golaž"));
@@ -1757,10 +1797,13 @@ public final class ViewsTest {
         colors.put("primary", 0xFF488284);
         colors.put("onPrimary", 0xFFFFFFFF);
         colors.put("primaryContainer", dark ? 0xFF2F4649 : 0xFFD4E3E4);
+        colors.put("onPrimaryContainer", dark ? 0xFFD0E3E5 : 0xFF1B3437);
         colors.put("secondary", dark ? 0xFF6C9B9F : 0xFF44686C);
         colors.put("tertiary", dark ? 0xFFCE9C3E : 0xFF9C742A);
         colors.put("error", dark ? 0xFFD97E4C : 0xFFA9501F);
         colors.put("onError", dark ? 0xFF2E1204 : 0xFFFFFFFF);
+        colors.put("errorContainer", dark ? 0xFF5A2A0E : 0xFFF6DBCB);
+        colors.put("onErrorContainer", dark ? 0xFFF4D7C5 : 0xFF54250A);
         colors.put("outline", dark ? 0xFF5F6368 : 0xFFB4B1AB);
         colors.put("outlineVariant", dark ? 0xFF3C3E43 : 0xFFE3E0DA);
         colors.put("success", dark ? 0xFF749C6F : 0xFF56814F);
@@ -2102,6 +2145,115 @@ public final class ViewsTest {
         assertTrue(at[0] - view.getWidth() / 2f >= 0 && at[0] + view.getWidth() / 2f <= content.getWidth());
     }
 
+    /**
+     * Every text on the main view reads on what is under it: 4.5:1, or 3:1 for large text, which is 24 sp, or 18.66 sp at
+     * weight 700. A guard against a color that passes in one look or theme and fails in another.
+     */
+    private void assertReadable(String where) {
+        List<String> failed = new ArrayList<>();
+        readable(mainView(), failed);
+        assertTrue(prefix + "-" + where + " has text too faint to read: " + failed, failed.isEmpty());
+    }
+
+    private static void readable(View view, List<String> failed) {
+        if (view.getVisibility() != View.VISIBLE) return;
+        if (view instanceof TextView && view.getWidth() > 0 && ((TextView) view).getText().length() > 0) {
+            TextView text = (TextView) view;
+            Integer ground = groundOf(text);
+            if (ground == null) {
+                failed.add("\"" + text.getText() + "\" has nothing solid under it");
+            } else {
+                double ratio = contrast(over(text.getCurrentTextColor(), ground), ground);
+                float sp = text.getTextSize() / text.getResources().getDisplayMetrics().scaledDensity;
+                boolean large = sp >= 24 || sp >= 18.66f && weightOf(text.getTypeface()) >= 700;
+                if (ratio < (large ? 3 : 4.5)) failed.add(String.format(Locale.ROOT, "\"%s\" %.2f:1 at %.1f sp", text.getText(), ratio, sp));
+            }
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) readable(group.getChildAt(i), failed);
+        }
+    }
+
+    /** The first solid color under a view, its own background first. A scrim lets what is under it decide. */
+    private static Integer groundOf(View view) {
+        View at = view;
+        while (at != null) {
+            Integer fill = fill(at.getBackground());
+            if (fill != null && Color.alpha(fill) == 255) return fill;
+            at = at.getParent() instanceof View ? (View) at.getParent() : null;
+        }
+        return null;
+    }
+
+    private static Integer fill(Drawable background) {
+        if (background instanceof ColorDrawable) return ((ColorDrawable) background).getColor();
+        if (background instanceof GradientDrawable) {
+            ColorStateList color = ((GradientDrawable) background).getColor();
+            return color == null ? null : color.getDefaultColor();
+        }
+        if (background instanceof RippleDrawable) {
+            // The ripple's content, if it has any. A quiet one has only its mask, which is never drawn.
+            RippleDrawable ripple = (RippleDrawable) background;
+            for (int i = 0; i < ripple.getNumberOfLayers(); i++) {
+                if (ripple.getId(i) != android.R.id.mask) return fill(ripple.getDrawable(i));
+            }
+        }
+        return null;
+    }
+
+    /** A color as it shows over a solid ground. */
+    private static int over(int color, int ground) {
+        int alpha = Color.alpha(color);
+        return Color.rgb(mix(Color.red(color), Color.red(ground), alpha), mix(Color.green(color), Color.green(ground), alpha), mix(Color.blue(color), Color.blue(ground), alpha));
+    }
+
+    private static int mix(int top, int under, int alpha) {
+        return Math.round((top * alpha + under * (255 - alpha)) / 255f);
+    }
+
+    /** The WCAG 2 contrast ratio of two solid colors. */
+    private static double contrast(int one, int other) {
+        double a = luminance(one);
+        double b = luminance(other);
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    }
+
+    private static double luminance(int color) {
+        return 0.2126 * channel(Color.red(color)) + 0.7152 * channel(Color.green(color)) + 0.0722 * channel(Color.blue(color));
+    }
+
+    private static double channel(int value) {
+        double c = value / 255.0;
+        return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+
+    /** The weight a text was set in, from the typeface this test gave KS for it. */
+    private static int weightOf(Typeface typeface) {
+        int weight = 400;
+        int found = 0;
+        for (Map.Entry<Integer, Typeface> font : FONTS.entrySet()) {
+            if (font.getValue() == typeface) {
+                weight = font.getKey();
+                found++;
+            }
+        }
+        if (found == 1) return weight;
+        // Without the font every weight is the platform's default, so only the typeface itself can tell.
+        if (typeface == null) return 400;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) return typeface.getWeight();
+        return typeface.isBold() ? 700 : 400;
+    }
+
+    /** A label is whole: two lines at most, and nothing cut off at its end. */
+    private static void assertWholeLabel(TextView label) {
+        assertNotNull(label);
+        Layout layout = label.getLayout();
+        assertNotNull(layout);
+        assertTrue("two lines at most for \"" + label.getText() + "\": " + layout.getLineCount(), layout.getLineCount() <= 2);
+        for (int line = 0; line < layout.getLineCount(); line++) assertEquals("nothing cut off", 0, layout.getEllipsisCount(line));
+    }
+
     private int count(String command) {
         int count = 0;
         for (String name : host.commands) if (name.equals(command)) count++;
@@ -2290,6 +2442,61 @@ public final class ViewsTest {
         return view.getMeasuredHeight();
     }
 
+    // Colors that read.
+
+    /** The Material 3 roles, and success, as KS names them. */
+    private static final Set<String> ROLES = new TreeSet<>(java.util.Arrays.asList("surface", "surfaceDim", "surfaceBright",
+            "surfaceContainerLowest", "surfaceContainerLow", "surfaceContainer", "surfaceContainerHigh", "surfaceContainerHighest",
+            "onSurface", "onSurfaceVariant", "primary", "onPrimary", "primaryContainer", "onPrimaryContainer", "secondary",
+            "onSecondary", "secondaryContainer", "onSecondaryContainer", "tertiary", "onTertiary", "tertiaryContainer",
+            "onTertiaryContainer", "error", "onError", "errorContainer", "onErrorContainer", "outline", "outlineVariant",
+            "inverseSurface", "onInverseSurface", "inversePrimary", "shadow", "scrim", "success"));
+
+    /** Every role the views ask for is in KS's colors here and in Warm kitchen's, dark and light, or a view would throw. */
+    @Test public void everyColorTheViewsAskForIsInEveryPalette() throws IOException {
+        File root = new File(System.getProperty("sources"));
+        List<File> files = new ArrayList<>();
+        Collections.addAll(files, new File(root, "src/io/github/vednolacni/cookmode").listFiles());
+        Collections.addAll(files, new File(root, "sdk/src/me/jxl/kiosk/plugins").listFiles());
+        Set<String> asked = new TreeSet<>();
+        Pattern quoted = Pattern.compile("\"([a-z][A-Za-z]*)\"");
+        for (File file : files) {
+            // Looks names every role to define Warm kitchen, and asks for none.
+            if (!file.getName().endsWith(".java") || file.getName().equals("Looks.java")) continue;
+            Matcher word = quoted.matcher(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+            while (word.find()) {
+                if (ROLES.contains(word.group(1))) asked.add(word.group(1));
+            }
+        }
+        assertTrue("the views' roles were found: " + asked, asked.contains("onPrimaryContainer") && asked.contains("onErrorContainer"));
+        for (boolean dark : new boolean[] {true, false}) {
+            String shade = dark ? "dark" : "light";
+            for (String role : asked) {
+                assertTrue("KS's " + shade + " colors here lack " + role, colors(dark).containsKey(role));
+                assertTrue("Warm kitchen's " + shade + " colors lack " + role, Looks.warm(dark).containsKey(role));
+            }
+        }
+    }
+
+    /** The longest label on the last page, logging the meal in Slovenian, is whole at 19 sp on the smallest screen. */
+    @Test @Config(qualifiers = "w800dp-h480dp-land-mdpi")
+    public void theLogButtonIsWholeInSlovenianOnASmallTablet() {
+        begin("small-sl", true, settings("Slovenščina"));
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        for (int i = 0; i < 8 && find(s.finish) == null; i++) {
+            later(400);
+            tap(find(s.nextStep));
+        }
+        later(400);
+        tap(find(s.finish));
+        assertNotNull(find(s.enjoy));
+        shot("9-finish");
+        assertWholeLabel(find(s.logCooked));
+        assertReadable("9-finish");
+    }
+
     // The Look setting: Kiosk Satellite's light theme, and Warm kitchen in both.
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
@@ -2327,9 +2534,11 @@ public final class ViewsTest {
         int ground = "Warm kitchen".equals(look) ? Looks.warm(dark).get("surface") : theme.color("surface");
         assertEquals("the panel's ground", ground, ground());
         shot("home");
+        assertReadable("home");
         tap(find("Beef goulash"));
         assertNotNull(find(s.startCooking));
         shot("recipe");
+        assertReadable("recipe");
         tap(find(s.startCooking));
         TextView step = containing("Finely chop");
         assertNotNull(step);
@@ -2337,6 +2546,15 @@ public final class ViewsTest {
         tapChip(step);
         advance(3);
         shot("step");
+        assertReadable("step");
+        tap(described(s.ingredients));
+        assertReadable("step-ingredients");
+        tap(described(s.ingredients));
+        tap(described(s.timers));
+        assertNotNull(find(s.newTimer));
+        assertReadable("timers");
+        tapAt(4, 4);
+        assertNull(find(s.newTimer));
     }
 
     /** The panel's background color. */

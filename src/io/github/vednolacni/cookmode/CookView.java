@@ -3,6 +3,7 @@ package io.github.vednolacni.cookmode;
 
 import android.content.Context;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
@@ -142,9 +143,10 @@ final class CookView extends FrameLayout {
 
         LinearLayout column = parts.column();
         LinearLayout bar = parts.row();
-        bar.setBackgroundColor(parts.theme().color("surfaceContainerHighest"));
         bar.setPadding(parts.px(20), parts.px(8), parts.px(12), parts.px(8));
-        bannerText = parts.text("", 15, 500, "error", 3);
+        // Its colors come with what it says, in bannerLook.
+        bannerText = parts.text("", 15, 500, "onSurface", 3);
+        bannerText.setCompoundDrawablePadding(parts.px(10));
         bar.addView(bannerText, parts.fill(1));
         bannerButton = parts.pill(strings.retry, false, actions::refresh);
         bar.addView(bannerButton, parts.after(12));
@@ -188,6 +190,18 @@ final class CookView extends FrameLayout {
         return scrim;
     }
 
+    /**
+     * A failure is said in KS's error colors with an alert mark, since its orange as text is under 4.5:1 on a grey bar.
+     * All the timers being taken is no failure, so that note stays a quiet grey bar with no mark.
+     */
+    private void bannerLook(boolean failure) {
+        banner.setBackgroundColor(parts.theme().color(failure ? "errorContainer" : "surfaceContainerHighest"));
+        bannerText.setTextColor(parts.theme().color(failure ? "onErrorContainer" : "onSurface"));
+        Drawable alert = failure ? parts.icon("mdi:alert-circle-outline", "onErrorContainer") : null;
+        if (alert != null) alert.setBounds(0, 0, parts.px(22), parts.px(22));
+        bannerText.setCompoundDrawablesRelative(alert, null, null, null);
+    }
+
     private void showModel() {
         Model current = model;
         boolean showsBanner = current.banner != null;
@@ -195,7 +209,9 @@ final class CookView extends FrameLayout {
         if (showsBanner) {
             bannerText.setText(current.banner);
             // There is nothing to try again when all the timers are taken.
-            bannerButton.setText(current.banner.equals(current.strings.tooManyTimers) ? current.strings.close : current.strings.retry);
+            boolean full = current.banner.equals(current.strings.tooManyTimers);
+            bannerButton.setText(full ? current.strings.close : current.strings.retry);
+            bannerLook(!full);
         }
         boolean asks = current.confirm != null;
         if (asks != (question.getVisibility() == View.VISIBLE)) underFingerChanged();

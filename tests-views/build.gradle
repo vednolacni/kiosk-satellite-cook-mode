@@ -37,6 +37,8 @@ test {
     outputs.upToDateWhen { false }
     systemProperty 'screenshots', layout.buildDirectory.dir('screenshots').get().asFile.path
     systemProperty 'fixtures', layout.buildDirectory.dir('fixtures').get().asFile.path
+    // The repository, so a test can read which colors the views ask for.
+    systemProperty 'sources', file('..').path
     // Robolectric needs androidx.test, which comes as an AAR. A plain Java project only reads the classes inside.
     doFirst {
         def unpacked = layout.buildDirectory.dir('aars').get().asFile
