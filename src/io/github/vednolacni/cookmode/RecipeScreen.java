@@ -16,6 +16,8 @@ final class RecipeScreen implements Screen {
     private static final int PICTURE_SHARE_PERCENT = 24;
     private static final int PICTURE_LEAST_DP = 110;
     private static final int PICTURE_MOST_DP = 240;
+    /** Below this height the summary shows little more than the picture and the name before it has to scroll. */
+    private static final int SHORT_SCREEN_DP = 560;
 
     private final Parts parts;
     private final Ui.Actions actions;
@@ -86,9 +88,16 @@ final class RecipeScreen implements Screen {
         int pictureHeight = Math.max(parts.px(PICTURE_LEAST_DP), Math.min(parts.px(PICTURE_MOST_DP), heightPx * PICTURE_SHARE_PERCENT / 100));
         summary.addView(picture, new LinearLayout.LayoutParams(Parts.MATCH, pictureHeight));
         summary.addView(name, parts.wide(14));
-        summary.addView(description, parts.wide(6));
-        summary.addView(times, parts.wide(8));
-        summary.addView(hints, parts.wide(8));
+        if (heightPx < parts.px(SHORT_SCREEN_DP)) {
+            // A night's soaking, found only by scrolling, is found too late, so on a short screen it comes before the rest.
+            summary.addView(hints, parts.wide(8));
+            summary.addView(description, parts.wide(8));
+            summary.addView(times, parts.wide(8));
+        } else {
+            summary.addView(description, parts.wide(6));
+            summary.addView(times, parts.wide(8));
+            summary.addView(hints, parts.wide(8));
+        }
         list.addView(ingredientsTitle, parts.wide(wide ? 4 : 16));
         list.addView(status, parts.wide(8));
         list.addView(ingredients.view(), parts.wide(6));

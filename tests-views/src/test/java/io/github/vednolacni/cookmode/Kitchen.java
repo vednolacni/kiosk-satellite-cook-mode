@@ -41,6 +41,11 @@ final class Kitchen implements RecipeSource {
         return new Kitchen(pictures, true);
     }
 
+    /** A recipe of the test's own in place of the one with its id. */
+    void put(Recipe recipe) {
+        recipes.put(recipe.id, recipe);
+    }
+
     private String picture(int number) {
         return pictures + "/" + number + ".png";
     }

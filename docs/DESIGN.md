@@ -13,7 +13,7 @@ Each row is something cooks run into at the stove, and how the plugin answers it
 | Find today's meal without searching | Today's meals first, one tap away, and **Cook today's meal** without a tap |
 | Cook with no meal plan at all | Every recipe with search on the same page |
 | Search on a kiosk with no keyboard | The plugin's own keys, with Č, Š and Ž |
-| Read it from across the kitchen | One step at a time, the text filling the room the step leaves |
+| Read it from across the kitchen | One step at a time, the text filling the room the step leaves. A timer chip cannot wrap, so one wider than its line takes the text below the chosen smallest size, down to 20 sp, rather than be cut off |
 | Know where you are | Step count, a progress line, the steps around it in smaller, quieter type, "Ready around 18:30" |
 | Move with dirty hands | Big fixed Next button, swipes in any direction, gestures and claps through KS |
 | One press that lands twice | Steps move at most once in 350 ms, and a timer chip starts once. For 350 ms nothing takes a touch after a page, a question, the timer sheet or its rows or the strip have come or gone, or after the keys have gone. Keys coming up start no such wait, and neither does an alarm, which takes the first touch once any wait already running has ended |

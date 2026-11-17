@@ -25,7 +25,10 @@ final class HomeScreen implements Screen {
     private static final int CELL_WIDTH_DP = 240;
     /** How narrow a grid cell may get before the grid drops a column. */
     private static final int CELL_MIN_DP = 170;
-    /** Below this height the keys shrink, so a row of results stays in view above them. */
+    /**
+     * Below this height the keys shrink, and while they are up the date and, beside the results, the plan make way, so a
+     * row of results stays in view above them with its names.
+     */
     private static final int SHORT_SCREEN_DP = 560;
     private static final int QUERY_MOST = 60;
 
@@ -33,9 +36,14 @@ final class HomeScreen implements Screen {
     private final Ui.Actions actions;
     private final Images images;
     private final Runnable underFinger;
-    private final int columns;
+    /** How many recipes a row of the grid holds beside the plan, and with the whole width to itself. */
+    private final int columnsBeside;
+    private final int columnsAlone;
+    private int columns;
     private final boolean wide;
+    private final boolean shortScreen;
     private final View root;
+    private final View header;
     private final TextView date;
     private final TextView message;
     private final View body;
@@ -46,6 +54,8 @@ final class HomeScreen implements Screen {
     private final TextView orderAll;
     private final TextView orderRecent;
     private final LinearLayout plan;
+    /** The plan's own scrolling pane on a wide screen, or nothing. */
+    private final View planPane;
     private final View recipesTitle;
     /** The rows of recipes. What is under them changes apart, so a word there does not rebuild them. */
     private final LinearLayout rows;
@@ -71,21 +81,25 @@ final class HomeScreen implements Screen {
         this.wide = wide;
         // The recipes get the wider column next to the plan, or all of a narrow screen.
         int gridWidth = wide ? widthPx * 7 / 12 : widthPx;
-        columns = Math.max(2, Math.min(5, (gridWidth - parts.px(32)) / parts.px(CELL_MIN_DP)));
+        columnsBeside = Math.max(2, Math.min(5, (gridWidth - parts.px(32)) / parts.px(CELL_MIN_DP)));
+        columnsAlone = Math.max(2, Math.min(5, (widthPx - parts.px(72)) / parts.px(CELL_MIN_DP)));
+        columns = columnsBeside;
+        shortScreen = heightPx < parts.px(SHORT_SCREEN_DP);
 
         LinearLayout page = parts.column();
         page.setPadding(parts.px(20), parts.px(12), parts.px(20), 0);
         root = page;
 
-        LinearLayout header = parts.row();
+        LinearLayout top = parts.row();
         date = parts.text("", 22, 700, "onSurface", 1);
-        header.addView(date, parts.fill(1));
-        header.addView(parts.iconButton("mdi:refresh", strings.retry, "onSurfaceVariant", 48, actions::refresh));
+        top.addView(date, parts.fill(1));
+        top.addView(parts.iconButton("mdi:refresh", strings.retry, "onSurfaceVariant", 48, actions::refresh));
         View close = parts.iconButton("mdi:close", strings.close, "onSurface", 48, actions::close);
         LinearLayout.LayoutParams closeAt = new LinearLayout.LayoutParams(parts.px(48), parts.px(48));
         closeAt.setMarginStart(parts.px(8));
-        header.addView(close, closeAt);
-        page.addView(header, parts.wide());
+        top.addView(close, closeAt);
+        page.addView(top, parts.wide());
+        header = top;
 
         message = parts.text("", 20, 400, "onSurfaceVariant", 0);
         message.setGravity(Gravity.CENTER);
@@ -126,7 +140,8 @@ final class HomeScreen implements Screen {
             panes.setBaselineAligned(false);
             LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(0, Parts.MATCH, 5);
             left.setMarginEnd(parts.px(24));
-            panes.addView(scroller(plan), left);
+            planPane = scroller(plan);
+            panes.addView(planPane, left);
             LinearLayout right = parts.column();
             right.addView(searchRow, parts.wide(4));
             right.addView(orders, parts.wide(10));
@@ -145,10 +160,10 @@ final class HomeScreen implements Screen {
             gridScroll = scroller(both);
             column.addView(gridScroll, new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
             body = column;
+            planPane = null;
         }
         page.addView(body, new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
 
-        boolean shortScreen = heightPx < parts.px(SHORT_SCREEN_DP);
         keypad = new Keypad(parts, strings, shortScreen ? 42 : 52, new Keypad.Keys() {
             @Override public void typed(String letter) {
                 if (typed.length() < QUERY_MOST) searchSoon(typed + letter.toLowerCase(Locale.ROOT));
@@ -182,6 +197,7 @@ final class HomeScreen implements Screen {
         body.setVisibility(model.configured ? View.VISIBLE : View.GONE);
         if (!model.configured) {
             keypad.show(false);
+            showSearching();
             return;
         }
         query = model.query;
@@ -266,11 +282,21 @@ final class HomeScreen implements Screen {
         if (!open) underFinger.run();
     }
 
-    /** While searching, what is found goes first. On a wide screen the plan can stay beside it. */
+    /**
+     * While searching, what is found goes first. On a wide screen the plan can stay beside it, unless the keys leave too
+     * little height on a short screen. That comes and goes with the keys, which start no touch wait as they come up and
+     * start their own as they go, so this starts none either.
+     */
     private void showSearching() {
         boolean searching = keypad.open() || !typed.isEmpty();
+        boolean cramped = shortScreen && keypad.open();
         orders.setVisibility(keypad.open() ? View.GONE : View.VISIBLE);
-        if (wide) return;
+        header.setVisibility(cramped ? View.GONE : View.VISIBLE);
+        if (wide) {
+            planPane.setVisibility(cramped ? View.GONE : View.VISIBLE);
+            regrid(cramped ? columnsAlone : columnsBeside);
+            return;
+        }
         plan.setVisibility(searching ? View.GONE : View.VISIBLE);
         recipesTitle.setVisibility(searching ? View.GONE : View.VISIBLE);
     }
@@ -278,7 +304,7 @@ final class HomeScreen implements Screen {
     private TextView orderChip(String label, RecipeSource.Order order) {
         TextView chip = parts.text(label, 14, 600, "onSurfaceVariant", 1);
         chip.setGravity(Gravity.CENTER);
-        chip.setMinHeight(parts.px(40));
+        chip.setMinHeight(parts.px(48));
         chip.setPadding(parts.px(16), parts.px(8), parts.px(16), parts.px(8));
         // Measured with its check mark and kept that wide, so the row does not move when the order changes.
         chip.setCompoundDrawablesRelative(check(), null, null, null);
@@ -448,6 +474,17 @@ final class HomeScreen implements Screen {
             }
             rows.addView(row, parts.wide(12));
         }
+    }
+
+    /** The grid in a new number of columns, when the plan beside it has made way or come back. */
+    private void regrid(int count) {
+        if (count == columns) return;
+        columns = count;
+        if (shownRecipes == null) return;
+        List<RecipeSource.Summary> recipes = shownRecipes;
+        shownRecipes = null;
+        rows.removeAllViews();
+        showRows(recipes);
     }
 
     private void showFooter(Model model) {

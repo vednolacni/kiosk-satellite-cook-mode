@@ -360,6 +360,11 @@ public final class ViewsTest {
         assertNotNull("the keys stay while the answer comes", find(s.space));
         shot("1-search");
         assertReadable("1-search");
+        if (prefix.startsWith("small")) {
+            // The keys leave little height on a small tablet, so the date and the plan make way and the names show.
+            assertNull("the plan makes way for the results", find(s.today));
+            assertInView(find("Bučna juha"));
+        }
         View erase = described(s.back);
         tap(erase);
         assertEquals("ju", search.getText().toString());
@@ -372,6 +377,7 @@ public final class ViewsTest {
         tap(find(s.close));
         assertNull(find(s.space));
         assertNotNull(find(s.all));
+        assertNotNull("the plan is back with the keys gone", find(s.today));
 
         // A note in the plan has no recipe: it looks for one by name.
         tap(find("Ostanki"));
@@ -402,6 +408,8 @@ public final class ViewsTest {
         assertNotNull(find(s.overnight));
         assertNotNull(find("1 h 30 min"));
         assertNotNull(find("180 °C"));
+        // A night's soaking is seen before starting, also on a small tablet, where it comes before the description.
+        if (prefix.startsWith("small")) assertInView(find(s.overnight));
         shot("2-recipe");
         assertReadable("2-recipe");
 
@@ -463,6 +471,15 @@ public final class ViewsTest {
         // The step's ingredients are chips to tick, and share their state with the list.
         assertNotNull(find("500 g čebula"));
         assertNotNull(find(s.forThisStep));
+        // A touch just under a step's ingredient still ticks it: the chips reach past their edges into the room around them.
+        TextView onion = find("500 g čebula");
+        reveal(onion);
+        float[] under = center(onion);
+        under[1] += onion.getHeight() / 2f + theme.px(3);
+        tapAt(under[0], under[1]);
+        assertTrue("a touch just under a chip is on it", (onion.getPaintFlags() & Paint.STRIKE_THRU_TEXT_FLAG) != 0);
+        tapAt(under[0], under[1]);
+        assertFalse((onion.getPaintFlags() & Paint.STRIKE_THRU_TEXT_FLAG) != 0);
 
         // The big button stays put, and one press that lands twice moves one step.
         View next = find(s.nextStep);
@@ -470,6 +487,9 @@ public final class ViewsTest {
         assertNotNull(containing("Dodaj meso"));
         assertNotNull(find("2 / 7"));
         assertSame(next, find(s.nextStep));
+        // With a timer's strip above the page, the step before takes one line and leaves the rest to this one.
+        TextView peek = containing("Čebulo drobno");
+        if (peek != null) assertEquals(1, peek.getMaxLines());
         later(400);
         // On Android 8 Robolectric's clock runs on through the button's ripple, so two presses are never that close there.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) doubleTap(next);
@@ -621,6 +641,9 @@ public final class ViewsTest {
         assertNotNull(find(s.enjoy));
         shot("9-finish");
         assertReadable("9-finish");
+        // Both ways out are on the screen without scrolling, on a small tablet too.
+        assertInView(find(s.backToPlan));
+        assertInView(find(s.endCooking));
         assertWholeLabel(find(s.logCooked));
         tap(find(s.logCooked));
         assertEquals(1, kitchen.cooked.size());
@@ -771,6 +794,33 @@ public final class ViewsTest {
         settle();
         assertEquals("a short step fills the screen", 56, sizeOf(containing("Postrezi s polento")));
         shot("short-step");
+    }
+
+    /**
+     * A chip does not wrap. A long time in German at the largest text, beside the open list, is wider than the line at the
+     * smallest size, so the words go smaller until it fits, and no further than 20 sp.
+     */
+    @Test @Config(qualifiers = "w840dp-h600dp-land-tvdpi")
+    public void aLongTimeChipIsWholeBesideTheList() {
+        Map<String, Object> values = settings("English");
+        values.put("textSize", "Extra large");
+        begin("long-chip", true, values);
+        kitchen.put(new Recipe("1", "Goveji golaž", "", "", 4, "", 0, 0, "", "", Collections.singletonList(
+            new Recipe.Step("", "Den Deckel auflegen und 1 Stunde und 30 Minuten leise köcheln lassen.", Recipe.Format.PLAIN, Collections.<Recipe.Ingredient>emptyList(), 0))));
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        tap(described(s.ingredients));
+        assertTrue(described(s.ingredients).isSelected());
+        TextView step = containing("Stunde");
+        assertNotNull(step);
+        Spanned words = (Spanned) step.getText();
+        assertEquals("one chip for the whole time", 1, words.getSpans(0, words.length(), ChipSpan.class).length);
+        float line = step.getWidth() - step.getTotalPaddingLeft() - step.getTotalPaddingRight();
+        assertTrue("the chip is cut off", ChipSpan.widest(words, step.getPaint()) <= line);
+        assertTrue("the chip did not fit at the smallest size", sizeOf(step) < 34);
+        assertTrue(sizeOf(step) >= 20);
+        shot("step");
     }
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
@@ -2134,6 +2184,20 @@ public final class ViewsTest {
             }
         }
         return null;
+    }
+
+    /** In full view as the page stands: inside the screen, and inside what its scrolling list shows. */
+    private void assertInView(View view) {
+        assertNotNull(view);
+        float[] at = center(view);
+        float top = at[1] - view.getHeight() / 2f;
+        float bottom = at[1] + view.getHeight() / 2f;
+        ScrollView scroll = enclosingScroll(view);
+        if (scroll != null) {
+            float[] frame = center(scroll);
+            assertTrue("this is scrolled out of view", top >= frame[1] - scroll.getHeight() / 2f && bottom <= frame[1] + scroll.getHeight() / 2f);
+        }
+        assertTrue("this is off the screen", top >= 0 && bottom <= content.getHeight());
     }
 
     /** In full view without scrolling: inside the screen and in no scrolling list. */

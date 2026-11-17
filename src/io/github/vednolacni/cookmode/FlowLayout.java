@@ -2,16 +2,61 @@
 package io.github.vednolacni.cookmode;
 
 import android.content.Context;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
 /** Lays its children in rows and wraps to the next row, for chips. The platform has no such layout. */
 final class FlowLayout extends ViewGroup {
     private final int gap;
+    /** How far past a tappable child's edge a touch still lands on it, so a chip is a larger target than it looks. */
+    private final int reach;
+    /** How far the touch that went down beside a child is moved onto it, and every later event of that touch with it. */
+    private float shiftX;
+    private float shiftY;
 
     FlowLayout(Context context, int gap) {
+        this(context, gap, 0);
+    }
+
+    FlowLayout(Context context, int gap, int reach) {
         super(context);
         this.gap = gap;
+        this.reach = reach;
+        // A touch reaches a child only inside this layout, so the reach above the first row and below the last is padding.
+        // Whoever lays this out takes it back from the margins around it, so the chips sit where they would without it.
+        setPadding(0, reach, 0, reach);
+    }
+
+    /**
+     * A touch in the gap just beside a tappable child goes to that child. Within reach of half the gap the children's
+     * reaches do not overlap, and the layout keeps its size, so a wet finger finds the chip without the chips taking the
+     * room the step's words need.
+     */
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            shiftX = 0;
+            shiftY = 0;
+            View near = reach > 0 && childNear(event.getX(), event.getY(), 0) == null ? childNear(event.getX(), event.getY(), reach) : null;
+            if (near != null) {
+                shiftX = Math.max(near.getLeft(), Math.min(near.getRight() - 1, event.getX())) - event.getX();
+                shiftY = Math.max(near.getTop(), Math.min(near.getBottom() - 1, event.getY())) - event.getY();
+            }
+        }
+        event.offsetLocation(shiftX, shiftY);
+        boolean handled = super.dispatchTouchEvent(event);
+        event.offsetLocation(-shiftX, -shiftY);
+        return handled;
+    }
+
+    private View childNear(float x, float y, int margin) {
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+            if (child.getVisibility() != VISIBLE || !child.isClickable()) continue;
+            if (x >= child.getLeft() - margin && x < child.getRight() + margin && y >= child.getTop() - margin && y < child.getBottom() + margin) return child;
+        }
+        return null;
     }
 
     @Override

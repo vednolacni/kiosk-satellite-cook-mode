@@ -241,7 +241,7 @@ final class CookView extends FrameLayout {
             case RECIPE:
                 return new RecipeScreen(parts, actions, images, current.strings, wide, height);
             case STEP:
-                return new StepScreen(parts, actions, images, current.strings, wide, height, ingredientsOpen, timerViews::openSheet);
+                return new StepScreen(parts, actions, images, current.strings, wide, height, ingredientsOpen, timerViews::openSheet, timerViews.strip());
             case FINISH:
                 return new FinishScreen(parts, actions, images, current.strings, height);
             default:

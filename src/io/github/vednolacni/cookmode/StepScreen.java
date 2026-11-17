@@ -30,15 +30,22 @@ import java.util.List;
 final class StepScreen implements Screen {
     /** Below this height the steps around the current one take room the current one needs. */
     private static final int PEEKS_FROM_DP = 520;
+    /** Below this height, or with the timer strip above the page, the steps around take one line each and leave the rest. */
+    private static final int WHOLE_PEEKS_FROM_DP = 720;
     /** A wet finger can land twice. Steps change at most this often by touch, so one press cannot skip a step. */
     private static final long MOVE_GAP_MS = 350L;
     /** How far outside a timer chip a touch still counts as on it. */
     private static final int CHIP_MARGIN_DP = 8;
     private static final float LINE_SPACING = 1.28f;
     private static final int TEXT_STEP_SP = 2;
+    /** A chip cannot wrap, so a step whose chip is wider than its line goes below the chosen size, but never below this. */
+    private static final int CHIP_FLOOR_SP = 20;
+    /** The chips are 40 dp high and 8 dp apart. A touch this far past one still lands on it, a 48 dp target in no more room. */
+    private static final int CHIP_REACH_DP = 4;
     private static final int NOTE_GAP_DP = 12;
     private static final int TITLE_GAP_DP = 20;
     private static final int CHIPS_GAP_DP = 8;
+    private static final int STORY_PADDING_DP = 16;
 
     private final Parts parts;
     private final Ui.Actions actions;
@@ -49,6 +56,9 @@ final class StepScreen implements Screen {
     private final TextView previousPeek;
     private final TextView nextPeek;
     private final boolean peeks;
+    private final boolean shortPeeks;
+    private final View strip;
+    private int peekLines = 2;
     private final ScrollView scroll;
     private final LinearLayout story;
     private final TextView text;
@@ -92,13 +102,15 @@ final class StepScreen implements Screen {
         }
     }
 
-    StepScreen(Parts parts, Ui.Actions actions, Images images, Strings strings, boolean wide, int heightPx, boolean panelOpen, Runnable openTimers) {
+    StepScreen(Parts parts, Ui.Actions actions, Images images, Strings strings, boolean wide, int heightPx, boolean panelOpen, Runnable openTimers, View strip) {
         this.parts = parts;
         this.actions = actions;
         this.images = images;
         this.panelOpen = panelOpen;
         this.openTimers = openTimers;
+        this.strip = strip;
         peeks = heightPx >= parts.px(PEEKS_FROM_DP);
+        shortPeeks = heightPx < parts.px(WHOLE_PEEKS_FROM_DP);
         Runnable forward = () -> move(actions::next);
         Runnable backward = () -> move(actions::previous);
 
@@ -137,14 +149,15 @@ final class StepScreen implements Screen {
         fixedNote = parts.text("", 14, 400, "onSurfaceVariant", 2);
         fixedNote.setVisibility(View.GONE);
         chipsTitle = parts.text(strings.forThisStep, 13, 600, "onSurfaceVariant", 1);
-        chips = new FlowLayout(parts.context(), parts.px(8));
+        chips = new FlowLayout(parts.context(), parts.px(8), parts.px(CHIP_REACH_DP));
         story = parts.column();
         story.setGravity(Gravity.CENTER_VERTICAL);
-        story.setPadding(0, parts.px(16), 0, parts.px(16));
+        story.setPadding(0, parts.px(STORY_PADDING_DP), 0, parts.px(STORY_PADDING_DP));
         story.addView(text, parts.wide());
         story.addView(fixedNote, parts.wide(NOTE_GAP_DP));
         story.addView(chipsTitle, parts.wide(TITLE_GAP_DP));
-        story.addView(chips, parts.wide(CHIPS_GAP_DP));
+        // The chips' reach is padding of their own, taken back from the gap above them and the room below.
+        story.addView(chips, parts.wide(CHIPS_GAP_DP - CHIP_REACH_DP));
         scroll = new ScrollView(parts.context());
         scroll.setFillViewport(true);
         scroll.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
@@ -297,10 +310,11 @@ final class StepScreen implements Screen {
      * across the kitchen. A step too long for the smallest size scrolls.
      */
     private void fitText() {
+        showPeekLines();
         int width = scroll.getWidth();
         int room = scroll.getHeight() - story.getPaddingTop() - story.getPaddingBottom();
         if (width <= 0 || room <= 0 || textMost == 0) return;
-        room -= under(fixedNote, width, NOTE_GAP_DP) + under(chipsTitle, width, TITLE_GAP_DP) + under(chips, width, CHIPS_GAP_DP);
+        room -= under(fixedNote, width, NOTE_GAP_DP) + under(chipsTitle, width, TITLE_GAP_DP) + under(chips, width, CHIPS_GAP_DP - CHIP_REACH_DP);
         CharSequence words = text.getText();
         if (width == fitWidth && room == fitRoom && words == fitWords) return;
         fitWidth = width;
@@ -315,6 +329,15 @@ final class StepScreen implements Screen {
             if (layout.getHeight() <= room && (!(words instanceof Spanned) || ChipSpan.widest((Spanned) words, paint) <= width)) {
                 size = sp;
                 break;
+            }
+        }
+        // A chip wider than the line at the chosen size would be cut off at the edge. Only the chip has to fit here: a step
+        // that is too long for its room scrolls, as it does at the chosen size.
+        if (size == textLeast && words instanceof Spanned) {
+            while (size > CHIP_FLOOR_SP) {
+                paint.setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, size, metrics));
+                if (ChipSpan.widest((Spanned) words, paint) <= width) break;
+                size = Math.max(CHIP_FLOOR_SP, size - TEXT_STEP_SP);
             }
         }
         if (size != textShown) {
@@ -339,8 +362,9 @@ final class StepScreen implements Screen {
                 // The window's own observer took over from this one if the view was not attached yet.
                 (observer.isAlive() ? observer : scroll.getViewTreeObserver()).removeOnPreDrawListener(this);
                 int before = textShown;
+                int linesBefore = peekLines;
                 Parts.guard(StepScreen.this::fitText);
-                return textShown == before;
+                return textShown == before && peekLines == linesBefore;
             }
         });
     }
@@ -358,6 +382,7 @@ final class StepScreen implements Screen {
         boolean any = false;
         for (int i = 0; i < chips.getChildCount(); i++) any |= chips.getChildAt(i).getVisibility() == View.VISIBLE;
         chips.setVisibility(any ? View.VISIBLE : View.GONE);
+        story.setPadding(0, parts.px(STORY_PADDING_DP), 0, parts.px(any ? STORY_PADDING_DP - CHIP_REACH_DP : STORY_PADDING_DP));
     }
 
     /** The step's words with each duration drawn as a timer chip that starts when tapped. */
@@ -428,6 +453,18 @@ final class StepScreen implements Screen {
         chip.view.setTextColor(parts.theme().color(checked ? "onSurfaceVariant" : "onSurface"));
         int flags = chip.view.getPaintFlags();
         chip.view.setPaintFlags(checked ? flags | Paint.STRIKE_THRU_TEXT_FLAG : flags & ~Paint.STRIKE_THRU_TEXT_FLAG);
+    }
+
+    /**
+     * The steps around take a line each on a short screen, and when running timers take a row above the page, so the step
+     * keeps the room for its own words. The strip comes and goes with the timers, which changes the room and so comes here.
+     */
+    private void showPeekLines() {
+        int lines = shortPeeks || strip.getVisibility() == View.VISIBLE ? 1 : 2;
+        if (lines == peekLines) return;
+        peekLines = lines;
+        previousPeek.setMaxLines(lines);
+        nextPeek.setMaxLines(lines);
     }
 
     private TextView peek(Runnable action) {
