@@ -18,6 +18,7 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -1647,6 +1648,7 @@ public final class ViewsTest {
         colors.put("secondary", dark ? 0xFF6C9B9F : 0xFF44686C);
         colors.put("tertiary", dark ? 0xFFCE9C3E : 0xFF9C742A);
         colors.put("error", dark ? 0xFFD97E4C : 0xFFA9501F);
+        colors.put("onError", dark ? 0xFF2E1204 : 0xFFFFFFFF);
         colors.put("outline", dark ? 0xFF5F6368 : 0xFFB4B1AB);
         colors.put("outlineVariant", dark ? 0xFF3C3E43 : 0xFFE3E0DA);
         colors.put("success", dark ? 0xFF749C6F : 0xFF56814F);
@@ -2065,6 +2067,115 @@ public final class ViewsTest {
         tapChip(step);
         advance(3);
         shot("step");
+    }
+
+    // The dock, read from across the kitchen.
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void theDockShowsTheSoonestOfSixTimers() {
+        begin("dock-six", true, settings("English"));
+        open();
+        cook.startTimer("Stock", 1800);
+        cook.startTimer("Beans", 1500);
+        cook.startTimer("Pasta", 600);
+        cook.startTimer("Roast", 1200);
+        cook.startTimer("Rice", 900);
+        cook.startTimer("Tea", 1000);
+        settle();
+        View dock = closeToDock();
+        // Only the soonest clock fits at the size it is read from, and the rest are counted, every one of them.
+        String soonest = Durations.clock(600) + "  +5";
+        assertNotNull(find(soonest));
+        assertNull("no other clock in the dock", findText(dock, text -> text.matches(".*\\d:\\d\\d.*") && !text.equals(soonest)));
+        assertNotNull("with nothing cooking, the soonest timer's name", find("Pasta"));
+        shot("dock");
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aRingingDockTurnsRedInTheDark() {
+        ringingDock("dock-ringing-dark", true);
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aRingingDockTurnsRedInTheLight() {
+        ringingDock("dock-ringing-light", false);
+    }
+
+    /** With the main view closed the dock is the only sign of a ring, so the whole card says it, and goes back after. */
+    private void ringingDock(String shots, boolean dark) {
+        begin(shots, dark, settings("English"));
+        open();
+        cook.startTimer("Pasta", 60);
+        cook.startTimer("Stock", 1800);
+        settle();
+        View dock = closeToDock();
+        assertEquals(theme.color("surfaceContainerHigh"), ((GradientDrawable) dock.getBackground()).getColor().getDefaultColor());
+        advance(61);
+        assertEquals("the card is red", theme.color("error"), ((GradientDrawable) dock.getBackground()).getColor().getDefaultColor());
+        TextView zero = find(Durations.clock(0));
+        assertNotNull(zero);
+        assertEquals(theme.color("onError"), zero.getCurrentTextColor());
+        assertEquals(theme.color("onError"), find(s.timeIsUp).getCurrentTextColor());
+        TextView stop = find(s.stop);
+        assertNotNull(stop);
+        assertTrue("Stop is a big enough target", stop.getHeight() >= theme.px(48));
+        assertTrue("Stop is inside the dock", stop.getTop() >= 0 && stop.getBottom() <= dock.getHeight());
+        shot("dock");
+        tap(stop);
+        settle();
+        assertNull(find(s.timeIsUp));
+        assertEquals("the card is back", theme.color("surfaceContainerHigh"), ((GradientDrawable) dock.getBackground()).getColor().getDefaultColor());
+        TextView left = find(Durations.clock(1800 - 61));
+        assertNotNull(left);
+        assertEquals(theme.color("onSurface"), left.getCurrentTextColor());
+        assertNull(find(s.stop));
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi", fontScale = 1.3f)
+    public void theDockFitsLargerText() {
+        begin("dock-large-text", true, settings("Slovenščina"));
+        open();
+        cook.startTimer("Pečenka", 5400);
+        cook.startTimer("Riž", 6000);
+        settle();
+        View dock = closeToDock();
+        TextView time = find(Durations.clock(5400) + "  +1");
+        assertNotNull(time);
+        assertWholeDock(dock, time, find("Pečenka"));
+        shot("dock");
+        cook.startTimer("Čaj", 60);
+        advance(61);
+        assertWholeDock(dock, find(Durations.clock(0)), find(s.timeIsUp));
+        TextView stop = find(s.stop);
+        assertTrue("Stop is inside the dock", stop.getTop() >= 0 && stop.getBottom() <= dock.getHeight());
+        shot("dock-ringing");
+    }
+
+    /** Closes the main view and waits for the dock KS builds in its place. */
+    private View closeToDock() {
+        cook.execute("closeCookMode");
+        settle();
+        assertNull(host.overlays.get(Cook.MAIN));
+        assertNotNull(host.overlays.get(Cook.DOCK));
+        View dock = host.overlays.get(Cook.DOCK).view;
+        assertNotNull(dock);
+        return dock;
+    }
+
+    /** The time is not cut short, and both lines at their full height fit the dock's fixed height. */
+    private void assertWholeDock(View dock, TextView time, TextView name) {
+        assertNotNull(time);
+        assertNotNull(name);
+        assertEquals("the time is whole", 0, time.getLayout().getEllipsisCount(0));
+        int both = fullHeight(time) + fullHeight(name);
+        layout();
+        assertTrue("the two lines fit: " + both + " > " + dock.getHeight(), both <= dock.getHeight());
+    }
+
+    /** A text's height with no limit from its parent. */
+    private static int fullHeight(TextView view) {
+        view.measure(View.MeasureSpec.makeMeasureSpec(view.getWidth(), View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        return view.getMeasuredHeight();
     }
 
     // The Look setting: Kiosk Satellite's light theme, and Warm kitchen in both.

@@ -172,7 +172,8 @@ final class TimerViews {
                 TextView label = parts.text(timer.label, 14, 500, "onSurfaceVariant", 1);
                 label.setMaxWidth(parts.px(200));
                 pill.addView(label, parts.wrap());
-                TextView time = parts.text("", 18, 700, rings ? "error" : timer.state == Timers.State.PAUSED ? "onSurfaceVariant" : "onSurface", 1);
+                // Read from the stove, so large. At this size a ringing time in error is large text and passes 3:1.
+                TextView time = parts.text("", 28, 700, rings ? "error" : timer.state == Timers.State.PAUSED ? "onSurfaceVariant" : "onSurface", 1);
                 time.setFontFeatureSettings("tnum");
                 pill.addView(time, parts.after(10));
                 Parts.onTap(pill, this::openSheet);
