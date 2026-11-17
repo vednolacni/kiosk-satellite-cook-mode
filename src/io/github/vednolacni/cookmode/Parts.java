@@ -143,11 +143,24 @@ final class Parts {
 
     /** A round icon button with a touch target of size dp. */
     ImageView iconButton(String icon, String description, String role, int size, Runnable action) {
-        ImageView button = new ImageView(context);
+        ImageView button = new ImageView(context) {
+            /**
+             * A finger held past the long-press moment. Android lets go of such a press without a click once the tooltip
+             * has shown, so a slow press with wet or floury hands would only name the button. It acts here instead,
+             * and then names itself. True always, so the release that follows takes no second step even when the
+             * tooltip was still up from a press just before and did not show again.
+             */
+            @Override
+            public boolean performLongClick(float x, float y) {
+                guard(action);
+                super.performLongClick(x, y);
+                return true;
+            }
+        };
         button.setImageDrawable(icon(icon, role));
         button.setScaleType(ImageView.ScaleType.CENTER);
         button.setContentDescription(description);
-        // An icon alone can leave a first-time cook guessing, and a long press is free on these buttons, so it names them.
+        // An icon alone can leave a first-time cook guessing, so a long press names it.
         button.setTooltipText(description);
         button.setBackground(ripple(theme.color("surfaceContainerHigh"), 100));
         button.setLayoutParams(new LinearLayout.LayoutParams(px(size), px(size)));

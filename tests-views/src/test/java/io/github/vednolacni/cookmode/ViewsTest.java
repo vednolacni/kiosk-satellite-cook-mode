@@ -31,6 +31,7 @@ import android.text.Spanned;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.FrameLayout;
@@ -1315,6 +1316,26 @@ public final class ViewsTest {
         release(plus);
         assertTrue(timerNamed("Roast").left > 270 + 120);
         assertEquals(300, timerNamed("Pasta").left);
+    }
+
+    /** A slow press with wet hands still acts, once, and the icon is named while it is held. */
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aHeldIconButtonActsOnce() {
+        begin("held", true, settings("English"));
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        View list = described(s.ingredients);
+        assertEquals(s.ingredients, list.getTooltipText().toString());
+        assertFalse(list.isSelected());
+        press(list);
+        later(ViewConfiguration.getLongPressTimeout() + 300);
+        release(list);
+        assertTrue("a held press opens the list, and does not close it again on release", described(s.ingredients).isSelected());
+        assertNotNull(find("goveje meso, za golaž"));
+        later(2000);
+        tap(described(s.ingredients));
+        assertFalse("a tap still closes it", described(s.ingredients).isSelected());
     }
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
