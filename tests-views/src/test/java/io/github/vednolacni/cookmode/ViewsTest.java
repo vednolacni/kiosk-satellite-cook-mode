@@ -378,6 +378,17 @@ public final class ViewsTest {
         assertNull(find(s.space));
         assertNotNull(find(s.all));
         assertNotNull("the plan is back with the keys gone", find(s.today));
+        if (prefix.startsWith("small") && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            // On a small tablet the date makes way as the keys come up and the results move under the finger, so a press
+            // that lands twice on the search field brings the keys up and opens no recipe.
+            later(400);
+            View field = searchField();
+            doubleTap(field);
+            assertNotNull("the keys came up", find(s.space));
+            assertSame("no recipe opened under the finger", field, searchField());
+            tap(find(s.close));
+            assertNull(find(s.space));
+        }
 
         // A note in the plan has no recipe: it looks for one by name.
         tap(find("Ostanki"));

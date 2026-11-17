@@ -284,14 +284,17 @@ final class HomeScreen implements Screen {
 
     /**
      * While searching, what is found goes first. On a wide screen the plan can stay beside it, unless the keys leave too
-     * little height on a short screen. That comes and goes with the keys, which start no touch wait as they come up and
-     * start their own as they go, so this starts none either.
+     * little height on a short screen. That comes and goes with the keys, which start their own touch wait as they go.
+     * Keys coming up start no wait, except on a short screen, where the date makes way and the search field and the
+     * results move up under the finger, so a press that lands twice would open the recipe now under it.
      */
     private void showSearching() {
         boolean searching = keypad.open() || !typed.isEmpty();
         boolean cramped = shortScreen && keypad.open();
         orders.setVisibility(keypad.open() ? View.GONE : View.VISIBLE);
+        boolean headerWas = header.getVisibility() == View.VISIBLE;
         header.setVisibility(cramped ? View.GONE : View.VISIBLE);
+        if (headerWas && cramped) underFinger.run();
         if (wide) {
             planPane.setVisibility(cramped ? View.GONE : View.VISIBLE);
             regrid(cramped ? columnsAlone : columnsBeside);
