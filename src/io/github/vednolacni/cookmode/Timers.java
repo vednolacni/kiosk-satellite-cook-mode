@@ -25,8 +25,13 @@ final class Timers {
         final int step;
         /** When it rings in epoch milliseconds, or when it rang, or while paused, the milliseconds left. */
         final long value;
+        /**
+         * The name of the recipe that started it, when that is not the recipe open now and its name is known, or empty.
+         * Its label names only the step, and step 3 of one recipe must not read as step 3 of the next.
+         */
+        final String from;
 
-        Timer(int id, String label, int total, State state, int left, String recipe, int step, long value) {
+        Timer(int id, String label, int total, State state, int left, String recipe, int step, long value, String from) {
             this.id = id;
             this.label = label;
             this.total = total;
@@ -35,6 +40,12 @@ final class Timers {
             this.recipe = recipe;
             this.step = step;
             this.value = value;
+            this.from = from;
+        }
+
+        /** The label with the recipe in front when it is another one, for the words that show no recipe of their own. */
+        String shown() {
+            return from.isEmpty() ? label : from + " · " + label;
         }
     }
 
@@ -50,6 +61,8 @@ final class Timers {
         final String label;
         final int total;
         final String recipe;
+        /** Only for the eye, so it is not saved: the snapshot has no room for it. Empty when it is not known. */
+        final String recipeName;
         final int step;
         State state = State.RUNNING;
         /** While running, when it rings in epoch milliseconds. */
@@ -63,11 +76,12 @@ final class Timers {
         /** While ringing, when it started to. */
         long rangAt;
 
-        Entry(int id, String label, int total, String recipe, int step) {
+        Entry(int id, String label, int total, String recipe, String recipeName, int step) {
             this.id = id;
             this.label = label;
             this.total = total;
             this.recipe = recipe;
+            this.recipeName = recipeName;
             this.step = step;
         }
     }
@@ -78,18 +92,18 @@ final class Timers {
     private boolean moved;
 
     /** Start a timer and return its id, or 0 when MAX timers already exist. */
-    int start(String label, int seconds, String recipe, int step, long now) {
+    int start(String label, int seconds, String recipe, String recipeName, int step, long now) {
         if (seconds <= 0 || entries.size() >= MAX) return 0;
-        Entry entry = new Entry(nextId++, label, seconds, recipe, step);
+        Entry entry = new Entry(nextId++, label, seconds, recipe, recipeName, step);
         entry.endsAt = now + seconds * 1000L;
         entries.add(entry);
         return entry.id;
     }
 
     /** Bring back a timer from before a restart: running until value, or paused with value milliseconds left. */
-    int restore(String label, int total, boolean paused, long value, String recipe, int step) {
+    int restore(String label, int total, boolean paused, long value, String recipe, String recipeName, int step) {
         if (entries.size() >= MAX) return 0;
-        Entry entry = new Entry(nextId++, label, total, recipe, step);
+        Entry entry = new Entry(nextId++, label, total, recipe, recipeName, step);
         if (paused) {
             entry.state = State.PAUSED;
             entry.remaining = value;
@@ -207,7 +221,7 @@ final class Timers {
             if (entry.state == State.RUNNING && entry.endsAt <= now) {
                 entry.state = State.RINGING;
                 entry.rangAt = now;
-                rang.add(snapshot(entry, now));
+                rang.add(snapshot(entry, now, null));
             }
         }
         return rang;
@@ -234,8 +248,13 @@ final class Timers {
 
     /** Ringing first, then by time left, so the most urgent is first. */
     List<Timer> list(long now) {
+        return list(now, null);
+    }
+
+    /** The same, with the recipe open now, so that the timers of any other recipe say which one they belong to. */
+    List<Timer> list(long now, String current) {
         List<Timer> list = new ArrayList<>();
-        for (Entry entry : entries) list.add(snapshot(entry, now));
+        for (Entry entry : entries) list.add(snapshot(entry, now, current));
         Collections.sort(list, (a, b) -> {
             if (a.state == State.RINGING || b.state == State.RINGING) {
                 if (a.state != b.state) return a.state == State.RINGING ? -1 : 1;
@@ -255,7 +274,7 @@ final class Timers {
         return null;
     }
 
-    private static Timer snapshot(Entry entry, long now) {
+    private static Timer snapshot(Entry entry, long now, String current) {
         long millis;
         long value;
         if (entry.state == State.RUNNING) {
@@ -269,6 +288,7 @@ final class Timers {
             value = entry.rangAt;
         }
         int left = (int) ((millis + 999) / 1000);
-        return new Timer(entry.id, entry.label, entry.total, entry.state, left, entry.recipe, entry.step, value);
+        String from = current != null && !entry.recipe.equals(current) ? entry.recipeName : "";
+        return new Timer(entry.id, entry.label, entry.total, entry.state, left, entry.recipe, entry.step, value, from);
     }
 }

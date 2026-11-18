@@ -258,6 +258,7 @@ public final class CookTest {
         stepTimers();
         finishing();
         switching();
+        otherRecipe();
         settingsChange();
         readingBusy();
         clockBehind();
@@ -1832,6 +1833,32 @@ public final class CookTest {
         net.runAll();
         assert !cook.cooking() && host.triggers.contains("cookingFinished") && "Soup".equals(ui.model.recipeName) && ui.model.page == Model.Page.RECIPE;
         assert Boolean.FALSE.equals(host.entities.get("cooking")) && "".equals(host.entities.get("recipe")) : "Home Assistant hears at once";
+    }
+
+    /** A timer started in one recipe says so while another is open. Its label, which Home Assistant hears, stays as it was. */
+    static void otherRecipe() {
+        fresh(settings());
+        cooking();
+        cook.startTimer("5 min", 300);
+        assert cook.timers().get(0).from.isEmpty() && "Step 1 · 5 min".equals(cook.timers().get(0).shown());
+        Recipe pancakes = source.recipe;
+        source.recipe = new Recipe("8", "Soup", "", "", 2, "", 5, 0, "", "", Collections.<Recipe.Step>emptyList());
+        cook.home();
+        cook.openRecipe(new RecipeSource.Summary("8", "Soup", "", 45));
+        net.runAll();
+        assert "Soup".equals(ui.model.recipeName) && cook.timers().size() == 1;
+        Timers.Timer timer = cook.timers().get(0);
+        assert "Pancakes".equals(timer.from) && "Pancakes · Step 1 · 5 min".equals(timer.shown()) : timer.shown();
+        assert "Step 1 · 5 min".equals(timer.label) && "7".equals(timer.recipe);
+        assert "Step 1 · 5 min 11:05".equals(nextTimer(11, 5)) : host.entities.get("next_timer");
+        // A timer started here belongs here, and back in its own recipe the first one names none.
+        cook.startTimer("Soup timer", 60);
+        for (Timers.Timer each : cook.timers()) assert each.from.equals("7".equals(each.recipe) ? "Pancakes" : "") : each.shown();
+        source.recipe = pancakes;
+        cook.home();
+        cook.openRecipe(new RecipeSource.Summary("7", "Pancakes", "", 30));
+        net.runAll();
+        for (Timers.Timer each : cook.timers()) assert each.from.equals("8".equals(each.recipe) ? "Soup" : "") : each.shown();
     }
 
     static void settingsChange() {

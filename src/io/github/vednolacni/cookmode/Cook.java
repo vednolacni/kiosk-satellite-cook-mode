@@ -287,7 +287,8 @@ final class Cook implements Ui.Actions {
         int missed = 0;
         for (Snapshot.SavedTimer timer : saved.timers) {
             if (!timer.paused && now - timer.value > LATE_RING_MS) missed++;
-            else timers.restore(timer.label, timer.total, timer.paused, timer.value, timer.recipe, timer.step);
+            // Only the recipe being cooked has its name saved, so only its timers get it back.
+            else timers.restore(timer.label, timer.total, timer.paused, timer.value, timer.recipe, !timer.recipe.isEmpty() && timer.recipe.equals(saved.recipe) ? saved.name : "", timer.step);
         }
         // KS may have answered late. A recipe opened in the meantime is the one that counts now.
         boolean taken = recipe != null || recipeLoading || !recipeId.isEmpty();
@@ -1035,7 +1036,7 @@ final class Cook implements Ui.Actions {
         updateDock();
     }
 
-    /** Forget the recipe being cooked. Timers keep running: they name their own recipe. */
+    /** Forget the recipe being cooked. Timers keep running, and while another recipe is open they show the name of their own. */
     private void endSession() {
         boolean was = cooking || resume != null || stash != null || waitingAside != null;
         forget();
@@ -1386,7 +1387,8 @@ final class Cook implements Ui.Actions {
 
     @Override public synchronized void startTimer(String label, int seconds) {
         if (host == null) return;
-        int id = timers.start(timerName(label), seconds, recipeId, page == Model.Page.STEP ? pageIndex : -1, clock.millis());
+        String name = recipeId.isEmpty() ? "" : recipe != null ? recipe.name : recipeName;
+        int id = timers.start(timerName(label), seconds, recipeId, name, page == Model.Page.STEP ? pageIndex : -1, clock.millis());
         if (id == 0) {
             banner = strings.tooManyTimers;
             bannerOwner = Trouble.TIMERS;
@@ -1477,7 +1479,7 @@ final class Cook implements Ui.Actions {
 
     @Override public synchronized List<Timers.Timer> timers() {
         if (host != null) followClock();
-        return timers.list(clock.millis());
+        return timers.list(clock.millis(), recipeId);
     }
 
     /** Setting the tablet's clock moves no timer, and shows that one from before a restart ended long ago. */

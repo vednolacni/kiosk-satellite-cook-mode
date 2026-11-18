@@ -115,7 +115,8 @@ final class DockView extends LinearLayout {
             String clock = Durations.clock(soonest.left);
             time.setText(waiting > 1 ? clock + "  +" + (waiting - 1) : clock);
             time.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, TIME_SP);
-            name.setText(cooking.isEmpty() ? soonest.label : cooking);
+            // A clock under the name of another recipe than its own would be read as that recipe's, so it names its own.
+            name.setText(!soonest.from.isEmpty() ? soonest.from : cooking.isEmpty() ? soonest.label : cooking);
         } else {
             time.setText(strings.cooking);
             time.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, WORD_SP);

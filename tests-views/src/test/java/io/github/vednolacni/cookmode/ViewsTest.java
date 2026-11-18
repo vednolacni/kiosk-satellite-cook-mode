@@ -2555,6 +2555,49 @@ public final class ViewsTest {
         shot("dock-ringing");
     }
 
+    /** A timer left running in one recipe names that recipe while another is cooked, on the strip, in the sheet and in the dock. */
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aTimerFromAnotherRecipeNamesItsOwn() {
+        begin("other-recipe", true, settings("English"));
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        cook.startTimer("Sauce", 600);
+        settle();
+        cook.home();
+        cook.openRecipe(new RecipeSource.Summary("2", "Palačinke", "", 20));
+        settle();
+        tap(find(s.startCooking));
+        cook.startTimer("Batter", 1200);
+        settle();
+        TextView from = find("Goveji golaž");
+        assertNotNull("the strip names the timer's own recipe", from);
+        assertEquals(theme.color("onSurfaceVariant"), from.getCurrentTextColor());
+        assertNotNull("its step is still there beside it", find(s.stepWord + " 1 · Sauce"));
+        assertNotNull(find(s.stepWord + " 1 · Batter"));
+        assertEquals("the recipe's own timer names none", 1, count(content, text -> text.equals("Goveji golaž")));
+        shot("step");
+        tap(described(s.timers));
+        assertEquals("the sheet names it too", 2, count(content, text -> text.equals("Goveji golaž")));
+        shot("sheet");
+        View dock = closeToDock();
+        assertNotNull(findText(dock, text -> text.equals(Durations.clock(600) + "  +1")));
+        assertNotNull("the dock names the soonest timer's own recipe", findText(dock, text -> text.equals("Goveji golaž")));
+        assertNull("not the one open now", findText(dock, text -> text.startsWith("Palačinke")));
+        shot("dock");
+    }
+
+    /** How many texts a person could see that match. */
+    private static int count(View view, Words words) {
+        if (view.getVisibility() != View.VISIBLE) return 0;
+        int found = view instanceof TextView && words.match(((TextView) view).getText().toString()) ? 1 : 0;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) found += count(group.getChildAt(i), words);
+        }
+        return found;
+    }
+
     /** Closes the main view and waits for the dock KS builds in its place. */
     private View closeToDock() {
         cook.execute("closeCookMode");

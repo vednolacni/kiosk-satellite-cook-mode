@@ -163,7 +163,7 @@ Roughly in order of how much they would help.
    - gestures and their toasts
    - scrolling the recipe grid on a weak panel
    - a three-hour soak for memory
-2. **Two recipes at once.** Opening another recipe asks first and then forgets the first one's place, though its timers run on. A main and a side dish deserve a list of recipes in progress.
+2. **Two recipes at once.** Opening another recipe asks first and then forgets the first one's place, though its timers run on and name their own recipe on the strip, in the sheet and in the dock. That name is not saved, as the snapshot has no room for it, so after a restart only the timers of the recipe being cooked have it. A main and a side dish deserve a list of recipes in progress.
 3. **A question before the screen rests.** "Still cooking?" a minute before the idle limit, so the screensaver does not surprise anyone.
 4. **An alarm over everything.** With the panel closed the dock now turns red while a timer rings, over the dashboard and the screensaver: 0:00 large on top, "Time is up" below it and a Stop button. Otherwise its top line is the soonest timer's time, large enough to read from the stove, with +N for the other timers, and below it what is cooking or that timer's name. A black screensaver still hides the red dock until the ring ends that screensaver. A full-screen alarm overlay would be harder to miss, at the cost of seconds to build it on a slow tablet.
 5. **Smarter choice of today's meal.** By the meal type's name when it has no time, and leading with tomorrow in the evening, so there is time to thaw or soak.

@@ -45,10 +45,10 @@ public final class TimersTest {
         TestClock clock = new TestClock();
         Timers timers = new Timers();
         long now = clock.millis();
-        int pasta = timers.start("Pasta", 600, "12", 2, now);
-        int sauce = timers.start("Sauce", 90, "12", 3, now);
+        int pasta = timers.start("Pasta", 600, "12", "", 2, now);
+        int sauce = timers.start("Sauce", 90, "12", "", 3, now);
         assert pasta > 0 && sauce > pasta && timers.any() && !timers.ringing();
-        assert timers.start("Nothing", 0, "", -1, now) == 0;
+        assert timers.start("Nothing", 0, "", "", -1, now) == 0;
         assert timers.nextDue() == now + 90_000;
         List<Timers.Timer> list = timers.list(now);
         assert list.get(0).id == sauce && list.get(0).left == 90 && list.get(1).left == 600 && "12".equals(list.get(1).recipe) && list.get(1).step == 2;
@@ -76,7 +76,7 @@ public final class TimersTest {
         assert timers.dismissRinging() == 2 && !timers.any() && timers.nextDue() == -1;
 
         // One more minute: a ringing timer starts again and stops ringing.
-        int again = timers.start("Again", 30, "", -1, now);
+        int again = timers.start("Again", 30, "", "", -1, now);
         timers.due(now + 30_000);
         assert timers.ringing() && timers.add(again, 60, now + 40_000);
         assert !timers.ringing() && timers.nextDue() == now + 100_000 && timers.list(now + 40_000).get(0).left == 60;
@@ -84,11 +84,15 @@ public final class TimersTest {
 
         // A timer comes back after a restart, running to its end or paused with what was left.
         Timers restored = new Timers();
-        int running = restored.restore("Sauce", 600, false, now + 300_000, "7", 2);
-        int paused = restored.restore("Rest", 120, true, 60_000, "7", 2);
+        int running = restored.restore("Sauce", 600, false, now + 300_000, "7", "Soup", 2);
+        int paused = restored.restore("Rest", 120, true, 60_000, "7", "Soup", 2);
         assert running > 0 && paused > 0 && restored.nextDue() == now + 300_000;
         assert restored.list(now).get(0).state == Timers.State.PAUSED && restored.list(now).get(0).left == 60 && restored.list(now).get(0).value == 60_000;
         assert restored.list(now).get(1).left == 300 && restored.list(now).get(1).value == now + 300_000 && "7".equals(restored.list(now).get(1).recipe);
+        // Its recipe's name shows only while another recipe is open, and the label itself never changes.
+        assert restored.list(now, "7").get(1).from.isEmpty() && "Sauce".equals(restored.list(now, "7").get(1).shown());
+        assert "Soup".equals(restored.list(now, "8").get(1).from) && "Soup · Sauce".equals(restored.list(now, "8").get(1).shown());
+        assert "Sauce".equals(restored.list(now, "8").get(1).label) && restored.list(now).get(1).from.isEmpty();
 
         // What is saved fits a setting, however long the labels. Labels shorten first, then the furthest timers go.
         List<Snapshot.SavedTimer> many = new ArrayList<>();
@@ -103,8 +107,8 @@ public final class TimersTest {
         assert few.recipe.isEmpty() && few.timers.size() == 1 && "Žemlje".equals(few.timers.get(0).label) && few.timers.get(0).paused && few.timers.get(0).value == 5000 && few.timers.get(0).step == -1;
 
         // At most MAX timers, and cancel removes one.
-        for (int i = 0; i < Timers.MAX; i++) assert timers.start("T" + i, 60, "", -1, now) > 0;
-        assert timers.start("One too many", 60, "", -1, now) == 0;
+        for (int i = 0; i < Timers.MAX; i++) assert timers.start("T" + i, 60, "", "", -1, now) > 0;
+        assert timers.start("One too many", 60, "", "", -1, now) == 0;
         int first = timers.list(now).get(0).id;
         assert timers.cancel(first) && !timers.cancel(first) && timers.list(now).size() == Timers.MAX - 1;
         timers.clear();

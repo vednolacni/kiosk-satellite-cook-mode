@@ -48,7 +48,7 @@ interface Ui extends Awake.Scheduler {
         void touched();
         /** The dock was tapped: back to the main view. */
         void openFromDock();
-        /** Every timer as it stands now, for the views' once-a-second tick. */
+        /** Every timer as it stands now, for the views' once-a-second tick. Those of another recipe than the open one name it in from. */
         List<Timers.Timer> timers();
         /** Something on the tablet does not work, such as its voice. Goes to the plugin page. */
         void problem(String message);

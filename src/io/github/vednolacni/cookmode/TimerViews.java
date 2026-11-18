@@ -22,6 +22,8 @@ import java.util.List;
 final class TimerViews {
     private static final int[] PRESET_MINUTES = {1, 2, 3, 5, 8, 10, 15, 20, 30, 45, 60, 90};
     private static final int SHEET_WIDTH_DP = 560;
+    /** Enough of another recipe's name to tell it apart, so the step and the clock beside it keep their room. */
+    private static final int FROM_WIDTH_DP = 96;
 
     private final Parts parts;
     private final Ui.Actions actions;
@@ -170,9 +172,15 @@ final class TimerViews {
                 pill.setBackground(parts.ripple(parts.theme().color(rings ? "surfaceContainerHighest" : "surfaceContainerHigh"), 100));
                 pill.setPadding(parts.px(14), parts.px(6), parts.px(14), parts.px(6));
                 pill.setMinimumHeight(parts.px(44));
+                if (!timer.from.isEmpty()) {
+                    // The recipe is cut short before the step is, and the clock never.
+                    TextView from = parts.text(timer.from, 14, 700, "onSurfaceVariant", 1);
+                    from.setMaxWidth(parts.px(FROM_WIDTH_DP));
+                    pill.addView(from, parts.wrap());
+                }
                 TextView label = parts.text(timer.label, 14, 500, "onSurfaceVariant", 1);
                 label.setMaxWidth(parts.px(200));
-                pill.addView(label, parts.wrap());
+                pill.addView(label, timer.from.isEmpty() ? parts.wrap() : parts.after(6));
                 boolean paused = timer.state == Timers.State.PAUSED;
                 // Read from the stove, so large. At this size a ringing time in error is large text and passes 3:1.
                 TextView time = parts.text("", 28, 700, rings ? "error" : paused ? "onSurfaceVariant" : "onSurface", 1);
@@ -214,6 +222,8 @@ final class TimerViews {
     private View sheetRow(Timers.Timer timer) {
         LinearLayout row = parts.row();
         LinearLayout words = parts.column();
+        // Another recipe's timer says which on a line of its own, so its step keeps both of its lines.
+        if (!timer.from.isEmpty()) words.addView(parts.text(timer.from, 14, 700, "onSurfaceVariant", 1), parts.wide());
         words.addView(parts.text(timer.label, 14, 500, "onSurfaceVariant", 2), parts.wide());
         boolean paused = timer.state == Timers.State.PAUSED;
         TextView time = parts.text("", 30, 700, paused ? "onSurfaceVariant" : "onSurface", 1);
@@ -273,7 +283,7 @@ final class TimerViews {
         for (Timers.Timer timer : timers) {
             if (timer.state != Timers.State.RINGING) continue;
             if (labels.length() > 0) labels.append('\n');
-            labels.append(timer.label);
+            labels.append(timer.shown());
         }
         alarm.setVisibility(labels.length() > 0 ? View.VISIBLE : View.GONE);
         alarmLabels.setText(labels);
@@ -285,10 +295,10 @@ final class TimerViews {
 
     // Shared.
 
-    /** The timers in order with their states. The numbers change without it. */
+    /** The timers in order with their states and whose they are, which opening another recipe changes. The numbers change without it. */
     private static String key(List<Timers.Timer> timers) {
         StringBuilder key = new StringBuilder();
-        for (Timers.Timer timer : timers) key.append(timer.id).append(timer.state.ordinal()).append(',');
+        for (Timers.Timer timer : timers) key.append(timer.id).append(timer.state.ordinal()).append(timer.from).append(',');
         return key.toString();
     }
 
