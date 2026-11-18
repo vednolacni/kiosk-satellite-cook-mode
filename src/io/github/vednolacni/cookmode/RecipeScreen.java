@@ -99,16 +99,11 @@ final class RecipeScreen implements Screen {
         int pictureHeight = Math.max(parts.px(PICTURE_LEAST_DP), Math.min(most, heightPx * share / 100));
         summary.addView(picture, new LinearLayout.LayoutParams(Parts.MATCH, pictureHeight));
         summary.addView(name, parts.wide(14));
-        if (shortScreen) {
-            // A night's soaking, found only by scrolling, is found too late, so on a short screen it comes before the rest.
-            summary.addView(hints, parts.wide(8));
-            summary.addView(description, parts.wide(8));
-            summary.addView(times, parts.wide(8));
-        } else {
-            summary.addView(description, parts.wide(6));
-            summary.addView(times, parts.wide(8));
-            summary.addView(hints, parts.wide(8));
-        }
+        // A night's soaking, found only by scrolling, is found too late, so the hints come right under the name, before
+        // the description. The taller picture beside the ingredients would otherwise push them out of view.
+        summary.addView(hints, parts.wide(8));
+        summary.addView(description, parts.wide(8));
+        summary.addView(times, parts.wide(8));
         list.addView(ingredientsTitle, parts.wide(wide ? 4 : 16));
         list.addView(status, parts.wide(8));
         list.addView(ingredients.view(), parts.wide(6));

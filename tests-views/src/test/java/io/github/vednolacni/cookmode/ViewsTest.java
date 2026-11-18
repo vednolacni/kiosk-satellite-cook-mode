@@ -433,7 +433,8 @@ public final class ViewsTest {
         assertNotNull(find("1 h 30 min"));
         assertNotNull(find("180 °C"));
         // A night's soaking is seen before starting, also on a small tablet, where it comes before the description.
-        if (prefix.startsWith("small")) assertInView(find(s.overnight));
+        // The overnight warning is in view on every screen, not only by scrolling.
+        assertInView(find(s.overnight));
         // The photo is rounded like KS's cards. Beside the ingredients on a screen of usual height it is taller, and a
         // short or narrow screen keeps it smaller.
         ImageView photo = pictureBeside(find("Goveji golaž"));
