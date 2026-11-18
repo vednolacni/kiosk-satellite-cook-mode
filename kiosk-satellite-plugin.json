@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "cook-mode",
   "name": "Cook Mode",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "apiVersion": 1,
   "minAndroidSdk": 26,
   "minAppVersion": "2026.10.42",

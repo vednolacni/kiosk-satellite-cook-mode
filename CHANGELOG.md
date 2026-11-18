@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0
+
+A clearer kitchen screen, checked with three design reviews.
+
+- **Added** a Look setting. Warm kitchen gives the panel a cream or deep brown ground and a herb green, after Norish's look. The timer card over the dashboard keeps the kiosk's colors.
+- **Changed** the timer card over the dashboard: the time comes first and large, with +N for more timers, and the card turns red with Stop when a timer rings. It showed a fifth and sixth timer it meant to leave out.
+- **Changed** the timer sheet: delete is a bin set apart from pause, and a paused timer says so.
+- **Changed** contrast throughout: text buttons, ingredient rings, the selected filter, meal types and the step previews read at 4.5:1, or 3:1 for marks.
+- **Changed** the recipe page: a larger rounded photo, the overnight, long-wait and oven warnings right under the name, and units in their own color. The step shows its number in a circle and a rounded progress bar.
+- **Changed** short screens keep the search results, warnings and End cooking in view.
+- **Changed** a timer left running in another recipe names that recipe.
+- **Fixed** TalkBack: the plus and minus buttons work with it, keys and servings buttons have names, ticked ingredients say so, and a step's timers can be started from it.
+- **Fixed** scaled spoon amounts round to eighths, so no more 0,63.
+
 ## 0.1.0
 
 The first release.
