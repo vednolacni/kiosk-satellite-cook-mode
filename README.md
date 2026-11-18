@@ -122,7 +122,7 @@ With **Mealie**:
 2. Open your profile from the menu, choose **API Tokens**, give the token a name, generate it and copy it at once. Mealie shows it only once.
 3. Paste it into **API token or key** and press **Test** on the **Test connection** row.
 
-Mealie v2.3 or newer is needed, and Test connection says when the server is older. Mealie runs only at the root of an address, such as `http://192.168.1.20:9000`, so a path after it is left out, and Test connection says so. Mealie keeps no list of opened recipes, so the recent list is what the household made last. Units and foods show as Mealie keeps them, since it does not translate them. A meal planned at a multiple of its recipe, from Mealie 3.29, opens at that many servings, and a meal for a whole week, from 3.30, shows on each of its days. A step's own time, from 3.30, is that step's timer.
+Mealie v2.3 or newer is needed, and Test connection says when the server is older. Mealie runs only at the root of an address, such as `http://192.168.1.20:9000`, so a path after it is left out, and Test connection says so. Mealie keeps no list of opened recipes, so the recent list is what the household made last. Units and foods show as Mealie keeps them, since it does not translate them. A meal planned at a multiple of its recipe, from Mealie 3.29, opens at that many servings, and a recipe that says no servings counts as one, which is the multiple Mealie scales it by. A meal for a whole week, from 3.30, shows on each of its days. A step's own time, from 3.30, is that step's timer, and the notes a step names follow its words. A meal recorded as made on a later day than now, such as on another tablet since, stays as it is.
 
 ### When Test connection fails
 
@@ -140,6 +140,7 @@ Mealie v2.3 or newer is needed, and Test connection says when the server is olde
 | Something in front of Norish answered HTTP 502 | Norish is stopped or still starting behind its proxy. The plugin tries again. |
 | Mealie refused the API token | Create a new token under your profile > **API Tokens** and copy it at once. A token deleted in Mealie stops working. |
 | Cook Mode needs Mealie v2.3 or newer | Update Mealie. |
+| Mealie does not let the token's user change this recipe | Recording the meal needs a user who may change recipes. Give the token's user that right in Mealie, or set **Record the meal** to **Never**. |
 | Mealie, or something in front of it, answered HTTP 502 | Mealie is stopped or still starting, or failed on that request, which its own logs show. The plugin tries again. |
 | Mealie runs only at the root of an address | Not a failure: the path after the address was left out. Mealie cannot be served under a path, so give it a host or a port of its own. |
 | The address answered with a web page, or sent the request on | Check the address, with Norish's base path if it has one. A login page in front of the app needs an address that goes around it. The token or key is never sent on to another server. |
@@ -162,7 +163,7 @@ Opening one recipe can also say it is private and not shared with the token's us
 | Action | What it does |
 | --- | --- |
 | Open Cook Mode, Close Cook Mode, Toggle Cook Mode | The panel. Opening wakes the screen and closes the screensaver. |
-| Cook today's meal | Goes straight to the next meal planned today, reading the plan first when what it has is more than five minutes old, so a meal changed meanwhile counts. Norish's and Mealie's meals have no time, so they count as breakfast at 8:00, lunch at 12:00, dinner at 18:00 and a snack at 21:00. Mealie's other types count as a side right after dinner, a dessert at 19:00 and a drink after the day's meals. |
+| Cook today's meal | Goes straight to the next meal planned today, reading the plan first when what it has is more than five minutes old, so a meal changed meanwhile counts. Norish's and Mealie's meals have no time, so they count as breakfast at 8:00, lunch at 12:00, dinner at 18:00 and a snack at 21:00. Mealie's other types count as a side right after dinner, a dessert at 19:00 and a drink after the day's meals. A Mealie meal for the whole week is today's meal only when nothing else is planned today. |
 | Next step, Previous step | Move through the recipe. On the first page Next opens today's meal. With the panel closed or under a screensaver, the first one only brings it back. A ringing timer comes first, and the panel comes back after it is cleared. |
 | Read step | Reads the current step aloud. |
 | Start the step's timer | Starts the first of the step's timers that does not run yet. |

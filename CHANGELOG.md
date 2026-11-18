@@ -4,7 +4,9 @@
 
 - **Added** Mealie from v2.3 on, as the third recipe app. Its meal plan comes with all seven meal types named in English and Slovenian, notes, meals planned at a multiple of their recipe and meals for a whole week. Recently made lists what the household cooked last. A recipe brings its ingredient list with sections, each step's own lines and timer, and its times. Test connection says when Mealie is too old, and when a path after its address was left out, since Mealie runs only at the root of one.
 - **Added** recording a meal in Mealie as the recipe's last made day, only when that is later than the day it has. The setting is now called Record the meal in Tandoor or Mealie.
-- **Changed** a picture Mealie replaces is fetched again, though its address stays the same.
+- **Changed** a picture Mealie replaces is fetched again, though its address stays the same. What follows a `#` in an address is never sent, also not to a proxy.
+- **Fixed** a recipe looked at for one planned meal and then opened for another meal with other servings, which kept the first meal's servings.
+- **Fixed** a message about a redirect to another server named any user name and password in its address.
 
 ## 0.2.0
 
