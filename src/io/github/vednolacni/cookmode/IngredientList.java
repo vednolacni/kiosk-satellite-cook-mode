@@ -3,6 +3,9 @@ package io.github.vednolacni.cookmode;
 
 import android.graphics.Paint;
 import android.graphics.drawable.GradientDrawable;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -35,13 +38,16 @@ final class IngredientList {
 
     private final Parts parts;
     private final Ui.Actions actions;
+    private final String ground;
     private final LinearLayout view;
     private final List<Row> rows = new ArrayList<>();
     private Recipe shown;
 
-    IngredientList(Parts parts, Ui.Actions actions) {
+    /** The list on a ground of that color role, which decides the color its units can take. */
+    IngredientList(Parts parts, Ui.Actions actions, String ground) {
         this.parts = parts;
         this.actions = actions;
+        this.ground = ground;
         view = parts.column();
     }
 
@@ -54,7 +60,17 @@ final class IngredientList {
             shown = model.recipe;
             build(model.ingredients);
         }
-        for (Row row : rows) update(row, model);
+        int unit = unitColor();
+        for (Row row : rows) update(row, model, unit);
+    }
+
+    /**
+     * The units stand out from the amounts in the secondary teal or green, which KS lifts for text. Where it reads under
+     * 4.5:1 on the list's ground, as on the dark card beside the steps in KS's colors, they keep the quieter onSurfaceVariant.
+     */
+    private int unitColor() {
+        int accent = parts.theme().color("secondary");
+        return Parts.contrast(accent, parts.theme().color(ground)) >= 4.5 ? accent : parts.theme().color("onSurfaceVariant");
     }
 
     private void build(List<Recipe.Ingredient> ingredients) {
@@ -97,9 +113,9 @@ final class IngredientList {
         return line;
     }
 
-    private void update(Row row, Model model) {
+    private void update(Row row, Model model, int unit) {
         boolean checked = model.checked.contains(row.ingredient);
-        row.measure.setText(row.ingredient.measure(model.factor, model.strings.decimalComma));
+        row.measure.setText(measure(row.ingredient, model, checked ? 0 : unit));
         row.name.setText(row.ingredient.name(model.factor));
         // A color rather than alpha: a change of alpha alone may not reach an overlay's screen.
         int color = parts.theme().color(checked ? "onSurfaceVariant" : "onSurface");
@@ -121,5 +137,17 @@ final class IngredientList {
         row.circle.setBackground(ring);
         row.circle.setImageDrawable(checked ? parts.icon("mdi:check", "onPrimary") : null);
         Parts.ticked(row.line, checked);
+    }
+
+    /** "800 g" with the unit in its own color, or all in the text's color when unit is 0, as for a ticked line. */
+    private static CharSequence measure(Recipe.Ingredient ingredient, Model model, int unit) {
+        String measure = ingredient.measure(model.factor, model.strings.decimalComma);
+        String amount = ingredient.amountText(model.factor, model.strings.decimalComma);
+        // A measure with no number, such as a pinch, is all unit.
+        int from = amount.isEmpty() ? 0 : measure.startsWith(amount + " ") ? amount.length() + 1 : measure.length();
+        if (unit == 0 || from >= measure.length()) return measure;
+        SpannableString text = new SpannableString(measure);
+        text.setSpan(new ForegroundColorSpan(unit), from, measure.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return text;
     }
 }

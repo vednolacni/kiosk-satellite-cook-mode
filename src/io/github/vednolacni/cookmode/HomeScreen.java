@@ -242,7 +242,7 @@ final class HomeScreen implements Screen {
         TextView field = parts.text("", 16, 400, "onSurface", 1);
         field.setHint(strings.searchHint);
         field.setHintTextColor(parts.theme().color("onSurfaceVariant"));
-        field.setBackground(parts.ripple(parts.theme().color("surfaceContainerHigh"), parts.theme().radiusControl()));
+        field.setBackground(parts.field());
         field.setPadding(parts.px(14), parts.px(11), parts.px(14), parts.px(11));
         field.setMinHeight(parts.px(48));
         field.setGravity(Gravity.CENTER_VERTICAL);
@@ -516,14 +516,25 @@ final class HomeScreen implements Screen {
     private View cell(RecipeSource.Summary recipe) {
         LinearLayout cell = parts.column();
         cell.setBackground(parts.ripple(parts.theme().color("surfaceContainerHigh"), parts.theme().radiusRow()));
-        cell.setPadding(parts.px(8), parts.px(8), parts.px(8), parts.px(10));
-        ImageView picture = parts.picture(parts.theme().radiusControl());
+        // The photo runs to the cell's edges and the cell's own rounded corners cut it, so it gets the cell's whole width.
+        // A rounded outline clips on every Android this runs on, which a picture rounded at its top only would not.
+        cell.setClipToOutline(true);
+        cell.setPadding(0, 0, 0, parts.px(10));
+        ImageView picture = parts.picture(0);
         images.load(picture, recipe.image, actions::imageHeaders, parts.px(CELL_WIDTH_DP));
         cell.addView(picture, new LinearLayout.LayoutParams(Parts.MATCH, parts.px(112)));
-        cell.addView(parts.text(recipe.name, 15, 600, "onSurface", 2), parts.wide(8));
-        if (recipe.minutes > 0) cell.addView(parts.text(recipe.minutes + " min", 13, 400, "onSurfaceVariant", 1), parts.wide(2));
+        cell.addView(parts.text(recipe.name, 15, 600, "onSurface", 2), inCell(8));
+        if (recipe.minutes > 0) cell.addView(parts.text(recipe.minutes + " min", 13, 400, "onSurfaceVariant", 1), inCell(2));
         Parts.onTap(cell, () -> actions.openRecipe(recipe));
         return cell;
+    }
+
+    /** The words under a cell's photo keep off its edges. */
+    private LinearLayout.LayoutParams inCell(int topDp) {
+        LinearLayout.LayoutParams at = parts.wide(topDp);
+        at.setMarginStart(parts.px(10));
+        at.setMarginEnd(parts.px(10));
+        return at;
     }
 
     private ScrollView scroller(View content) {

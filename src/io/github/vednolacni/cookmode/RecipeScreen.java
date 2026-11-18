@@ -16,6 +16,12 @@ final class RecipeScreen implements Screen {
     private static final int PICTURE_SHARE_PERCENT = 24;
     private static final int PICTURE_LEAST_DP = 110;
     private static final int PICTURE_MOST_DP = 240;
+    /**
+     * Beside the ingredients, on a screen wide enough for two columns, the picture's column has room for the words under a
+     * taller picture, so it takes more height there. A short screen keeps the smaller share.
+     */
+    private static final int WIDE_PICTURE_SHARE_PERCENT = 32;
+    private static final int WIDE_PICTURE_MOST_DP = 280;
     /** Below this height the summary shows little more than the picture and the name before it has to scroll. */
     private static final int SHORT_SCREEN_DP = 560;
 
@@ -59,7 +65,8 @@ final class RecipeScreen implements Screen {
         header.addView(parts.iconButton("mdi:close", strings.close, "onSurface", 48, actions::close), gapped(48));
         page.addView(header, parts.wide());
 
-        picture = parts.picture(parts.theme().radiusRow());
+        // Rounded like KS's cards, as it stands alone at the top of the page.
+        picture = parts.picture(parts.theme().radiusCard());
         name = parts.text("", 26, 700, "onSurface", 3);
         description = parts.text("", 15, 400, "onSurfaceVariant", 3);
         times = parts.text("", 15, 500, "onSurfaceVariant", 2);
@@ -79,16 +86,20 @@ final class RecipeScreen implements Screen {
 
         status = parts.text("", 16, 400, "onSurfaceVariant", 0);
         ingredientsTitle = parts.text(strings.ingredients, 18, 700, "onSurface", 1);
-        ingredients = new IngredientList(parts, actions);
+        ingredients = new IngredientList(parts, actions, "surface");
         start = parts.pill(strings.startCooking, true, actions::startCooking);
         start.setMinHeight(parts.px(64));
 
         LinearLayout summary = parts.column();
         LinearLayout list = parts.column();
-        int pictureHeight = Math.max(parts.px(PICTURE_LEAST_DP), Math.min(parts.px(PICTURE_MOST_DP), heightPx * PICTURE_SHARE_PERCENT / 100));
+        boolean shortScreen = heightPx < parts.px(SHORT_SCREEN_DP);
+        boolean larger = wide && !shortScreen;
+        int share = larger ? WIDE_PICTURE_SHARE_PERCENT : PICTURE_SHARE_PERCENT;
+        int most = parts.px(larger ? WIDE_PICTURE_MOST_DP : PICTURE_MOST_DP);
+        int pictureHeight = Math.max(parts.px(PICTURE_LEAST_DP), Math.min(most, heightPx * share / 100));
         summary.addView(picture, new LinearLayout.LayoutParams(Parts.MATCH, pictureHeight));
         summary.addView(name, parts.wide(14));
-        if (heightPx < parts.px(SHORT_SCREEN_DP)) {
+        if (shortScreen) {
             // A night's soaking, found only by scrolling, is found too late, so on a short screen it comes before the rest.
             summary.addView(hints, parts.wide(8));
             summary.addView(description, parts.wide(8));

@@ -265,6 +265,18 @@ final class Parts {
         return new RippleDrawable(ColorStateList.valueOf(Color.argb(31, Color.red(on), Color.green(on), Color.blue(on))), fill, mask);
     }
 
+    /**
+     * KS's text field, as its input decoration draws one: white in the light theme and its tonal fill in the dark one, with
+     * a hairline in outlineVariant in both. The search field is no card, and this sets it apart from the rows around it.
+     */
+    Drawable field() {
+        int on = theme.color("onSurface");
+        GradientDrawable fill = round(theme.color(theme.isDark() ? "surfaceContainerHigh" : "surfaceContainerLowest"), theme.radiusControl());
+        fill.setStroke(Math.max(1, px(1)), theme.color("outlineVariant"));
+        GradientDrawable mask = round(Color.WHITE, theme.radiusControl());
+        return new RippleDrawable(ColorStateList.valueOf(Color.argb(31, Color.red(on), Color.green(on), Color.blue(on))), fill, mask);
+    }
+
     GradientDrawable round(int color, float radiusDp) {
         GradientDrawable shape = new GradientDrawable();
         shape.setColor(color);
@@ -288,6 +300,22 @@ final class Parts {
         }
         picture.setClipToOutline(true);
         return picture;
+    }
+
+    /** The WCAG 2 contrast ratio of two solid colors. */
+    static double contrast(int one, int other) {
+        double a = luminance(one);
+        double b = luminance(other);
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    }
+
+    private static double luminance(int color) {
+        return 0.2126 * channel(Color.red(color)) + 0.7152 * channel(Color.green(color)) + 0.0722 * channel(Color.blue(color));
+    }
+
+    private static double channel(int value) {
+        double c = value / 255.0;
+        return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
     }
 
     Drawable icon(String name, String role) {

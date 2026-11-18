@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package io.github.vednolacni.cookmode;
 
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
@@ -50,6 +51,9 @@ final class StepScreen implements Screen {
     private static final int STORY_PADDING_DP = 16;
     /** Next's label and arrow sit together this far apart, with the button's own padding as the least on each side. */
     private static final int NEXT_PADDING_DP = 20;
+    /** The step number's circle in the header, and the progress bar's thickness. */
+    private static final int NUMBER_DP = 36;
+    private static final int METER_DP = 6;
     /**
      * TalkBack's actions on the step's text that start its timers, one id for each timer in it. Android's own actions
      * are single bits up to 0x200000 or ids in its own resources, so these cannot be taken for one.
@@ -60,6 +64,7 @@ final class StepScreen implements Screen {
     private final Ui.Actions actions;
     private final View root;
     private final ImageView thumbnail;
+    private final TextView number;
     private final TextView name;
     private final TextView subtitle;
     private final TextView previousPeek;
@@ -134,6 +139,10 @@ final class StepScreen implements Screen {
         header.setPadding(parts.px(16), parts.px(10), parts.px(16), parts.px(6));
         thumbnail = parts.picture(parts.theme().radiusControl());
         header.addView(thumbnail, new LinearLayout.LayoutParams(parts.px(48), parts.px(48)));
+        number = stepNumber();
+        LinearLayout.LayoutParams numberAt = new LinearLayout.LayoutParams(Parts.WRAP, parts.px(NUMBER_DP));
+        numberAt.setMarginStart(parts.px(12));
+        header.addView(number, numberAt);
         LinearLayout titles = parts.column();
         name = parts.text("", 16, 700, "onSurface", 1);
         subtitle = parts.text("", 14, 500, "onSurfaceVariant", 1);
@@ -209,7 +218,7 @@ final class StepScreen implements Screen {
         middle.addView(swipes, new LinearLayout.LayoutParams(0, Parts.MATCH, 1));
 
         // All the ingredients, beside the step on a wide screen and over it on a narrow one.
-        ingredients = new IngredientList(parts, actions);
+        ingredients = new IngredientList(parts, actions, "surfaceContainerHigh");
         LinearLayout inner = parts.column();
         inner.setPadding(parts.px(20), parts.px(12), parts.px(16), parts.px(16));
         inner.addView(parts.text(strings.ingredients, 18, 700, "onSurface", 1), parts.wide());
@@ -223,13 +232,19 @@ final class StepScreen implements Screen {
         middle.addView(panel, panelAt);
         page.addView(middle, new LinearLayout.LayoutParams(Parts.MATCH, 0, 1));
 
-        // How far along, in a thin line above the bar.
+        // How far along, in a rounded bar above the tools. KS's teal stands only 2.67:1 from the track in the dark, so the
+        // bar is a second sign beside the step count under it, never the only one.
+        float rounded = METER_DP / 2f;
         meterTrack = parts.row();
-        meterTrack.setBackgroundColor(parts.theme().color("surfaceContainerHighest"));
+        meterTrack.setBackground(parts.round(parts.theme().color("surfaceContainerHighest"), rounded));
+        // The track's round ends also cut the filled part, which is square where it stops short of them.
+        meterTrack.setClipToOutline(true);
         meter = new View(parts.context());
-        meter.setBackgroundColor(parts.theme().color("primary"));
+        meter.setBackground(parts.round(parts.theme().color("primary"), rounded));
         meterTrack.addView(meter, new LinearLayout.LayoutParams(0, Parts.MATCH, 0));
-        page.addView(meterTrack, new LinearLayout.LayoutParams(Parts.MATCH, parts.px(4)));
+        LinearLayout.LayoutParams meterAt = new LinearLayout.LayoutParams(Parts.MATCH, parts.px(METER_DP));
+        meterAt.setMargins(parts.px(16), 0, parts.px(16), 0);
+        page.addView(meterTrack, meterAt);
 
         counter = parts.text("", 18, 700, "onSurface", 1);
         ready = parts.text("", 14, 400, "onSurfaceVariant", 1);
@@ -254,7 +269,8 @@ final class StepScreen implements Screen {
         tools.addView(panelButton, gapped(56));
 
         LinearLayout bar = parts.column();
-        bar.setPadding(parts.px(16), parts.px(10), parts.px(16), parts.px(12));
+        // Above the tools 8 dp, so with the 6 dp progress bar the step keeps its room on a short screen.
+        bar.setPadding(parts.px(16), parts.px(8), parts.px(16), parts.px(12));
         if (wide) {
             LinearLayout line = parts.row();
             line.addView(tools, parts.wrap());
@@ -293,6 +309,7 @@ final class StepScreen implements Screen {
         }
         subtitle.setText(model.stepTitle.isEmpty() ? strings.stepWord + " " + model.pageNumber : strings.stepWord + " " + model.pageNumber + " · " + model.stepTitle);
         counter.setText(model.pageNumber + " / " + model.pageCount);
+        number.setText(String.valueOf(model.pageNumber));
         ready.setText(model.readyAround);
         ready.setVisibility(model.readyAround.isEmpty() ? View.GONE : View.VISIBLE);
         String nextLabel = model.pageNumber >= model.pageCount ? strings.finish : strings.nextStep;
@@ -556,6 +573,25 @@ final class StepScreen implements Screen {
         panelButton.setBackground(parts.ripple(parts.theme().color(panelOpen ? "primary" : "surfaceContainerHigh"), 100));
         panelButton.setImageDrawable(parts.icon("mdi:format-list-checks", panelOpen ? "onPrimary" : "onSurface"));
         panelButton.setSelected(panelOpen);
+    }
+
+    /**
+     * The step's number in a teal circle, found at a glance from across the kitchen. White on KS's teal is 4.37:1, enough
+     * for large bold digits only, so they are 19 sp at weight 700, as in the filled buttons. The circle grows into a pill
+     * for a number of three digits. TalkBack hears the number in the words beside it, so the circle is not read twice.
+     */
+    private TextView stepNumber() {
+        TextView circle = parts.text("", 19, 700, "onPrimary", 1);
+        circle.setBackground(parts.round(parts.theme().color("primary"), 100));
+        circle.setGravity(Gravity.CENTER);
+        circle.setMinWidth(parts.px(NUMBER_DP));
+        circle.setPadding(parts.px(6), 0, parts.px(6), 0);
+        circle.setIncludeFontPadding(false);
+        // KS's typeface can draw wider than Android measures it, as on the pills, so a shadow that shows nothing keeps the
+        // last digit from being cut off at the measured edge.
+        circle.setShadowLayer(circle.getTextSize() / 2, 0, 0, Color.TRANSPARENT);
+        circle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        return circle;
     }
 
     private LinearLayout.LayoutParams gapped(int size) {

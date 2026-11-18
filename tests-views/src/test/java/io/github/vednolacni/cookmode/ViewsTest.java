@@ -21,6 +21,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.os.Handler;
@@ -28,6 +29,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.text.Layout;
 import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -325,6 +327,13 @@ public final class ViewsTest {
         assertNotNull(find(s.loadMore));
         shot("1-home");
         assertReadable("1-home");
+        // A recipe's photo runs to its cell's edges, and the cell's rounded corners cut it.
+        ImageView cellPhoto = pictureBeside(find("Ričet"));
+        View cell = (View) cellPhoto.getParent();
+        assertEquals(0, cellPhoto.getLeft());
+        assertEquals(0, cellPhoto.getTop());
+        assertEquals(cell.getWidth(), cellPhoto.getWidth());
+        assertTrue(cell.getClipToOutline());
 
         // The list: the next page, the other order, and a search that keeps its field and focus.
         tap(find(s.loadMore));
@@ -345,6 +354,8 @@ public final class ViewsTest {
         assertTrue(find(s.all).isSelected());
         // Searching with the plugin's own keys, whatever keyboard the kiosk has or lacks.
         TextView search = searchField();
+        // KS's own text field: white with a hairline in the light theme, its tonal fill in the dark one.
+        assertEquals(theme.color(dark ? "surfaceContainerHigh" : "surfaceContainerLowest"), (int) fill(search.getBackground()));
         assertNull(find(s.space));
         tap(search);
         assertNotNull(find(s.space));
@@ -423,6 +434,15 @@ public final class ViewsTest {
         assertNotNull(find("180 °C"));
         // A night's soaking is seen before starting, also on a small tablet, where it comes before the description.
         if (prefix.startsWith("small")) assertInView(find(s.overnight));
+        // The photo is rounded like KS's cards. Beside the ingredients on a screen of usual height it is taller, and a
+        // short or narrow screen keeps it smaller.
+        ImageView photo = pictureBeside(find("Goveji golaž"));
+        Drawable photoShape = photo.getBackground() instanceof LayerDrawable ? ((LayerDrawable) photo.getBackground()).getDrawable(0) : photo.getBackground();
+        assertEquals(theme.px(theme.radiusCard()), ((GradientDrawable) photoShape).getCornerRadius(), 0.5f);
+        if (prefix.startsWith("land") || prefix.startsWith("android8")) assertTrue("a taller photo", photo.getHeight() >= content.getHeight() * 30 / 100);
+        else assertTrue("a smaller photo", photo.getHeight() < content.getHeight() * 27 / 100);
+        // The unit stands out from the amount in the secondary teal, which reads on the page.
+        assertEquals(theme.color("secondary"), unitColor(find("800 g")));
         shot("2-recipe");
         assertReadable("2-recipe");
 
@@ -456,6 +476,7 @@ public final class ViewsTest {
         tap(find(s.startCooking));
         assertNotNull(find(s.nextStep));
         assertNotNull(find("1 / 7"));
+        assertEquals("the step's number in its circle", "1", stepNumber().getText().toString());
         assertEquals(Boolean.TRUE, host.entities.get("cooking"));
         assertTrue(host.triggers.contains("cookingStarted"));
         assertTrue(mainView().getKeepScreenOn());
@@ -505,6 +526,7 @@ public final class ViewsTest {
         tap(next);
         assertNotNull(containing("Dodaj meso"));
         assertNotNull(find("2 / 7"));
+        assertEquals("2", stepNumber().getText().toString());
         assertSame(next, find(s.nextStep));
         // With a timer's strip above the page, the step before takes one line and leaves the rest to this one.
         TextView peek = containing("Čebulo drobno");
@@ -557,6 +579,8 @@ public final class ViewsTest {
         assertTrue("the open list's button says so", described(s.ingredients).isSelected());
         shot("4-step-ingredients");
         assertReadable("4-step-ingredients");
+        // Beside the steps the unit stays quiet where the teal reads under 4.5:1 on the card, as in KS's dark colors.
+        assertEquals(theme.color(dark ? "onSurfaceVariant" : "secondary"), unitColor(find("800 g")));
         tap(described(s.ingredients));
         assertFalse(described(s.ingredients).isSelected());
         assertNull(find("goveje meso, za golaž"));
@@ -1896,6 +1920,7 @@ public final class ViewsTest {
         colors.put("surface", dark ? 0xFF202124 : 0xFFF5F4F2);
         colors.put("onSurface", dark ? 0xFFE8EAED : 0xFF444444);
         colors.put("onSurfaceVariant", dark ? 0xFFB6BABF : 0xFF5D6066);
+        colors.put("surfaceContainerLowest", dark ? 0xFF1A1B1E : 0xFFFFFFFF);
         colors.put("surfaceContainerHigh", dark ? 0xFF303136 : 0xFFEFEDE9);
         colors.put("surfaceContainerHighest", dark ? 0xFF37383D : 0xFFE8E6E1);
         colors.put("primary", 0xFF488284);
@@ -2303,15 +2328,55 @@ public final class ViewsTest {
             if (ground == null) {
                 failed.add("\"" + text.getText() + "\" has nothing solid under it");
             } else {
-                double ratio = contrast(over(text.getCurrentTextColor(), ground), ground);
                 float sp = text.getTextSize() / text.getResources().getDisplayMetrics().scaledDensity;
                 boolean large = sp >= 24 || sp >= 18.66f && weightOf(text.getTypeface()) >= 700;
-                if (ratio < (large ? 3 : 4.5)) failed.add(String.format(Locale.ROOT, "\"%s\" %.2f:1 at %.1f sp", text.getText(), ratio, sp));
+                List<Integer> colors = new ArrayList<>();
+                colors.add(text.getCurrentTextColor());
+                // A part in a color of its own, such as an ingredient's unit, has to read as well.
+                if (text.getText() instanceof Spanned) {
+                    Spanned spanned = (Spanned) text.getText();
+                    for (ForegroundColorSpan span : spanned.getSpans(0, spanned.length(), ForegroundColorSpan.class)) colors.add(span.getForegroundColor());
+                }
+                for (int color : colors) {
+                    double ratio = contrast(over(color, ground), ground);
+                    if (ratio < (large ? 3 : 4.5)) failed.add(String.format(Locale.ROOT, "\"%s\" %.2f:1 at %.1f sp", text.getText(), ratio, sp));
+                }
             }
         }
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) readable(group.getChildAt(i), failed);
+        }
+    }
+
+    /** The color a measure's unit is drawn in: its span's, or the text's own without one. */
+    private static int unitColor(TextView text) {
+        assertNotNull(text);
+        if (text.getText() instanceof Spanned) {
+            Spanned spanned = (Spanned) text.getText();
+            ForegroundColorSpan[] spans = spanned.getSpans(0, spanned.length(), ForegroundColorSpan.class);
+            if (spans.length > 0) return spans[0].getForegroundColor();
+        }
+        return text.getCurrentTextColor();
+    }
+
+    /** The step's number in its teal circle in the header, the only one. */
+    private TextView stepNumber() {
+        List<TextView> found = new ArrayList<>();
+        stepNumbers(content, found);
+        assertEquals("one step number in a circle", 1, found.size());
+        return found.get(0);
+    }
+
+    private void stepNumbers(View view, List<TextView> found) {
+        if (view.getVisibility() != View.VISIBLE) return;
+        if (view instanceof TextView && ((TextView) view).getText().toString().matches("\\d+")) {
+            Integer under = fill(view.getBackground());
+            if (under != null && under == theme.color("primary")) found.add((TextView) view);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) stepNumbers(group.getChildAt(i), found);
         }
     }
 

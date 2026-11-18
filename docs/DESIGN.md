@@ -86,6 +86,21 @@ Worth adding later is in [What comes next](#what-comes-next).
 | `assist_satellite.announce` shows a card, and the kiosk's action can leave it out | Home Assistant's voice goes through `esphome.<node>_announce` with `audio_only` |
 | The SDK has no timers, sound or speech | The plugin has its own |
 
+### The look
+
+Every color is a KS role, so each choice holds in Kiosk Satellite's colors and in Warm kitchen's, dark and light. The dock keeps KS's. Text reads at 4.5:1 on its ground, or 3:1 when it is large, which the views tests check on every page in all four. Warm kitchen passes as it is. A few ideas came from Norish's look, taken only where they work in both looks, on a 480 dp tall screen and upright:
+
+| The idea | In the plugin |
+| --- | --- |
+| A large rounded photo on a recipe | KS's card radius. Beside the ingredients it takes 32% of the height, at most 280 dp, and a short or narrow screen keeps 24%, at most 240 dp |
+| Photos at the top of the grid's cells | From edge to edge, cut by the cell's rounded corners |
+| The step's number at a glance | A teal circle in the header. White on KS's teal is 4.37:1, so the digits are 19 sp bold, which needs 3:1 |
+| Units apart from amounts | In secondary, KS's teal lifted for text, where it reads at 4.5:1. On the card beside the steps in KS's dark colors it reads at 4.22:1, so there they stay onSurfaceVariant |
+| A rounded progress bar | 6 dp, primary on surfaceContainerHighest. In KS's dark colors that is 2.67:1, so the step count under it says the same in words |
+| The search field's input look | KS's own: white with an outlineVariant hairline in the light theme, its tonal fill with the same hairline in the dark one |
+
+Rows and cards stay borderless, as KS draws them, and no text goes over a photo.
+
 ### The screen hold
 
 `Awake` is held while the main view shows anything but the first page, while a timer rings, or while a KS page opened from here may be up. It calls `postponeScreensaver` 15 seconds before each deadline KS announces, or halfway to a near one, with a beat every 30 seconds for a deadline it has not heard of. The margin is wide because the command crosses a main thread that a slow view can stall.
