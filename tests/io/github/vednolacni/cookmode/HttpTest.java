@@ -21,7 +21,8 @@ public final class HttpTest {
         });
         server.createContext("/echo", exchange -> {
             byte[] body = readAll(exchange.getRequestBody());
-            send(exchange, 201, exchange.getRequestMethod() + " " + new String(body, StandardCharsets.UTF_8));
+            String override = exchange.getRequestHeaders().getFirst("X-HTTP-Method-Override");
+            send(exchange, 201, exchange.getRequestMethod() + (override == null ? "" : ":" + override) + " " + new String(body, StandardCharsets.UTF_8));
         });
         server.createContext("/big", exchange -> send(exchange, 200, new String(new char[5000]).replace('\0', 'x')));
         server.createContext("/withheld", exchange -> {
@@ -57,6 +58,9 @@ public final class HttpTest {
             assert http.request("GET", base + "/ok", Collections.<String, String>emptyMap(), null, 1024).status == 401;
             Http.Response echo = http.request("POST", base + "/echo", auth, "{\"a\":1}".getBytes(StandardCharsets.UTF_8), 1024);
             assert echo.status == 201 && "POST {\"a\":1}".equals(echo.text());
+            // PATCH goes as itself where the platform sends it, as Android's does, and else as a POST that names it.
+            Http.Response patch = http.request("PATCH", base + "/echo", auth, "{\"b\":2}".getBytes(StandardCharsets.UTF_8), 1024);
+            assert patch.status == 201 && ("PATCH {\"b\":2}".equals(patch.text()) || "POST:PATCH {\"b\":2}".equals(patch.text())) : patch.text();
             Http.Response missing = http.request("GET", base + "/missing", auth, null, 1024);
             assert missing.status == 404 && missing.text().contains("Not found");
             // A redirect within the server keeps the token. One to another host is refused before anything is sent.

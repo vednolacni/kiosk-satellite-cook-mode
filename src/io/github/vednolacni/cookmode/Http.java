@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.ProtocolException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -93,7 +94,7 @@ final class Http {
             HttpURLConnection connection = (HttpURLConnection) target.openConnection();
             open.add(connection);
             try {
-                connection.setRequestMethod(method);
+                method(connection, method);
                 connection.setConnectTimeout(CONNECT_MS);
                 connection.setReadTimeout(READ_MS);
                 connection.setInstanceFollowRedirects(false);
@@ -130,6 +131,20 @@ final class Http {
                 open.remove(connection);
                 connection.disconnect();
             }
+        }
+    }
+
+    /**
+     * Android's HttpURLConnection sends PATCH, which Mealie's last made needs. The JDK's, where the tests run, refuses it,
+     * so there it goes as a POST that names PATCH in X-HTTP-Method-Override, which the tests' servers take for one.
+     */
+    private static void method(HttpURLConnection connection, String method) throws ProtocolException {
+        try {
+            connection.setRequestMethod(method);
+        } catch (ProtocolException refused) {
+            if (!"PATCH".equals(method)) throw refused;
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("X-HTTP-Method-Override", "PATCH");
         }
     }
 
