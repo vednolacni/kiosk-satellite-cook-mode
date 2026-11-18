@@ -337,6 +337,20 @@ public final class CookTest {
             cook.close();
         }
 
+        // A meal for the whole week is today's meal only when nothing else is planned.
+        for (boolean alone : new boolean[] {false, true}) {
+            fresh(values);
+            source.plan = new ArrayList<>();
+            source.plan.add(new RecipeSource.Planned("w", TODAY, "dinner", 18 * 60, 0, "9", "Juha", "", 0, "", 0, true));
+            if (!alone) source.plan.add(new RecipeSource.Planned("d", TODAY, "dinner", 18 * 60, 0, "3", "Ričet", "", 0, "", 0));
+            net.runAll();
+            clock.now = ZonedDateTime.of(2026, 11, 1, 17, 0, 0, 0, ZONE).toInstant();
+            cook.execute("cookToday");
+            net.runAll();
+            assert source.calls.contains(alone ? "recipe 9" : "recipe 3") && !source.calls.contains(alone ? "recipe 3" : "recipe 9") : source.calls;
+            cook.close();
+        }
+
         // Cook today's meal from a plan read more than five minutes ago reads it again first: someone may have changed
         // tonight's dinner since. With the panel closed, and with it up on the first page.
         for (boolean up : new boolean[] {false, true}) {
@@ -568,6 +582,16 @@ public final class CookTest {
         assert source.calls.contains("recipe 7") && source.calls.contains("viewed 7");
         assert ui.model.ingredients.size() == 2 && "100 g flour, sifted".equals(ui.model.ingredients.get(0).line(ui.model.factor, false));
         assert ui.model.resumeAt == 0 && ui.model.pageCount == 2;
+
+        // The same recipe planned for another meal at other servings takes those while it is only looked at, with no new read.
+        int reads = source.calls.size();
+        cook.openPlanned(new RecipeSource.Planned("p2", TODAY, "Dinner", 18 * 60, 0, "7", "Pancakes", "", 6, "", 30));
+        assert ui.model.servings == 6 && ui.model.recipe != null && source.calls.size() == reads : ui.model.servings;
+        cook.openPlanned(planned);
+        assert ui.model.servings == 2 && source.calls.size() == reads;
+        // One from the list keeps what is chosen.
+        cook.openRecipe(new RecipeSource.Summary("7", "Pancakes", "", 30));
+        assert ui.model.servings == 2;
 
         // Servings step by one, by a half below two, and stop at a half.
         cook.changeServings(1);

@@ -888,9 +888,14 @@ final class Cook implements Ui.Actions {
     private void openNow(String id, String name, String image, double planned) {
         clearBanner();
         page = Model.Page.RECIPE;
-        // The recipe being cooked comes back as it was left.
+        // The recipe being cooked comes back as it was left. One only looked at takes the servings of the meal now chosen,
+        // which may be another of the plan's meals with the same recipe.
         if (id.equals(recipeId) && recipe != null) {
             if (cooking) page = Model.Page.STEP;
+            else if (planned > 0) {
+                plannedServings = planned;
+                servings = planned;
+            }
             updateAwake();
             changed();
             return;
@@ -1210,14 +1215,22 @@ final class Cook implements Ui.Actions {
         LocalTime time = LocalTime.now(clock);
         int minutes = time.getHour() * 60 + time.getMinute() - 120;
         RecipeSource.Planned chosen = null;
+        // A meal planned for several days, such as Mealie's for a whole week, has no hour of its own on any of them. It
+        // is today's meal only when nothing else is planned.
+        RecipeSource.Planned spread = null;
         for (RecipeSource.Planned meal : plan) {
             if (!meal.date.equals(today) || meal.recipeId == null) continue;
+            if (meal.spread) {
+                if (spread == null) spread = meal;
+                continue;
+            }
             if (chosen == null || chosen.slotOrder < minutes) chosen = meal;
             if (meal.slotOrder >= minutes) {
                 chosen = meal;
                 break;
             }
         }
+        if (chosen == null) chosen = spread;
         if (chosen != null) openPlanned(chosen);
         else home();
     }

@@ -27,12 +27,19 @@ final class Recipe {
         final String raw;
         /** A unit an app keeps as an id, such as Norish's tablespoon, which Units names in the view's language. Empty otherwise. */
         final String unitKey;
+        /** Plural names only for more than one, as Mealie writes them: ½ cup, 2 cups. Otherwise for anything but one. */
+        final boolean pluralOverOne;
 
         Ingredient(boolean header, double amount, String unit, String unitPlural, String food, String foodPlural, String note, String raw) {
             this(header, amount, unit, unitPlural, food, foodPlural, note, raw, "");
         }
 
         Ingredient(boolean header, double amount, String unit, String unitPlural, String food, String foodPlural, String note, String raw, String unitKey) {
+            this(header, amount, unit, unitPlural, food, foodPlural, note, raw, unitKey, false);
+        }
+
+        Ingredient(boolean header, double amount, String unit, String unitPlural, String food, String foodPlural, String note, String raw, String unitKey, boolean pluralOverOne) {
+            this.pluralOverOne = pluralOverOne;
             this.header = header;
             this.amount = amount;
             this.unit = unit;
@@ -108,8 +115,9 @@ final class Recipe {
             return measure.isEmpty() ? name : measure + " " + name;
         }
 
-        /** Plural names are used unless the amount is one, as Tandoor does. */
+        /** Plural names are used unless the amount is one, as Tandoor does, or for more than one where the app says so. */
         private boolean plural(double factor) {
+            if (pluralOverOne) return hasAmount() && amount * factor > 1.0001;
             return hasAmount() && Math.abs(amount * factor - 1) >= 0.0001;
         }
     }

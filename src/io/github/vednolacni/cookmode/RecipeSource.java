@@ -64,8 +64,16 @@ interface RecipeSource {
         final double servings;
         final String image;
         final int minutes;
+        /** Planned for several days at once, such as Mealie's meal for a whole week, so it is no day's own meal. */
+        final boolean spread;
 
         Planned(String id, LocalDate date, String slot, int slotOrder, int color, String recipeId, String title, String note, double servings, String image, int minutes) {
+            this(id, date, slot, slotOrder, color, recipeId, title, note, servings, image, minutes, false);
+        }
+
+        Planned(String id, LocalDate date, String slot, int slotOrder, int color, String recipeId, String title, String note, double servings, String image, int minutes,
+                boolean spread) {
+            this.spread = spread;
             this.id = id;
             this.date = date;
             this.slot = slot;
@@ -83,7 +91,7 @@ interface RecipeSource {
         @Override public boolean equals(Object other) {
             if (!(other instanceof Planned)) return false;
             Planned meal = (Planned) other;
-            return slotOrder == meal.slotOrder && color == meal.color && servings == meal.servings && minutes == meal.minutes && Objects.equals(id, meal.id)
+            return slotOrder == meal.slotOrder && spread == meal.spread && color == meal.color && servings == meal.servings && minutes == meal.minutes && Objects.equals(id, meal.id)
                 && Objects.equals(date, meal.date) && Objects.equals(slot, meal.slot) && Objects.equals(recipeId, meal.recipeId) && Objects.equals(title, meal.title)
                 && Objects.equals(note, meal.note) && Objects.equals(image, meal.image);
         }
