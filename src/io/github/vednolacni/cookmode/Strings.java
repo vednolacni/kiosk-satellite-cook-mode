@@ -110,7 +110,7 @@ final class Strings {
         "{app} refused this address. Use the address you open it with in a browser.",
         "The recipe server cannot be reached.", "The recipe server had a problem.", "This recipe is no longer available.", "Step", "Loading…",
         "Overnight", "Amounts in the text are for %s.", "%s is at step %d. Switch recipes?", "Switch", "%s is at step %d. End cooking?",
-        "The API {key} can only read, so {app} cannot record this.",
+        "{read only}",
         "This address does not lead to {app's} API. A login page may be in front of it.",
         "This tablet cannot find the server by that name. Android before version 12 cannot resolve .local names, so use the IP address.",
         "The secure connection failed. The tablet may not trust the certificate or know its TLS version.",
@@ -134,7 +134,7 @@ final class Strings {
         "{app} je zavrnil ta naslov. Uporabi naslov, s katerim ga odpreš v brskalniku.",
         "Strežnik z recepti ni dosegljiv.", "Strežnik z recepti ima težavo.", "Ta recept ni več na voljo.", "Korak", "Nalagam …",
         "Čez noč", "Količine v besedilu veljajo za %s.", "Recept »%s« je pri koraku %d. Zamenjam recept?", "Zamenjaj", "Recept »%s« je pri koraku %d. Končam kuhanje?",
-        "API {key} je samo za branje, zato {app} tega ne more zabeležiti.",
+        "{read only}",
         "Ta naslov ne vodi do {app's} API-ja. Morda je pred njim prijavna stran.",
         "Tablica strežnika s tem imenom ne najde. Android pred različico 12 ne razume imen .local, zato uporabi naslov IP.",
         "Varna povezava ni uspela. Tablica morda ne zaupa certifikatu ali ne pozna njegove različice TLS.",
@@ -158,6 +158,10 @@ final class Strings {
         boolean norish = app == Settings.App.NORISH;
         boolean mealie = app == Settings.App.MEALIE;
         Map<String, String> words = new LinkedHashMap<>();
+        // First, since it holds words filled in after it. Mealie's tokens have no scopes, so its refusal is about what
+        // the token's user may change.
+        words.put("{read only}", mealie ? "Mealie does not let the token's user change this recipe, so it cannot record the meal."
+            : "The API {key} can only read, so {app} cannot record this.");
         words.put("{app}", app.title);
         words.put("{in app}", "in " + app.title);
         words.put("{app's}", app.title + "'s");
@@ -177,6 +181,8 @@ final class Strings {
         boolean norish = app == Settings.App.NORISH;
         boolean mealie = app == Settings.App.MEALIE;
         Map<String, String> words = new LinkedHashMap<>();
+        words.put("{read only}", mealie ? "Mealie uporabniku tega žetona ne dovoli spreminjati recepta, zato obroka ne more zabeležiti."
+            : "API {key} je samo za branje, zato {app} tega ne more zabeležiti.");
         words.put("{app}", app.title);
         words.put("{in app}", norish ? "v Norishu" : mealie ? "v Mealieju" : "v Tandoorju");
         words.put("{app's}", norish ? "Norishevega" : mealie ? "Mealiejevega" : "Tandoorjevega");

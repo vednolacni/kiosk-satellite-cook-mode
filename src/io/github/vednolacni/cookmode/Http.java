@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
-import java.net.ProtocolException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -88,13 +87,14 @@ final class Http {
 
     /** Send a request and read the answer's body, up to limit bytes. A larger body throws TooLarge. */
     Response request(String method, String url, Map<String, String> headers, byte[] body, int limit) throws IOException {
-        URL target = new URL(url);
+        URL target = withoutFragment(new URL(url));
         if (!web(target)) throw new Refused("Not a web address: " + target.getProtocol());
         for (int redirect = 0; ; redirect++) {
             HttpURLConnection connection = (HttpURLConnection) target.openConnection();
             open.add(connection);
             try {
-                method(connection, method);
+                // Android's HttpURLConnection sends PATCH, which Mealie's last made needs. The JDK's refuses it.
+                connection.setRequestMethod(method);
                 connection.setConnectTimeout(CONNECT_MS);
                 connection.setReadTimeout(READ_MS);
                 connection.setInstanceFollowRedirects(false);
@@ -110,9 +110,9 @@ final class Http {
                 int status = connection.getResponseCode();
                 if (status >= 300 && status < 400 && status != 304) {
                     String location = connection.getHeaderField("Location");
-                    if (location == null || redirect >= MAX_REDIRECTS) throw new IOException("Too many redirects from " + url);
-                    URL next = new URL(target, location);
-                    if (!mayFollow(target, next)) throw new Refused("The server sent the request on to " + next.getProtocol() + "://" + next.getAuthority());
+                    if (location == null || redirect >= MAX_REDIRECTS) throw new IOException("Too many redirects from " + named(target));
+                    URL next = withoutFragment(new URL(target, location));
+                    if (!mayFollow(target, next)) throw new Refused("The server sent the request on to " + named(next));
                     target = next;
                     continue;
                 }
@@ -135,17 +135,18 @@ final class Http {
     }
 
     /**
-     * Android's HttpURLConnection sends PATCH, which Mealie's last made needs. The JDK's, where the tests run, refuses it,
-     * so there it goes as a POST that names PATCH in X-HTTP-Method-Override, which the tests' servers take for one.
+     * The address without what follows a #, which is the plugin's own, such as the key of a Mealie picture that names it
+     * in the tablet's cache. A connection never sends it to the server, but one through a plain http proxy may send it there.
      */
-    private static void method(HttpURLConnection connection, String method) throws ProtocolException {
-        try {
-            connection.setRequestMethod(method);
-        } catch (ProtocolException refused) {
-            if (!"PATCH".equals(method)) throw refused;
-            connection.setRequestMethod("POST");
-            connection.setRequestProperty("X-HTTP-Method-Override", "PATCH");
-        }
+    static URL withoutFragment(URL url) throws IOException {
+        String whole = url.toExternalForm();
+        int hash = whole.indexOf('#');
+        return hash < 0 ? url : new URL(whole.substring(0, hash));
+    }
+
+    /** An address's scheme, host and port for a message, without a user name or password in front of the host. */
+    static String named(URL url) {
+        return url.getProtocol() + "://" + url.getHost() + (url.getPort() == -1 ? "" : ":" + url.getPort());
     }
 
     /** Whether a request and its headers may go on from one address to the other. */

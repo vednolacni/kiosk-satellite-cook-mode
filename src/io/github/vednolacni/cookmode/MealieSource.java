@@ -25,7 +25,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.net.ssl.SSLException;
@@ -38,7 +37,7 @@ import javax.net.ssl.SSLException;
  * ingredient list, and its steps refer to the lines by id; its times are seconds from 3.29 and free text before; and a
  * picture's address stays the same when the picture changes, so the key Mealie gives each picture rides along after a
  * #, which names it apart in the tablet's cache and never reaches the server. Mealie keeps no list of what was viewed,
- * and records a meal as the day its recipe was last made.
+ * and records a meal as the day its recipe was last made. No message carries the token, whatever a server sends back.
  */
 final class MealieSource implements RecipeSource {
     /** Recipes with nutrition data are large. Nothing in this API should come near it. */
@@ -58,10 +57,15 @@ final class MealieSource implements RecipeSource {
     private static final Pattern VERSION = Pattern.compile("v?([0-9]{1,4})\\.([0-9]{1,4})(?:[^0-9].*)?", Pattern.CASE_INSENSITIVE);
     /** The key Mealie gives each picture, which changes with the picture. */
     private static final Pattern PICTURE_KEY = Pattern.compile("[A-Za-z0-9._-]{1,64}");
-    /** An amount written at the start of a line's words, which then were never parsed into a quantity. */
-    private static final Pattern WRITTEN_AMOUNT = Pattern.compile("^[0-9½¼¾⅓⅔⅛]");
-    /** How many recipes' slugs are remembered, since recording a meal needs the slug and the plugin knows the id. */
-    private static final int SLUGS_MOST = 256;
+    /** Days in a time written as words, which the timers' own reading does not count: "1 day 2 hours". */
+    private static final Pattern DAYS = Pattern.compile("([0-9]{1,3}(?:[.,][0-9]{1,2})?)[ \\t]*(?:days?|d|dan|dni|dneva|dnevi|tag|tage|tagen)(?![\\p{L}])",
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    /**
+     * The ways to list what was made last, tried in turn: Mealie takes field names in camelCase from 2.5 and in snake_case
+     * before, and a server that has neither lists the newest added.
+     */
+    private static final String[] RECENT = {"orderBy=lastMade&orderDirection=desc&orderByNullPosition=last", "orderBy=last_made&orderDirection=desc&orderByNullPosition=last",
+        "orderBy=createdAt&orderDirection=desc", "orderBy=created_at&orderDirection=desc"};
 
     private final String base;
     /** A path typed after the address, which Mealie cannot be served under, or an empty string. */
@@ -71,10 +75,8 @@ final class MealieSource implements RecipeSource {
     private final Clock clock;
     /** The token's group, which names the recipes' web pages, or null until a call tells. */
     private volatile String groupSlug;
-    /** Whether the server refused to order by last made, so recent there is the newest added. */
-    private volatile boolean newestInstead;
-    /** Each recipe's slug by its id, from what the server has sent. */
-    private final Map<String, String> slugs = new ConcurrentHashMap<>();
+    /** Which of RECENT this server takes, as far as the source has learned. */
+    private volatile int recent;
 
     MealieSource(String address, String token, Http http) {
         this(address, token, http, Clock.systemUTC());
@@ -180,10 +182,11 @@ final class MealieSource implements RecipeSource {
             String shown;
             String note;
             if (!recipeId.isEmpty()) {
-                // The recipe is the meal, and any words of the entry go under it.
-                remember(recipeId, recipe);
+                // The recipe is the meal, and the entry's words go under it.
                 shown = !name.isEmpty() ? name : !title.isEmpty() ? title : text;
-                note = !text.isEmpty() ? text : title.equals(shown) ? "" : title;
+                String said = title.equals(shown) ? "" : title;
+                String more = text.equals(shown) ? "" : text;
+                note = said.isEmpty() ? more : more.isEmpty() ? said : said + ": " + more;
             } else {
                 // A note, such as "Eat out", with its title and its words, or either alone.
                 shown = !title.isEmpty() ? title : text;
@@ -195,16 +198,18 @@ final class MealieSource implements RecipeSource {
             if (!recipeId.isEmpty()) {
                 // From 3.29 a meal can be planned at a multiple of its recipe, which is how many servings it means.
                 double scale = Json.number(entry.get("recipeScale"), 1);
-                double own = servings(recipe);
-                if (scale > 0 && !Double.isInfinite(scale) && Math.abs(scale - 1) > 1e-9 && own > 0) servings = scale * own;
+                if (scale > 0 && !Double.isInfinite(scale) && Math.abs(scale - 1) > 1e-9) servings = scale * servings(recipe);
             }
             String image = recipeId.isEmpty() ? "" : picture(recipeId, recipe.get("image"), "min-original");
             int minutes = recipeId.isEmpty() ? 0 : minutes(recipe);
             long id = Json.integer(entry.get("id"), place);
+            // A meal for a whole week shows on each of its days, though none of them is its own.
+            boolean spread = to.isAfter(from);
             LocalDate day = from.isBefore(first) ? first : from;
             LocalDate end = to.isAfter(last) ? last : to;
             for (int days = 0; !day.isAfter(end) && days < DAYS_MOST; day = day.plusDays(1), days++) {
-                Planned meal = new Planned(Json.text(entry.get("id")), day, type, slotOrder(type), 0, recipeId.isEmpty() ? null : recipeId, shown, note, servings, image, minutes);
+                Planned meal = new Planned(Json.text(entry.get("id")), day, type, slotOrder(type), 0, recipeId.isEmpty() ? null : recipeId, shown, note, servings, image, minutes,
+                    spread);
                 plan.add(meal);
                 places.put(meal, id);
             }
@@ -245,18 +250,15 @@ final class MealieSource implements RecipeSource {
         // Mealie folds accents and case, so ricet finds Ričet.
         if (!text.isEmpty()) path.append("&search=").append(encode(text));
         Object body;
-        if (order == Order.RECENT && !newestInstead) {
-            // What the household made last, and what it never made after that.
-            Http.Response made = send("GET", path + "&orderBy=lastMade&orderDirection=desc&orderByNullPosition=last", null, true);
-            if (made.status == 400 && made.text().trim().startsWith("{")) {
-                // A server that cannot order by it says so, and its recent is the newest added from then on.
-                newestInstead = true;
-                body = call("GET", path + "&orderBy=createdAt&orderDirection=desc", null, true, false);
-            } else {
-                body = answer(made, "GET", path.toString(), false);
+        if (order == Order.RECENT) {
+            // What the household made last, and what it never made after that, asked for the way this server takes it.
+            Http.Response made = null;
+            for (int way = recent; way < RECENT.length; way++) {
+                made = send("GET", path + "&" + RECENT[way], null, true);
+                if (way + 1 == RECENT.length || !badOrder(made)) break;
+                recent = way + 1;
             }
-        } else if (order == Order.RECENT) {
-            body = call("GET", path + "&orderBy=createdAt&orderDirection=desc", null, true, false);
+            body = answer(made, "GET", path.toString(), false);
         } else {
             body = call("GET", path + "&orderBy=name&orderDirection=asc", null, true, false);
         }
@@ -266,7 +268,6 @@ final class MealieSource implements RecipeSource {
             Map<String, Object> recipe = Json.object(item);
             String id = Json.text(recipe.get("id")).trim();
             if (!ID.matcher(id).matches()) continue;
-            remember(id, recipe);
             items.add(new Summary(id, Json.text(recipe.get("name")).trim(), picture(id, recipe.get("image"), "min-original"), minutes(recipe)));
         }
         long number = Json.integer(answer.get("page"), Math.max(1, page));
@@ -275,11 +276,16 @@ final class MealieSource implements RecipeSource {
         return new Page(items, more, total);
     }
 
+    /** Mealie's refusal of a field to order by, which it says is an invalid order_by statement. Any other trouble is no such refusal. */
+    private static boolean badOrder(Http.Response response) {
+        return response.status == 400 && detail(response.text().trim()).toLowerCase(Locale.ROOT).startsWith("invalid order_by");
+    }
+
     @Override
     public Recipe recipe(String id) throws SourceException {
         String uuid = id(id);
         Map<String, Object> recipe = Json.object(call("GET", "/api/recipes/" + uuid, null, true, true));
-        String slug = remember(uuid, recipe);
+        String slug = Json.text(recipe.get("slug")).trim();
         // Before 3.1 a recipe could keep its lines as text only, with an amount that means nothing.
         boolean unparsed = Json.bool(Json.path(recipe, "settings", "disableAmount"), false);
         List<Recipe.Ingredient> list = new ArrayList<>();
@@ -296,6 +302,16 @@ final class MealieSource implements RecipeSource {
             String reference = Json.text(line.get("referenceId")).trim();
             if (!reference.isEmpty() && !byReference.containsKey(reference)) byReference.put(reference, ingredient);
         }
+        // Notes a step names go with it.
+        Map<String, String> notes = new HashMap<>();
+        for (Object item : Json.list(recipe.get("notes"))) {
+            Map<String, Object> note = Json.object(item);
+            String reference = Json.text(note.get("referenceId")).trim();
+            String title = Json.text(note.get("title")).trim();
+            String text = Json.text(note.get("text")).trim();
+            String words = title.isEmpty() ? text : text.isEmpty() ? title : title + ": " + text;
+            if (!reference.isEmpty() && !words.isEmpty()) notes.put(reference, words);
+        }
         List<Draft> drafts = new ArrayList<>();
         // How many steps name each line, since a line more than one step names is ticked off in each apart.
         Map<Recipe.Ingredient, Integer> named = new IdentityHashMap<>();
@@ -306,7 +322,17 @@ final class MealieSource implements RecipeSource {
             String title = Json.text(step.get("title")).trim();
             if (!title.isEmpty()) section = title;
             String summary = Json.text(step.get("summary")).trim();
-            String text = capped(Json.text(step.get("text")).replace("\r\n", "\n").replace('\r', '\n'));
+            String text = Json.text(step.get("text")).replace("\r\n", "\n").replace('\r', '\n').trim();
+            // A step that has only its summary says that.
+            if (text.isEmpty()) {
+                text = summary;
+                summary = "";
+            }
+            for (Object reference : Json.list(step.get("noteReferences"))) {
+                String note = notes.get(Json.text(Json.object(reference).get("referenceId")).trim());
+                if (note != null) text = text.isEmpty() ? note : text + "\n\n" + note;
+            }
+            text = capped(text);
             long seconds = Json.integer(step.get("durationSeconds"), 0);
             List<Recipe.Ingredient> uses = new ArrayList<>();
             for (Object reference : Json.list(step.get("ingredientReferences"))) {
@@ -316,7 +342,7 @@ final class MealieSource implements RecipeSource {
                 named.put(line, named.containsKey(line) ? named.get(line) + 1 : 1);
             }
             boolean timed = seconds > 0 && seconds <= STEP_SECONDS_MOST;
-            if (text.trim().isEmpty() && uses.isEmpty() && !timed) continue;
+            if (text.isEmpty() && uses.isEmpty() && !timed) continue;
             String name = summary.isEmpty() ? section : section.isEmpty() ? summary : section + ": " + summary;
             drafts.add(new Draft(name, text, uses, timed ? (int) seconds : 0));
         }
@@ -372,15 +398,15 @@ final class MealieSource implements RecipeSource {
         Map<String, Object> food = Json.object(line.get("food"));
         double amount = Json.number(line.get("quantity"), Double.NaN);
         if (!(amount > 0) || Double.isInfinite(amount)) amount = Double.NaN;
-        String unitName;
-        String unitPlural;
-        String abbreviation = Json.text(unit.get("abbreviation")).trim();
-        if (Json.bool(unit.get("useAbbreviation"), false) && !abbreviation.isEmpty()) {
-            unitName = abbreviation;
-            unitPlural = Json.text(unit.get("pluralAbbreviation")).trim();
-        } else {
-            unitName = Json.text(unit.get("name")).trim();
-            unitPlural = Json.text(unit.get("pluralName")).trim();
+        String unitName = Json.text(unit.get("name")).trim();
+        String unitPlural = Json.text(unit.get("pluralName")).trim();
+        if (Json.bool(unit.get("useAbbreviation"), false)) {
+            // Each form is its abbreviation where it has one, and else its name.
+            String abbreviation = Json.text(unit.get("abbreviation")).trim();
+            String abbreviations = Json.text(unit.get("pluralAbbreviation")).trim();
+            if (!abbreviations.isEmpty()) unitPlural = abbreviations;
+            else if (!abbreviation.isEmpty()) unitPlural = abbreviation;
+            if (!abbreviation.isEmpty()) unitName = abbreviation;
         }
         String foodName = Json.text(food.get("name")).trim();
         String foodPlural = Json.text(food.get("pluralName")).trim();
@@ -389,8 +415,6 @@ final class MealieSource implements RecipeSource {
         // A food counts in its plural only by itself: 3 onions, but 300 g onion.
         if (!unitName.isEmpty()) foodPlural = "";
         String raw = !original.isEmpty() ? original : !note.isEmpty() ? note : display;
-        // Words never parsed keep a default amount that is not theirs: 1 and "2 cups flour".
-        if (unitName.isEmpty() && foodName.isEmpty() && WRITTEN_AMOUNT.matcher(note).find()) amount = Double.NaN;
         if (Double.isNaN(amount) && !unitName.isEmpty()) {
             // A unit with no amount, such as a pinch, still says how much after the name.
             note = note.isEmpty() ? unitName : note + ", " + unitName;
@@ -398,20 +422,25 @@ final class MealieSource implements RecipeSource {
             unitPlural = "";
         }
         if (foodName.isEmpty() && note.isEmpty() && raw.isEmpty()) return null;
-        return new Recipe.Ingredient(false, amount, unitName, unitPlural, foodName, foodPlural, note, raw);
+        // Mealie writes plurals only for more than one: ½ cup, 2 cups.
+        return new Recipe.Ingredient(false, amount, unitName, unitPlural, foodName, foodPlural, note, raw, "", true);
     }
 
     /** A line as one of the several steps that name it has it, ticked off apart from the others. */
     private static Recipe.Ingredient copy(Recipe.Ingredient line) {
-        return new Recipe.Ingredient(false, line.amount, line.unit, line.unitPlural, line.food, line.foodPlural, line.note, line.raw, line.unitKey);
+        return new Recipe.Ingredient(false, line.amount, line.unit, line.unitPlural, line.food, line.foodPlural, line.note, line.raw, line.unitKey, line.pluralOverOne);
     }
 
-    /** The servings the amounts are for: the servings, or else the yield, such as 24 for 24 cookies. */
+    /**
+     * The servings the amounts are for: the servings, or else the yield, such as 24 for 24 cookies, or else one. Mealie
+     * scales a recipe that says neither by a multiple of itself, which is what one serving of it stands for here, so a
+     * meal planned at twice such a recipe opens at twice its amounts.
+     */
     private static double servings(Map<String, Object> recipe) {
         double servings = Json.number(recipe.get("recipeServings"), 0);
         if (servings > 0 && !Double.isInfinite(servings)) return servings;
         double yield = Json.number(recipe.get("recipeYieldQuantity"), 0);
-        return yield > 0 && !Double.isInfinite(yield) ? yield : 0;
+        return yield > 0 && !Double.isInfinite(yield) ? yield : 1;
     }
 
     /** What a serving is called when the yield counts them, such as cookies. Empty for plain servings. */
@@ -439,8 +468,8 @@ final class MealieSource implements RecipeSource {
     }
 
     /**
-     * The seconds a time written as text says: "1 hour 30 minutes", "45 min", "1½ ure" or "PT20M". A number alone is
-     * minutes, as Mealie's form asks for them.
+     * The seconds a time written as text says: "1 day 2 hours", "1 hour 30 minutes", "45 min", "1½ ure" or "PT20M". A
+     * number alone is minutes, as Mealie's form asks for them.
      */
     static long seconds(String words) {
         String text = words == null ? "" : words.trim();
@@ -454,22 +483,19 @@ final class MealieSource implements RecipeSource {
             }
         }
         long total = 0;
-        for (Durations.Found found : Durations.find(text, (int) (MINUTES_MOST * 60))) total += found.seconds;
-        return total;
+        Matcher days = DAYS.matcher(text);
+        StringBuffer rest = new StringBuffer();
+        while (days.find()) {
+            total += Math.round(Double.parseDouble(days.group(1).replace(',', '.')) * 24 * 3600);
+            days.appendReplacement(rest, " ");
+        }
+        days.appendTail(rest);
+        for (Durations.Found found : Durations.find(rest.toString(), (int) (MINUTES_MOST * 60))) total += found.seconds;
+        return Math.min(total, MINUTES_MOST * 60);
     }
 
     private static String capped(String text) {
         return text.length() > STEP_TEXT_MOST ? text.substring(0, STEP_TEXT_MOST) : text;
-    }
-
-    /** The recipe's slug, remembered for recording it, or an empty string. */
-    private String remember(String id, Map<String, Object> recipe) {
-        String slug = Json.text(recipe.get("slug")).trim();
-        if (slug.isEmpty()) return "";
-        String key = id.toLowerCase(Locale.ROOT);
-        if (slugs.size() >= SLUGS_MOST && !slugs.containsKey(key)) slugs.clear();
-        slugs.put(key, slug);
-        return slug;
     }
 
     /** The token's group, asked for once, or an empty string when the server does not say. The recipe shows without its page. */
@@ -492,28 +518,33 @@ final class MealieSource implements RecipeSource {
 
     /**
      * Mealie records a meal as the day its recipe was last made, for the token's household from 2.5 and for the recipe
-     * before. It writes over what is there, so the day goes only when it is later, and a meal recorded on another tablet
-     * meanwhile stays. Servings it does not keep. Each record also reaches the household's notifiers and webhooks.
+     * before. It writes over what is there, so the day goes only when it is later. A later day is there when the meal
+     * was recorded since, also on another tablet, and then the meal counts as recorded with nothing sent. Servings it
+     * does not keep. Each record also reaches the household's notifiers and webhooks. The write goes by the slug, which
+     * changes with the recipe's name, so the slug is read by the recipe's id just before.
      */
     @Override
     public void cooked(String recipeId, double servings) throws SourceException {
         String uuid = id(recipeId);
-        String slug = slugs.get(uuid);
-        Map<String, Object> recipe = null;
-        if (slug == null || slug.isEmpty()) {
-            recipe = Json.object(call("GET", "/api/recipes/" + uuid, null, true, true));
-            slug = remember(uuid, recipe);
-        }
+        Map<String, Object> recipe = Json.object(call("GET", "/api/recipes/" + uuid, null, true, true));
+        String slug = Json.text(recipe.get("slug")).trim();
         if (slug.isEmpty()) throw new SourceException(SourceException.Kind.NOT_FOUND, "Mealie sent no slug for recipe " + uuid + ", so it cannot be recorded.");
         Instant now = clock.instant().truncatedTo(ChronoUnit.SECONDS);
+        String household = "/api/households/self/recipes/" + segment(slug);
+        Http.Response ours = send("GET", household, null, true);
         Instant made;
-        try {
-            made = instant(Json.object(call("GET", "/api/households/self/recipes/" + segment(slug), null, true, false)).get("lastMade"));
-        } catch (SourceException missing) {
-            // Before 2.5 the route is not there, and the day is the recipe's own.
-            if (missing.kind != SourceException.Kind.NOT_API) throw missing;
-            if (recipe == null) recipe = Json.object(call("GET", "/api/recipes/" + uuid, null, true, true));
+        // Before 2.5 the route is not there, which FastAPI says in its own words, and the day is the recipe's own.
+        // Mealie's own 404 for a recipe it does not find says that instead.
+        if (ours.status == 404 && ours.text().trim().startsWith("{") && "Not Found".equals(detail(ours.text().trim()))) {
             made = instant(recipe.get("lastMade"));
+        } else {
+            Map<String, Object> own = Json.object(answer(ours, "GET", household, true));
+            String about = Json.text(own.get("recipeId")).trim();
+            // The slug now names another recipe, as a rename meanwhile can leave it.
+            if (!about.isEmpty() && !about.equalsIgnoreCase(uuid)) {
+                throw new SourceException(SourceException.Kind.SERVER, "Mealie's recipe " + slug + " changed while it was being recorded. Try again.");
+            }
+            made = instant(own.get("lastMade"));
         }
         if (made != null && !made.isBefore(now)) return;
         Map<String, Object> body = new LinkedHashMap<>();
@@ -551,7 +582,7 @@ final class MealieSource implements RecipeSource {
         try {
             return http.request(method, base + path, headers, bytes, LIMIT);
         } catch (Http.Refused refused) {
-            throw new SourceException(SourceException.Kind.NOT_API, refused.getMessage() + ". The token was not sent there. A login page may be in front of Mealie." + rooted(), refused);
+            throw new SourceException(SourceException.Kind.NOT_API, safe(refused.getMessage()) + ". The token was not sent there. A login page may be in front of Mealie." + rooted(), refused);
         } catch (UnknownHostException unknown) {
             boolean local = host().toLowerCase(Locale.ROOT).contains(".local");
             throw new SourceException(local ? SourceException.Kind.LOCAL_NAME : SourceException.Kind.NETWORK, "This tablet cannot find " + host() + "."
@@ -600,10 +631,15 @@ final class MealieSource implements RecipeSource {
         }
     }
 
-    /** An error's own words, as ": words", or nothing. */
-    private static String said(String text) {
-        String words = detail(text);
+    /** An error's own words, as ": words", or nothing, without the token, should something have sent it back. */
+    private String said(String text) {
+        String words = safe(detail(text));
         return words.isEmpty() ? "" : ": " + (words.length() > 200 ? words.substring(0, 200) : words);
+    }
+
+    /** Words for a message with the token taken out, wherever it is in them. */
+    private String safe(String words) {
+        return token.isEmpty() || words == null ? words : words.replace(token, "[token]");
     }
 
     /** The detail of one of Mealie's errors: its words, an object's message, or each item of a list with the field it is about. */
@@ -631,17 +667,19 @@ final class MealieSource implements RecipeSource {
         return Json.text(detail).trim();
     }
 
+    /** The server's host and port, without a user name or password typed in front of them. */
     private String host() {
         try {
-            return new URL(base).getAuthority();
+            URL server = new URL(base);
+            return server.getHost() + (server.getPort() == -1 ? "" : ":" + server.getPort());
         } catch (MalformedURLException bad) {
-            return base;
+            return "the Mealie address";
         }
     }
 
-    private static String reason(IOException failed) {
+    private String reason(IOException failed) {
         String message = failed.getMessage();
-        return message == null || message.isEmpty() ? failed.getClass().getSimpleName() : message;
+        return message == null || message.isEmpty() ? failed.getClass().getSimpleName() : safe(message);
     }
 
     // Values.

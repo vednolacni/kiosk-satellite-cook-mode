@@ -21,8 +21,7 @@ public final class HttpTest {
         });
         server.createContext("/echo", exchange -> {
             byte[] body = readAll(exchange.getRequestBody());
-            String override = exchange.getRequestHeaders().getFirst("X-HTTP-Method-Override");
-            send(exchange, 201, exchange.getRequestMethod() + (override == null ? "" : ":" + override) + " " + new String(body, StandardCharsets.UTF_8));
+            send(exchange, 201, exchange.getRequestMethod() + " " + new String(body, StandardCharsets.UTF_8));
         });
         server.createContext("/big", exchange -> send(exchange, 200, new String(new char[5000]).replace('\0', 'x')));
         server.createContext("/withheld", exchange -> {
@@ -47,6 +46,7 @@ public final class HttpTest {
         server.createContext("/same", exchange -> redirect(exchange, "/ok"));
         server.createContext("/away", exchange -> redirect(exchange, "http://example.invalid/steal"));
         server.createContext("/loop", exchange -> redirect(exchange, "/loop"));
+        server.createContext("/userinfo", exchange -> redirect(exchange, "http://me:secret@example.invalid/x"));
         server.createContext("/missing", exchange -> send(exchange, 404, "{\"detail\":\"Not found.\"}"));
         server.start();
         String base = "http://127.0.0.1:" + server.getAddress().getPort();
@@ -58,9 +58,6 @@ public final class HttpTest {
             assert http.request("GET", base + "/ok", Collections.<String, String>emptyMap(), null, 1024).status == 401;
             Http.Response echo = http.request("POST", base + "/echo", auth, "{\"a\":1}".getBytes(StandardCharsets.UTF_8), 1024);
             assert echo.status == 201 && "POST {\"a\":1}".equals(echo.text());
-            // PATCH goes as itself where the platform sends it, as Android's does, and else as a POST that names it.
-            Http.Response patch = http.request("PATCH", base + "/echo", auth, "{\"b\":2}".getBytes(StandardCharsets.UTF_8), 1024);
-            assert patch.status == 201 && ("PATCH {\"b\":2}".equals(patch.text()) || "POST:PATCH {\"b\":2}".equals(patch.text())) : patch.text();
             Http.Response missing = http.request("GET", base + "/missing", auth, null, 1024);
             assert missing.status == 404 && missing.text().contains("Not found");
             // A redirect within the server keeps the token. One to another host is refused before anything is sent.
@@ -72,6 +69,12 @@ public final class HttpTest {
             assert !follows("https://a.test/x", "http://a.test/y") && !follows("http://a.test:8080/x", "http://a.test:9090/y");
             assert !follows("http://a.test/x", "http://b.test/x") && !follows("http://a.test/x", "ftp://a.test/x");
             assert fails(http, base + "/loop", "Too many redirects");
+            // What follows a # is the plugin's own and goes nowhere, and messages name no user or password.
+            assert "http://a.test:8080/x/y.webp?b=1".equals(Http.withoutFragment(new java.net.URL("http://a.test:8080/x/y.webp?b=1#Xy12")).toExternalForm());
+            assert "http://u:p@a.test/x".equals(Http.withoutFragment(new java.net.URL("http://u:p@a.test/x#k")).toExternalForm());
+            assert "https://a.test:8443".equals(Http.named(new java.net.URL("https://user:secret@a.test:8443/steal")));
+            assert http.request("GET", base + "/ok#key", auth, null, 1024).ok();
+            assert fails(http, base + "/userinfo", "on to http://example.invalid") && !fails(http, base + "/userinfo", "secret");
             assert fails(http, base + "/big", "larger than") && fails(http, base + "/flood", "larger than");
             // Too large is a kind of its own, which is the same every time.
             for (String path : new String[] {"/big", "/flood"}) {

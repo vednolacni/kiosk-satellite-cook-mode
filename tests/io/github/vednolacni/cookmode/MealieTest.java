@@ -3,12 +3,19 @@ package io.github.vednolacni.cookmode;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.net.URL;
+import java.net.URLConnection;
 import java.net.URLDecoder;
+import java.net.URLStreamHandler;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.time.Clock;
@@ -22,15 +29,20 @@ import java.util.*;
  * v3.31, v3.0 and v2.3 do, the way v2.2 and a nightly build name themselves, and the way things in front of Mealie or
  * at its address answer. Where the versions differ: step times (durationSeconds) and seconds for the recipe's times
  * from 3.30 and 3.29, a meal planned at a multiple of its recipe (recipeScale) from 3.29, meals for a whole week from
- * 3.30, the snack, drink and dessert types from 3.7, last made for each household from 2.5, and lines kept as text only
- * (settings.disableAmount) until 3.1. The v2.3 server also refuses to order by lastMade, so the fallback is tried. The
- * answers follow Mealie's OpenAPI description and documentation; nothing of Mealie's own code is in here.
+ * 3.30, the snack, drink and dessert types from 3.7, last made for each household and field names in camelCase to
+ * order by from 2.5, and lines kept as text only (settings.disableAmount) until 3.1. The v2.2 server also knows no last
+ * made to order by, so every fallback is tried. The answers follow Mealie's OpenAPI description, documentation and
+ * release notes; nothing of Mealie's own code is in here.
+ *
+ * The JDK's HttpURLConnection refuses PATCH, which Android's sends, so http goes through Wire here, a plain HTTP/1.1
+ * connection of the test's own that sends any method as it is. The servers see the method that went on the wire.
  */
 public final class MealieTest {
     static final String TOKEN = "eyJhbGciOiJIUzI1NiJ9.kuhinja.podpis";
     static final String GOLAZ = "1f0e2d3c-4b5a-4968-8776-a5b4c3d2e1f0";
     static final String RICET = "2a1b0c9d-8e7f-4a6b-9c5d-4e3f2a1b0c9d";
     static final String JUHA = "3b2c1d0e-9f8a-4b7c-8d6e-5f4a3b2c1d0e";
+    static final String PALACINKE = "5d4e3f2a-1b0c-4d9e-8f7a-6b5c4d3e2f1a";
     static final String MISSING = "4c3d2e1f-0a9b-4c8d-9e7f-6a5b4c3d2e1f";
     /** A Wednesday. */
     static final LocalDate TODAY = LocalDate.of(2026, 11, 18);
@@ -40,14 +52,22 @@ public final class MealieTest {
     static final List<String> wrong = Collections.synchronizedList(new ArrayList<String>());
     /** Each server's address by what it answers like. */
     static final Map<String, String> servers = new LinkedHashMap<>();
-    /** When Golaž was last made, on each server. */
+    /** When each recipe was last made, on each server, by flavor and slug. */
     static final Map<String, String> made = new HashMap<>();
     /** Golaž's picture key, which a new picture changes. */
     static volatile String golazPicture = "Xy12";
     static final List<HttpServer> running = new ArrayList<>();
 
     public static void main(String[] args) throws Exception {
-        for (String flavor : new String[] {"v3.31", "v3.0", "v2.3", "v2.2", "nightly", "proxy", "web", "gate", "broken", "failing", "strict", "revoked", "readonly", "noslug"}) {
+        URL.setURLStreamHandlerFactory(protocol -> "http".equals(protocol) ? new URLStreamHandler() {
+            @Override protected URLConnection openConnection(URL url) {
+                // What follows a # is the plugin's own and never goes on, also not to a proxy.
+                if (url.getRef() != null) wrong.add("A fragment to the connection " + url);
+                return new Wire(url);
+            }
+        } : null);
+        for (String flavor : new String[] {"v3.31", "v3.0", "v2.3", "v2.2", "nightly", "proxy", "web", "gate", "broken", "failing", "strict", "refusing", "revoked", "echo",
+            "readonly", "noslug", "renamed", "vanishing"}) {
             start(flavor);
         }
         try {
@@ -101,9 +121,11 @@ public final class MealieTest {
         // Versions: 2.3 and newer, and a nightly build, which says no number.
         for (String old : new String[] {"v2.2.0", "v1.12.0", "v0.5.6", "2.2.1"}) assert MealieSource.older(old) : old;
         for (String fine : new String[] {"v2.3.0", "v2.8.0", "v3.0.2", "v3.31.0", "v10.0.0", "nightly", "", "v3.31.0-rc1"}) assert !MealieSource.older(fine) : fine;
-        // Times written as words, before 3.29 sent their seconds.
+        // Times written as words, before 3.29 sent their seconds, days too.
         assert MealieSource.seconds("1 hour 30 minutes") == 5400 && MealieSource.seconds("45 min") == 2700 && MealieSource.seconds("2½ hours") == 9000;
         assert MealieSource.seconds("PT20M") == 1200 && MealieSource.seconds("P1DT2H") == 26 * 3600 && MealieSource.seconds("20") == 1200;
+        assert MealieSource.seconds("1 day 2 hours") == 26 * 3600 && MealieSource.seconds("2 dni") == 2 * 24 * 3600 && MealieSource.seconds("1d 2h") == 26 * 3600;
+        assert MealieSource.seconds("1 Tag und 30 Minuten") == 24 * 3600 + 1800 && MealieSource.seconds("2 dl") == 0;
         assert MealieSource.seconds("") == 0 && MealieSource.seconds("quick") == 0 && MealieSource.seconds("1 ura in pol") == 5400 && MealieSource.seconds("P") == 0;
         assert MealieSource.minutes(1200, "1 hour") == 20 && MealieSource.minutes(null, "1 hour") == 60 && MealieSource.minutes(0, null) == 0 && MealieSource.minutes(20, "") == 1;
         // Last made, with an offset or without one, which is UTC.
@@ -125,6 +147,11 @@ public final class MealieTest {
         assert "Odpri v Mealieju".equals(slovenian.openInApp) && "Nedavno skuhano".equals(slovenian.recent) && "Zabeleži v Mealieju kot skuhano".equals(slovenian.logCooked);
         assert english.problemAuth.equals("Mealie refused the API token. Create a new one under your profile > API Tokens.") : english.problemAuth;
         assert slovenian.problemNotApi.equals("Ta naslov ne vodi do Mealiejevega API-ja. Morda je pred njim prijavna stran.") : slovenian.problemNotApi;
+        // Mealie's tokens have no scopes, so a refused record is about the user's rights.
+        assert "Mealie does not let the token's user change this recipe, so it cannot record the meal.".equals(english.problemReadOnly) : english.problemReadOnly;
+        assert "Mealie uporabniku tega žetona ne dovoli spreminjati recepta, zato obroka ne more zabeležiti.".equals(slovenian.problemReadOnly) : slovenian.problemReadOnly;
+        assert "The API token can only read, so Tandoor cannot record this.".equals(Strings.of("English", Settings.App.TANDOOR).problemReadOnly);
+        assert "API ključ je samo za branje, zato Norish tega ne more zabeležiti.".equals(Strings.of("Slovenščina", Settings.App.NORISH).problemReadOnly);
         // Mealie's seven types, named in each language.
         String[] types = {"breakfast", "lunch", "dinner", "side", "snack", "drink", "dessert"};
         List<String> inEnglish = new ArrayList<>();
@@ -173,20 +200,23 @@ public final class MealieTest {
         assert requests.get(0).equals("v3.31 GET /api/households/mealplans?start_date=2026-11-18&end_date=2026-11-24&perPage=-1&include_week_entries=true token ") : requests;
         List<String> titles = new ArrayList<>();
         for (RecipeSource.Planned meal : plan) titles.add(meal.date.getDayOfMonth() + " " + meal.slot + " " + meal.title + (meal.note.isEmpty() ? "" : " (" + meal.note + ")"));
-        assert titles.equals(Arrays.asList("18 lunch Kosilo v službi (Kosilo v službi)", "18 lunch Golaž (Ostanki)", "18 dinner Golaž", "18 dinner Juha za ves teden (Juha za ves teden)",
+        assert titles.equals(Arrays.asList("18 lunch Kosilo v službi (Kosilo v službi)", "18 lunch Golaž (Ostanki: od nedelje)", "18 dinner Golaž", "18 dinner Juha za ves teden (Juha za ves teden)",
             "18 side Ričet", "18 dessert Sladoled (iz skrinje)", "19 dinner Juha za ves teden (Juha za ves teden)", "19 snack Ričet",
-            "20 dinner Juha za ves teden (Juha za ves teden)", "20 drink Kava (Kava)", "21 dinner Juha za ves teden (Juha za ves teden)",
+            "20 dinner Juha za ves teden (Juha za ves teden)", "20 drink Kava (Kava)", "21 breakfast Palačinke", "21 dinner Juha za ves teden (Juha za ves teden)",
             "22 dinner Juha za ves teden (Juha za ves teden)")) : titles;
         RecipeSource.Planned work = plan.get(0);
-        assert work.recipeId == null && "".equals(work.image) && work.servings == 0 && work.minutes == 0 && work.slotOrder == 12 * 60 && "13".equals(work.id);
+        assert work.recipeId == null && "".equals(work.image) && work.servings == 0 && work.minutes == 0 && work.slotOrder == 12 * 60 && "13".equals(work.id) && !work.spread;
         RecipeSource.Planned dinner = plan.get(2);
         // Planned at one and a half times the recipe: six servings of its four.
-        assert GOLAZ.equals(dinner.recipeId) && dinner.servings == 6 && dinner.minutes == 150 && dinner.color == 0 && dinner.slotOrder == 18 * 60 : dinner.servings;
+        assert GOLAZ.equals(dinner.recipeId) && dinner.servings == 6 && dinner.minutes == 150 && dinner.color == 0 && dinner.slotOrder == 18 * 60 && !dinner.spread : dinner.servings;
         assert (servers.get("v3.31") + "/api/media/recipes/" + GOLAZ + "/images/min-original.webp#Xy12").equals(dinner.image) : dinner.image;
         RecipeSource.Planned side = plan.get(4);
         // Planned at the recipe's own: no servings of its own, and no picture where the recipe has none.
         assert RICET.equals(side.recipeId) && side.servings == 0 && "".equals(side.image) && side.minutes == 45;
-        assert plan.get(3).recipeId == null && "17".equals(plan.get(3).id) && plan.get(3).slotOrder == dinner.slotOrder;
+        // The week's meal is on each of its days, and none of them is its own.
+        assert plan.get(3).recipeId == null && "17".equals(plan.get(3).id) && plan.get(3).slotOrder == dinner.slotOrder && plan.get(3).spread && plan.get(12).spread;
+        // A recipe that says no servings counts as one, so twice it is two.
+        assert PALACINKE.equals(plan.get(10).recipeId) && plan.get(10).servings == 2;
         // Only what was asked for.
         assert mealie.mealPlan(TODAY.plusDays(1), TODAY.plusDays(1)).size() == 2;
 
@@ -214,24 +244,40 @@ public final class MealieTest {
         assert found.items.size() == 1 && RICET.equals(found.items.get(0).id) && found.items.get(0).minutes == 45 && "".equals(found.items.get(0).image);
         assert mealie.recipes("ricet", RecipeSource.Order.NAME, 1).items.size() == 1;
         // Recently made: last made first, never made last.
+        requests.clear();
         RecipeSource.Page recent = mealie.recipes("", RecipeSource.Order.RECENT, 1);
-        assert last().equals("v3.31 GET /api/recipes?page=1&perPage=24&orderBy=lastMade&orderDirection=desc&orderByNullPosition=last token ") : last();
+        assert requests.equals(Collections.singletonList("v3.31 GET /api/recipes?page=1&perPage=24&orderBy=lastMade&orderDirection=desc&orderByNullPosition=last token ")) : requests;
         assert "Golaž".equals(recent.items.get(0).name) && "Ričet".equals(recent.items.get(1).name) && "Recept 05".equals(recent.items.get(2).name) && recent.more;
 
-        // A server that cannot order by last made says so, and from then on recent is the newest added.
+        // Before 2.5 Mealie takes field names in snake_case only, and lists what was made last all the same.
         MealieSource older = source("v2.3");
         requests.clear();
-        RecipeSource.Page newest = older.recipes("", RecipeSource.Order.RECENT, 1);
+        RecipeSource.Page made = older.recipes("", RecipeSource.Order.RECENT, 1);
         assert requests.equals(Arrays.asList("v2.3 GET /api/recipes?page=1&perPage=24&orderBy=lastMade&orderDirection=desc&orderByNullPosition=last token ",
-            "v2.3 GET /api/recipes?page=1&perPage=24&orderBy=createdAt&orderDirection=desc token ")) : requests;
-        assert "Stara juha".equals(newest.items.get(0).name) && "Ričet".equals(newest.items.get(1).name) && newest.total == 31;
+            "v2.3 GET /api/recipes?page=1&perPage=24&orderBy=last_made&orderDirection=desc&orderByNullPosition=last token ")) : requests;
+        assert "Golaž".equals(made.items.get(0).name) && "Ričet".equals(made.items.get(1).name) && "Recept 05".equals(made.items.get(2).name) && made.total == 31;
         requests.clear();
         older.recipes("", RecipeSource.Order.RECENT, 2);
-        assert requests.equals(Collections.singletonList("v2.3 GET /api/recipes?page=2&perPage=24&orderBy=createdAt&orderDirection=desc token ")) : requests;
+        assert requests.equals(Collections.singletonList("v2.3 GET /api/recipes?page=2&perPage=24&orderBy=last_made&orderDirection=desc&orderByNullPosition=last token ")) : requests;
         // Its times are words.
         RecipeSource.Summary golaz = null;
         for (RecipeSource.Summary item : older.recipes("golaz", RecipeSource.Order.NAME, 1).items) golaz = item;
         assert golaz != null && golaz.minutes == 150;
+
+        // A server that knows no last made at all lists the newest added, and is asked that way from then on.
+        MealieSource oldest = source("v2.2");
+        requests.clear();
+        RecipeSource.Page newest = oldest.recipes("", RecipeSource.Order.RECENT, 1);
+        assert requests.size() == 4 && requests.get(3).equals("v2.2 GET /api/recipes?page=1&perPage=24&orderBy=created_at&orderDirection=desc token ") : requests;
+        assert "Ričet".equals(newest.items.get(0).name) && "Golaž".equals(newest.items.get(1).name);
+        requests.clear();
+        oldest.recipes("", RecipeSource.Order.RECENT, 2);
+        assert requests.equals(Collections.singletonList("v2.2 GET /api/recipes?page=2&perPage=24&orderBy=created_at&orderDirection=desc token ")) : requests;
+        // Any other 400 is trouble, not a field Mealie lacks.
+        requests.clear();
+        RecipeSource.SourceException refused = failure(() -> source("refusing").recipes("", RecipeSource.Order.RECENT, 1));
+        assert refused.kind == RecipeSource.SourceException.Kind.SERVER && requests.size() == 1 && refused.getMessage().equals("Mealie answered HTTP 400: Search is not available.")
+            : refused.getMessage();
     }
 
     static void recipes() throws Exception {
@@ -251,25 +297,33 @@ public final class MealieTest {
             List<String> lines = new ArrayList<>();
             for (Recipe.Ingredient ingredient : list) lines.add(ingredient.line(1, false));
             assert lines.equals(Arrays.asList("Meso", "800 g goveje meso, na kocke", "3 čebule", "1 tablespoon paprika", "sol in poper po okusu", "kumina, pinch",
-                "Za postrežbo", "1 Polenta", "2 dl vode")) : lines;
-            // A unit's plural with more, a food's only by itself, and a decimal comma and fractions of the plugin's own.
-            assert "2 tablespoons paprika".equals(list.get(3).line(2, false)) && "1 čebula".equals(list.get(2).line(1.0 / 3, true)) && "1200 g goveje meso, na kocke".equals(list.get(1).line(1.5, true));
-            assert "4½ čebule".equals(list.get(2).line(1.5, true)) && list.get(0).header && list.get(6).header;
-            assert !list.get(4).hasAmount() && !list.get(8).hasAmount() && "".equals(list.get(5).measure(1, false));
-            assert recipe.steps.size() == 4 : recipe.steps.size();
+                "Za postrežbo", "1 Polenta", "2 7-spice blend", "3 cl. česen")) : lines;
+            // Plurals only for more than one, as Mealie writes them, a food's only by itself, and a decimal comma and
+            // fractions of the plugin's own. A unit with only a plural abbreviation keeps it.
+            assert "2 tablespoons paprika".equals(list.get(3).line(2, false)) && "½ tablespoon paprika".equals(list.get(3).line(0.5, false)) : list.get(3).line(0.5, false);
+            assert "1 čebula".equals(list.get(2).line(1.0 / 3, true)) && "1200 g goveje meso, na kocke".equals(list.get(1).line(1.5, true)) && "1½ čebule".equals(list.get(2).line(0.5, true));
+            assert "1 clove česen".equals(list.get(9).line(1.0 / 3, false)) && "4½ 7-spice blend".equals(list.get(8).line(2.25, true));
+            assert list.get(0).header && list.get(6).header && !list.get(4).hasAmount() && "".equals(list.get(5).measure(1, false)) && list.get(8).hasAmount();
+            assert recipe.steps.size() == 5 : recipe.steps.size();
             Recipe.Step brown = recipe.steps.get(0);
             assert "Priprava".equals(brown.title) && brown.format == Recipe.Format.MARKDOWN && "Meso popeci na masti.".equals(Instructions.render(brown, 1, false));
             assert brown.seconds == (newest ? 600 : 0) && brown.ingredients.size() == 1 && brown.ingredients.get(0) == list.get(1);
             Recipe.Step add = recipe.steps.get(1);
             assert "Priprava".equals(add.title) && add.ingredients.size() == 3 && add.ingredients.get(0) == list.get(2) && add.ingredients.get(1) == list.get(3) && add.seconds == 0;
             Recipe.Step stew = recipe.steps.get(2);
-            assert "Kuhanje: Dušenje".equals(stew.title) && "Duši 90 minut.".equals(Instructions.render(stew, 1, false)) && stew.seconds == (newest ? 5400 : 0);
+            assert "Kuhanje: Dušenje".equals(stew.title) && stew.seconds == (newest ? 5400 : 0);
+            // A note the step names goes with it, from the version that links them.
+            String stewText = Instructions.render(stew, 1, false);
+            assert stewText.equals(newest ? "Duši 90 minut.\n\nNamig: Golaž je boljši naslednji dan." : "Duši 90 minut.") : stewText;
             // Salt that two steps name is ticked off in each apart, and apart from the list.
             Recipe.Ingredient early = add.ingredients.get(2);
             Recipe.Ingredient late = stew.ingredients.get(0);
             assert early != late && early != list.get(4) && late != list.get(4) && "sol in poper po okusu".equals(late.line(1, false));
             Recipe.Step serve = recipe.steps.get(3);
             assert "Kuhanje".equals(serve.title) && serve.ingredients.size() == 1 && serve.ingredients.get(0) == list.get(7);
+            // A step with only its summary says that.
+            Recipe.Step rest = recipe.steps.get(4);
+            assert "Kuhanje".equals(rest.title) && "Pusti počivati 10 minut.".equals(Instructions.render(rest, 1, false)) && rest.ingredients.isEmpty();
             // The group is asked for once.
             mealie.recipe(GOLAZ);
             assert last().equals(flavor + " GET /api/recipes/" + GOLAZ + " token ") : last();
@@ -278,6 +332,9 @@ public final class MealieTest {
             Recipe ricet = mealie.recipe(RICET);
             assert ricet.servings == 6 && "bowls".equals(ricet.servingsText) && "".equals(ricet.image) && (base + "/g/home/r/ricet").equals(ricet.webUrl);
             assert ricet.workingMinutes == 15 && ricet.waitingMinutes == 30 && ricet.steps.size() == 1 && ricet.steps.get(0).ingredients.isEmpty();
+            // No servings and no yield: one, which is what Mealie scales by.
+            Recipe pancakes = mealie.recipe(PALACINKE);
+            assert pancakes.servings == 1 && "".equals(pancakes.servingsText) && "4 jajca".equals(pancakes.ingredients().get(0).line(pancakes.factor(2), true));
             // Nothing to tell when one is opened.
             int before = requests.size();
             mealie.viewed(GOLAZ);
@@ -308,8 +365,9 @@ public final class MealieTest {
         Http http = new Http();
         Http.Response image = http.request("GET", picture, mealie.imageHeaders(picture), null, 1024);
         assert image.ok() && "WEBP".equals(image.text()) && "image/webp".equals(image.header("Content-Type"));
-        // The key after the # never reaches the server.
+        // The key after the # never reaches the server, nor the connection, also after a redirect that names one.
         assert requests.equals(Collections.singletonList("v3.31 GET /api/media/recipes/" + GOLAZ + "/images/original.webp - ")) : requests;
+        assert http.request("GET", servers.get("v3.31") + "/hop#Xy12", Collections.<String, String>emptyMap(), null, 1024).ok();
         // A new picture has a new key, so its address is another, which the tablet fetches and keeps apart.
         golazPicture = "Ab34";
         try {
@@ -324,32 +382,41 @@ public final class MealieTest {
     }
 
     static void cooked() throws Exception {
-        // Last made only moves on: the household's day is older, so today goes.
+        // Last made only moves on: the household's day is older, so today goes. The slug is read by the id each time,
+        // since a rename changes it, and the write goes with the method itself.
         MealieSource mealie = source("v3.31");
-        mealie.recipe(GOLAZ);
         requests.clear();
         mealie.cooked(GOLAZ, 6);
-        assert requests.equals(Arrays.asList("v3.31 GET /api/households/self/recipes/golaz token ",
+        assert requests.equals(Arrays.asList("v3.31 GET /api/recipes/" + GOLAZ + " token ", "v3.31 GET /api/households/self/recipes/golaz token ",
             "v3.31 PATCH /api/recipes/golaz/last-made token {\"timestamp\":\"2026-11-18T19:30:00Z\"}")) : requests;
-        // Recorded now, so again now changes nothing.
+        // Recorded now, so again now changes nothing, and counts as recorded.
         requests.clear();
         mealie.cooked(GOLAZ, 6);
-        assert requests.equals(Collections.singletonList("v3.31 GET /api/households/self/recipes/golaz token ")) : requests;
+        assert requests.equals(Arrays.asList("v3.31 GET /api/recipes/" + GOLAZ + " token ", "v3.31 GET /api/households/self/recipes/golaz token ")) : requests;
         // Another tablet recorded a later day meanwhile, which stays.
-        made.put("v3.31", "2026-11-20T08:00:00+01:00");
+        made.put("v3.31 golaz", "2026-11-20T08:00:00+01:00");
         requests.clear();
         new MealieSource(servers.get("v3.31"), TOKEN, new Http(), Clock.fixed(Instant.parse("2026-11-19T12:00:00Z"), ZoneOffset.UTC)).cooked(GOLAZ, 4);
-        // A source that has not read the recipe asks for its slug first.
-        assert requests.equals(Arrays.asList("v3.31 GET /api/recipes/" + GOLAZ + " token ", "v3.31 GET /api/households/self/recipes/golaz token ")) : requests;
+        assert requests.size() == 2 && !requests.get(1).contains("PATCH") : requests;
+        // A recipe the household never made.
+        requests.clear();
+        mealie.cooked(RICET, 2);
+        assert last().equals("v3.31 PATCH /api/recipes/ricet/last-made token {\"timestamp\":\"2026-11-18T19:30:00Z\"}") : requests;
 
-        // Before 2.5 the day is the recipe's own.
+        // Before 2.5 the route is not there, which FastAPI says in its own words, and the day is the recipe's own.
         MealieSource older = source("v2.3");
         requests.clear();
         older.cooked(GOLAZ, 4);
         assert requests.equals(Arrays.asList("v2.3 GET /api/recipes/" + GOLAZ + " token ", "v2.3 GET /api/households/self/recipes/golaz token ",
             "v2.3 PATCH /api/recipes/golaz/last-made token {\"timestamp\":\"2026-11-18T19:30:00Z\"}")) : requests;
-        assert "2026-11-18T19:30:00Z".equals(made.get("v2.3"));
+        assert "2026-11-18T19:30:00Z".equals(made.get("v2.3 golaz"));
 
+        // The slug renamed to another recipe between the reads, and a recipe gone between them: nothing is written.
+        requests.clear();
+        assert kind(() -> source("renamed").cooked(GOLAZ, 4)) == RecipeSource.SourceException.Kind.SERVER;
+        RecipeSource.SourceException vanished = failure(() -> source("vanishing").cooked(GOLAZ, 4));
+        assert vanished.kind == RecipeSource.SourceException.Kind.NOT_FOUND && vanished.getMessage().endsWith(": Recipe not found.") : vanished.getMessage();
+        for (String request : requests) assert !request.contains("PATCH") : request;
         // A user who may not change the recipe, a recipe that is gone, one with no slug, and an id that is none.
         RecipeSource.SourceException refused = failure(() -> source("readonly").cooked(GOLAZ, 4));
         assert refused.kind == RecipeSource.SourceException.Kind.READ_ONLY && refused.getMessage().startsWith("Mealie refused to record this: Permission denied.") : refused.getMessage();
@@ -370,6 +437,9 @@ public final class MealieTest {
         assert wrongToken.kind == RecipeSource.SourceException.Kind.AUTH && wrongToken.getMessage().contains("profile > API Tokens") : wrongToken.getMessage();
         RecipeSource.SourceException revoked = failure(() -> source("revoked").recipes("", RecipeSource.Order.NAME, 1));
         assert revoked.kind == RecipeSource.SourceException.Kind.AUTH && revoked.getMessage().startsWith("Mealie refused the API token: Unauthorized.") : revoked.getMessage();
+        // Something that sends the token back never gets it into a message.
+        RecipeSource.SourceException echoed = failure(() -> source("echo").recipes("", RecipeSource.Order.NAME, 1));
+        assert echoed.kind == RecipeSource.SourceException.Kind.AUTH && !echoed.getMessage().contains(TOKEN) && echoed.getMessage().contains("Bearer [token]") : echoed.getMessage();
         // Things in front of Mealie: a proxy while it is stopped, its 404, a web page, a password prompt.
         RecipeSource.SourceException proxy = failure(() -> source("proxy").mealPlan(TODAY, TODAY));
         assert proxy.kind == RecipeSource.SourceException.Kind.NETWORK && proxy.getMessage().startsWith("Mealie, or something in front of it, answered HTTP 502.") : proxy.getMessage();
@@ -389,11 +459,12 @@ public final class MealieTest {
         assert failing.kind == RecipeSource.SourceException.Kind.SERVER && failing.getMessage().equals("Mealie answered HTTP 500: database is locked.") : failing.getMessage();
         RecipeSource.SourceException strict = failure(() -> source("strict").mealPlan(TODAY, TODAY));
         assert strict.kind == RecipeSource.SourceException.Kind.SERVER && strict.getMessage().equals("Mealie answered HTTP 422: start_date: Input should be a valid date.") : strict.getMessage();
-        // A route an old Mealie lacks, and a server nobody answers at.
+        // A route an old Mealie lacks, and a server nobody answers at, named without a user name or password.
         RecipeSource.SourceException noRoute = failure(() -> new MealieSource(servers.get("v2.2"), TOKEN, new Http(), NOW).mealPlan(TODAY, TODAY));
         assert noRoute.kind == RecipeSource.SourceException.Kind.NOT_API && noRoute.getMessage().startsWith("Mealie has nothing at /api/households/mealplans") : noRoute.getMessage();
-        RecipeSource.SourceException away = failure(() -> new MealieSource("http://127.0.0.1:1", TOKEN, new Http(), NOW).recipes("", RecipeSource.Order.NAME, 1));
-        assert away.kind == RecipeSource.SourceException.Kind.NETWORK : away.kind;
+        RecipeSource.SourceException away = failure(() -> new MealieSource("http://kuhinja:geslo@127.0.0.1:1", TOKEN, new Http(), NOW).recipes("", RecipeSource.Order.NAME, 1));
+        assert away.kind == RecipeSource.SourceException.Kind.NETWORK && away.getMessage().startsWith("Could not reach Mealie at 127.0.0.1:1:") && !away.getMessage().contains("geslo")
+            : away.getMessage();
     }
 
     // The servers.
@@ -405,19 +476,17 @@ public final class MealieTest {
                 answer(flavor, exchange);
             } catch (RuntimeException bug) {
                 wrong.add(flavor + " " + bug);
-                send(exchange, 599, "", null);
+                send(exchange, 599, "");
             }
         });
         server.start();
         running.add(server);
         servers.put(flavor, "http://127.0.0.1:" + server.getAddress().getPort());
-        made.put(flavor, "2026-11-17T18:00:00");
+        made.put(flavor + " golaz", "2026-11-17T18:00:00");
     }
 
     static void answer(String flavor, HttpExchange exchange) throws IOException {
         String method = exchange.getRequestMethod();
-        String override = exchange.getRequestHeaders().getFirst("X-HTTP-Method-Override");
-        if ("POST".equals(method) && "PATCH".equals(override)) method = "PATCH";
         String path = exchange.getRequestURI().getRawPath();
         String query = exchange.getRequestURI().getRawQuery();
         String auth = exchange.getRequestHeaders().getFirst("Authorization");
@@ -425,14 +494,20 @@ public final class MealieTest {
         String body = read(exchange.getRequestBody());
         requests.add(flavor + " " + method + " " + path + (query == null ? "" : "?" + query) + " " + (auth == null ? "-" : keyed ? "token" : "other") + " " + body);
         if (path.endsWith("/") && path.length() > 1) wrong.add("Trailing slash " + path);
+        if (exchange.getRequestHeaders().getFirst("X-HTTP-Method-Override") != null) wrong.add("A method override to " + path);
         if (body.length() > 0 && !exchange.getRequestHeaders().getFirst("Content-Type").startsWith("application/json")) wrong.add("Not JSON to " + path);
+        if (path.equals("/hop")) {
+            exchange.getResponseHeaders().add("Location", "/api/media/recipes/" + GOLAZ + "/images/original.webp#Ab34");
+            send(exchange, 302, "");
+            return;
+        }
         if (path.startsWith("/api/media/")) {
             if (auth != null) wrong.add("A token with a picture " + path);
             if (query != null) wrong.add("A query with a picture " + path);
             if (path.equals("/api/media/recipes/" + GOLAZ + "/images/original.webp") || path.equals("/api/media/recipes/" + GOLAZ + "/images/min-original.webp")) {
                 sendAs(exchange, 200, "WEBP", "image/webp");
             } else {
-                send(exchange, 404, "{\"detail\":\"Not Found\"}", null);
+                send(exchange, 404, "{\"detail\":\"Not Found\"}");
             }
             return;
         }
@@ -440,85 +515,100 @@ public final class MealieTest {
         if (path.startsWith("/api/recipes/timeline")) wrong.add("A timeline event");
         switch (flavor) {
             case "proxy":
-                if (path.startsWith("/api/recipes/")) send(exchange, 404, "404 page not found", null);
-                else send(exchange, 502, "<html><body><h1>502 Bad Gateway</h1></body></html>", null);
+                if (path.startsWith("/api/recipes/")) send(exchange, 404, "404 page not found");
+                else send(exchange, 502, "<html><body><h1>502 Bad Gateway</h1></body></html>");
                 return;
             case "web":
-                send(exchange, 200, "<!DOCTYPE html><html><body>Home</body></html>", null);
+                send(exchange, 200, "<!DOCTYPE html><html><body>Home</body></html>");
                 return;
             case "gate":
-                send(exchange, 401, "<html><body>Sign in to continue</body></html>", null);
+                send(exchange, 401, "<html><body>Sign in to continue</body></html>");
                 return;
             case "broken":
                 sendAs(exchange, 500, "Internal Server Error", "text/plain");
                 return;
             case "failing":
-                send(exchange, 500, "{\"detail\":\"database is locked\"}", null);
+                send(exchange, 500, "{\"detail\":\"database is locked\"}");
                 return;
             case "strict":
-                send(exchange, 422, "{\"detail\":[{\"type\":\"date_from_datetime_parsing\",\"loc\":[\"query\",\"start_date\"],\"msg\":\"Input should be a valid date\",\"input\":\"x\"}]}", null);
+                send(exchange, 422, "{\"detail\":[{\"type\":\"date_from_datetime_parsing\",\"loc\":[\"query\",\"start_date\"],\"msg\":\"Input should be a valid date\",\"input\":\"x\"}]}");
+                return;
+            case "refusing":
+                send(exchange, 400, "{\"detail\":\"Search is not available\"}");
+                return;
+            case "echo":
+                send(exchange, 401, "{\"detail\":\"Bad header Authorization: " + auth + "\"}");
                 return;
             default:
         }
         if (path.equals("/api/app/about")) {
             String version = flavor.equals("v3.0") ? "v3.0.2" : flavor.equals("v2.3") ? "v2.3.0" : flavor.equals("v2.2") ? "v2.2.0" : flavor.equals("nightly") ? "nightly" : "v3.31.0";
-            send(exchange, 200, "{\"production\":true,\"version\":\"" + version + "\",\"demoStatus\":false,\"allowSignup\":false,\"defaultGroupSlug\":\"home\",\"defaultHouseholdSlug\":\"family\"}", null);
+            send(exchange, 200, "{\"production\":true,\"version\":\"" + version + "\",\"demoStatus\":false,\"allowSignup\":false,\"defaultGroupSlug\":\"home\",\"defaultHouseholdSlug\":\"family\"}");
             return;
         }
         if (!keyed || flavor.equals("revoked")) {
             exchange.getResponseHeaders().add("WWW-Authenticate", "Bearer");
-            send(exchange, 401, flavor.equals("revoked") ? "{\"detail\":\"Unauthorized\"}" : "{\"detail\":\"Could not validate credentials\"}", null);
+            send(exchange, 401, flavor.equals("revoked") ? "{\"detail\":\"Unauthorized\"}" : "{\"detail\":\"Could not validate credentials\"}");
             return;
         }
         Map<String, String> params = params(query);
-        boolean v331 = flavor.equals("v3.31") || flavor.equals("nightly") || flavor.equals("readonly") || flavor.equals("noslug");
         boolean v2 = flavor.equals("v2.3");
+        boolean before25 = v2 || flavor.equals("v2.2");
+        boolean v331 = !flavor.equals("v3.0") && !before25;
         if (flavor.equals("v2.2") && path.startsWith("/api/households")) {
-            send(exchange, 404, "{\"detail\":\"Not Found\"}", null);
+            send(exchange, 404, "{\"detail\":\"Not Found\"}");
             return;
         }
         if ("GET".equals(method) && path.equals("/api/users/self")) {
             send(exchange, 200, "{\"id\":\"9e8d7c6b-5a49-4382-9172-6a5b4c3d2e1f\",\"username\":\"kuhinja\",\"fullName\":\"Kuhinja\",\"group\":\"Home\",\"household\":\"Family\","
-                + "\"groupId\":\"0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8\",\"groupSlug\":\"home\",\"householdSlug\":\"family\",\"admin\":false}", null);
+                + "\"groupId\":\"0a1b2c3d-4e5f-4061-8172-93a4b5c6d7e8\",\"groupSlug\":\"home\",\"householdSlug\":\"family\",\"admin\":false}");
             return;
         }
         if ("GET".equals(method) && path.equals("/api/recipes")) {
-            recipeList(flavor, exchange, params, v2);
+            recipeList(flavor, exchange, params, v331, v2, before25);
             return;
         }
         if ("GET".equals(method) && path.startsWith("/api/recipes/")) {
             String key = path.substring("/api/recipes/".length());
             Map<String, Object> recipe = recipe(flavor, key, v331, v2);
-            if (recipe == null) send(exchange, 404, "{\"detail\":{\"message\":\"No Entry Found\",\"error\":true,\"exception\":null}}", null);
-            else send(exchange, 200, Json.write(recipe), null);
+            if (recipe == null) send(exchange, 404, "{\"detail\":{\"message\":\"No Entry Found\",\"error\":true,\"exception\":null}}");
+            else send(exchange, 200, Json.write(recipe));
             return;
         }
         if ("GET".equals(method) && path.startsWith("/api/households/self/recipes/")) {
-            if (v2) send(exchange, 404, "{\"detail\":\"Not Found\"}", null);
-            else if (path.endsWith("/golaz")) send(exchange, 200, "{\"recipeId\":\"" + GOLAZ + "\",\"lastMade\":\"" + made.get(flavor) + "\"}", null);
-            else send(exchange, 404, "{\"detail\":{\"message\":\"No Entry Found\",\"error\":true,\"exception\":null}}", null);
+            String slug = path.substring("/api/households/self/recipes/".length());
+            Map<String, Object> recipe = recipe(flavor, slug, v331, v2);
+            // Before 2.5 the route is missing, which FastAPI answers in its own words. Mealie's own for a recipe it does not find says so.
+            if (before25) send(exchange, 404, "{\"detail\":\"Not Found\"}");
+            else if (recipe == null || flavor.equals("vanishing")) send(exchange, 404, "{\"detail\":\"Recipe not found\"}");
+            else send(exchange, 200, Json.write(map("recipeId", flavor.equals("renamed") ? RICET : recipe.get("id"), "lastMade", made.get(flavor + " " + slug))));
             return;
         }
-        if ("PATCH".equals(method) && path.matches("/api/recipes/[a-z-]+/last-made")) {
+        if (path.matches("/api/recipes/[a-z-]+/last-made")) {
+            if (!"PATCH".equals(method)) {
+                send(exchange, 405, "{\"detail\":\"Method Not Allowed\"}");
+                return;
+            }
             if (flavor.equals("readonly")) {
-                send(exchange, 403, "{\"detail\":{\"message\":\"Permission denied\",\"error\":true,\"exception\":null}}", null);
+                send(exchange, 403, "{\"detail\":{\"message\":\"Permission denied\",\"error\":true,\"exception\":null}}");
                 return;
             }
             Object timestamp = Json.object(Json.parse(body)).get("timestamp");
             if (!(timestamp instanceof String) || MealieSource.instant(timestamp) == null) {
-                send(exchange, 422, "{\"detail\":[{\"loc\":[\"body\",\"timestamp\"],\"msg\":\"Field required\"}]}", null);
+                send(exchange, 422, "{\"detail\":[{\"loc\":[\"body\",\"timestamp\"],\"msg\":\"Field required\"}]}");
                 return;
             }
-            made.put(flavor, (String) timestamp);
-            send(exchange, 200, Json.write(recipe(flavor, path.split("/")[3], v331, v2)), null);
+            String slug = path.split("/")[3];
+            made.put(flavor + " " + slug, (String) timestamp);
+            send(exchange, 200, Json.write(recipe(flavor, slug, v331, v2)));
             return;
         }
         if ("GET".equals(method) && path.equals("/api/households/mealplans")) {
             if (!"-1".equals(params.get("perPage"))) wrong.add("A plan in pages");
-            send(exchange, 200, Json.write(plan(flavor, params, v331, v2)), null);
+            send(exchange, 200, Json.write(plan(flavor, params, v331, v2)));
             return;
         }
-        send(exchange, 404, "{\"detail\":\"Not Found\"}", null);
+        send(exchange, 404, "{\"detail\":\"Not Found\"}");
     }
 
     /** The recipes, each as its summary: Golaž, Ričet and 28 more, and on v2.3 an old soup kept as text. */
@@ -544,8 +634,11 @@ public final class MealieTest {
         return summary;
     }
 
-    static void recipeList(String flavor, HttpExchange exchange, Map<String, String> params, boolean v2) throws IOException {
-        boolean v331 = !flavor.equals("v3.0") && !v2;
+    /**
+     * The list in pages. Fields to order by are camelCase from 2.5 and snake_case before, and v2.2 here has no last made.
+     * A field the server does not have is Mealie's 400 for an invalid order_by statement.
+     */
+    static void recipeList(String flavor, HttpExchange exchange, Map<String, String> params, boolean v331, boolean v2, boolean before25) throws IOException {
         List<Map<String, Object>> items = new ArrayList<>(all(flavor, v331, v2));
         String search = params.get("search");
         if (search != null) {
@@ -555,12 +648,16 @@ public final class MealieTest {
             }
             items = found;
         }
-        String by = params.get("orderBy");
-        if ("lastMade".equals(by) && v2) {
-            send(exchange, 400, "{\"detail\":\"Invalid order_by statement 'lastMade': no such attribute\"}", null);
+        String by = params.containsKey("orderBy") ? params.get("orderBy") : "name";
+        Map<String, String> fields = new HashMap<>();
+        fields.put("name", "name");
+        fields.put(before25 ? "created_at" : "createdAt", "createdAt");
+        if (!flavor.equals("v2.2")) fields.put(before25 ? "last_made" : "lastMade", "lastMade");
+        if (!fields.containsKey(by)) {
+            send(exchange, 400, "{\"detail\":\"Invalid order_by statement \\\"" + by + "\\\": \\\"" + by + "\\\" is invalid\"}");
             return;
         }
-        final String field = by == null ? "name" : by;
+        final String field = fields.get(by);
         final boolean down = "desc".equals(params.get("orderDirection"));
         final boolean nullsLast = "last".equals(params.get("orderByNullPosition"));
         Collections.sort(items, (a, b) -> {
@@ -570,20 +667,20 @@ public final class MealieTest {
             int order = field.equals("name") ? fold(x).compareTo(fold(y)) : x.compareTo(y);
             return down ? -order : order;
         });
-        int page = Integer.parseInt(params.getOrDefault("page", "1"));
-        int perPage = Integer.parseInt(params.getOrDefault("perPage", "50"));
+        int page = Integer.parseInt(params.containsKey("page") ? params.get("page") : "1");
+        int perPage = Integer.parseInt(params.containsKey("perPage") ? params.get("perPage") : "50");
         int pages = (items.size() + perPage - 1) / perPage;
         List<Map<String, Object>> shown = page < 1 ? new ArrayList<Map<String, Object>>() : items.subList(Math.min(items.size(), (page - 1) * perPage), Math.min(items.size(), page * perPage));
         Map<String, Object> answer = map("page", page, "per_page", perPage, "total", items.size(), "total_pages", pages, "items", shown,
             "next", page < pages ? "/recipes?page=" + (page + 1) + "&perPage=" + perPage : null, "previous", page > 1 ? "/recipes?page=" + (page - 1) + "&perPage=" + perPage : null);
-        send(exchange, 200, Json.write(answer), null);
+        send(exchange, 200, Json.write(answer));
     }
 
     static Map<String, Object> recipe(String flavor, String key, boolean v331, boolean v2) {
         if (key.equals(GOLAZ) || key.equals("golaz")) {
             Map<String, Object> recipe = map("id", GOLAZ, "slug", flavor.equals("noslug") ? "" : "golaz", "name", "Golaž", "description", "Kot pri babici.", "image", golazPicture,
                 "recipeServings", 4, "recipeYieldQuantity", 0, "recipeYield", "", "orgURL", "https://example.org/golaz",
-                "prepTime", "20 minutes", "performTime", "1 hour 30 minutes", "totalTime", "2½ hours", "createdAt", "2026-10-01T08:00:00", "lastMade", made.get(flavor));
+                "prepTime", "20 minutes", "performTime", "1 hour 30 minutes", "totalTime", "2½ hours", "createdAt", "2026-10-01T08:00:00", "lastMade", made.get(flavor + " golaz"));
             if (v331) {
                 recipe.put("prepTimeSeconds", 1200);
                 recipe.put("performTimeSeconds", 5400);
@@ -598,23 +695,41 @@ public final class MealieTest {
                 line(null, 0, null, null, "sol in poper po okusu", "R4"),
                 line(null, null, unit("pinch", "pinches", "", "", false), food("kumina", ""), "", "R5"),
                 withRecipe(line("Za postrežbo", 1, null, null, "", "R6"), "Polenta"),
-                line(null, 1, null, null, "2 dl vode", "R7"),
+                line(null, 2, null, null, "7-spice blend", "R7"),
+                line(null, 3, unit("clove", "cloves", "", "cl.", true), food("česen", "česna"), "", "R9"),
                 line(null, 0, null, null, "", "R8")));
+            Map<String, Object> stew = step("Kuhanje", "Dušenje", "Duši 90 minut.", v331 ? 5400 : null, "R4");
+            if (v331) {
+                stew.put("noteReferences", list(map("referenceId", "N1"), map("referenceId", "N404")));
+                recipe.put("notes", list(map("title", "Namig", "text", "Golaž je boljši naslednji dan.", "referenceId", "N1"),
+                    map("title", "", "text", "Splošna opomba.", "referenceId", "N2")));
+            } else {
+                recipe.put("notes", list(map("title", "Namig", "text", "Golaž je boljši naslednji dan.")));
+            }
             recipe.put("recipeInstructions", list(
                 step("Priprava", "", "Meso **popeci** na masti.", v331 ? 600 : null, "R1"),
                 step("", "", "Dodaj čebulo in papriko.", v331 ? 0 : null, "R2", "R3", "R4", "R404"),
-                step("Kuhanje", "Dušenje", "Duši 90 minut.", v331 ? 5400 : null, "R4"),
+                stew,
                 step("", "", "  ", null),
-                step("", "", "Postrezi s polento.", null, "R6", "R6")));
+                step("", "", "Postrezi s polento.", null, "R6", "R6"),
+                step("", "Pusti počivati 10 minut.", "", null)));
             recipe.put("settings", v2 || flavor.equals("v3.0") ? map("public", true, "showNutrition", false, "disableAmount", false) : map("public", true, "showNutrition", false));
             return recipe;
         }
         if (key.equals(RICET) || key.equals("ricet")) {
             Map<String, Object> recipe = map("id", RICET, "slug", "ricet", "name", "Ričet", "description", "", "image", null, "recipeServings", 0, "recipeYieldQuantity", 6,
-                "recipeYield", "6 bowls", "orgURL", null, "prepTime", "15 min", "performTime", "", "totalTime", "45 min", "createdAt", "2026-10-05T08:00:00", "lastMade", "2026-11-10T12:00:00");
+                "recipeYield", "6 bowls", "orgURL", null, "prepTime", "15 min", "performTime", "", "totalTime", "45 min", "createdAt", "2026-10-05T08:00:00",
+                "lastMade", made.containsKey(flavor + " ricet") ? made.get(flavor + " ricet") : "2026-11-10T12:00:00");
             if (v331) recipe.put("totalTimeSeconds", 2700);
             recipe.put("recipeIngredient", list());
             recipe.put("recipeInstructions", list(step("", "", "Vse skuhaj skupaj.", null)));
+            return recipe;
+        }
+        if (key.equals(PALACINKE) || key.equals("palacinke")) {
+            Map<String, Object> recipe = map("id", PALACINKE, "slug", "palacinke", "name", "Palačinke", "image", null, "recipeServings", 0, "recipeYieldQuantity", 0,
+                "recipeYield", "", "createdAt", "2026-08-01T08:00:00", "lastMade", null);
+            recipe.put("recipeIngredient", list(line(null, 2, null, food("jajce", "jajca"), "", "P1")));
+            recipe.put("recipeInstructions", list(step("", "", "Speci.", null)));
             return recipe;
         }
         if (v2 && (key.equals(JUHA) || key.equals("stara-juha"))) {
@@ -639,11 +754,12 @@ public final class MealieTest {
         entries.add(entry(11, TODAY, null, "dinner", "", "", recipe(flavor, GOLAZ, v331, v2), v331 ? 1.5 : null));
         entries.add(entry(12, TODAY, null, "side", "", "", recipe(flavor, RICET, v331, v2), v331 ? 1.0 : null));
         entries.add(entry(13, TODAY, null, "lunch", "Kosilo v službi", "", null, v331 ? 1.0 : null));
-        entries.add(entry(18, TODAY, null, "lunch", "Ostanki", "", recipe(flavor, GOLAZ, v331, v2), v331 ? 1.0 : null));
+        entries.add(entry(18, TODAY, null, "lunch", "Ostanki", v331 ? "od nedelje" : "", recipe(flavor, GOLAZ, v331, v2), v331 ? 1.0 : null));
         if (v331) {
             entries.add(entry(14, TODAY, null, "dessert", "Sladoled", "iz skrinje", null, 1.0));
             entries.add(entry(15, TODAY.plusDays(1), null, "snack", "", "", recipe(flavor, RICET, v331, v2), 1.0));
             entries.add(entry(16, TODAY.plusDays(2), null, "drink", "", "Kava", null, 1.0));
+            entries.add(entry(21, TODAY.plusDays(3), null, "breakfast", "", "", recipe(flavor, PALACINKE, v331, v2), 2.0));
             entries.add(entry(19, TODAY.plusDays(9), null, "dinner", "Daleč", "", null, 1.0));
             // An empty one, with nothing to show.
             entries.add(entry(20, TODAY, null, "lunch", "", "", null, 1.0));
@@ -727,7 +843,7 @@ public final class MealieTest {
         return params;
     }
 
-    static void send(HttpExchange exchange, int status, String text, String unused) throws IOException {
+    static void send(HttpExchange exchange, int status, String text) throws IOException {
         boolean isJson = text.startsWith("{") || text.startsWith("[");
         sendAs(exchange, status, text, isJson ? "application/json" : "text/html");
     }
@@ -768,5 +884,150 @@ public final class MealieTest {
 
     static RecipeSource.SourceException.Kind kind(Call call) throws Exception {
         return failure(call).kind;
+    }
+
+    /**
+     * A plain HTTP/1.1 connection, one request each, that sends any method as it is, as Android's does. The JDK's refuses
+     * PATCH. It reads the whole answer at once, which is all these tests need.
+     */
+    static final class Wire extends HttpURLConnection {
+        private final Map<String, String> headers = new LinkedHashMap<>();
+        private ByteArrayOutputStream out;
+        private Socket socket;
+        private int code = -1;
+        private final Map<String, List<String>> fields = new LinkedHashMap<>();
+        private byte[] body = new byte[0];
+
+        Wire(URL url) {
+            super(url);
+        }
+
+        @Override public void setRequestMethod(String method) {
+            this.method = method;
+        }
+
+        @Override public void setRequestProperty(String key, String value) {
+            headers.put(key, value);
+        }
+
+        @Override public void connect() throws IOException {
+            if (socket != null) return;
+            socket = new Socket();
+            socket.connect(new InetSocketAddress(url.getHost(), url.getPort() == -1 ? 80 : url.getPort()), getConnectTimeout());
+            socket.setSoTimeout(getReadTimeout());
+            connected = true;
+        }
+
+        @Override public OutputStream getOutputStream() {
+            if (out == null) out = new ByteArrayOutputStream();
+            return out;
+        }
+
+        private void exchange() throws IOException {
+            if (code >= 0) return;
+            connect();
+            byte[] sent = out == null ? null : out.toByteArray();
+            StringBuilder request = new StringBuilder(method).append(' ').append(url.getFile().isEmpty() ? "/" : url.getFile()).append(" HTTP/1.1\r\n");
+            request.append("Host: ").append(url.getAuthority()).append("\r\n").append("Connection: close\r\n");
+            for (Map.Entry<String, String> header : headers.entrySet()) request.append(header.getKey()).append(": ").append(header.getValue()).append("\r\n");
+            if (sent != null) request.append("Content-Length: ").append(sent.length).append("\r\n");
+            request.append("\r\n");
+            OutputStream wire = socket.getOutputStream();
+            wire.write(request.toString().getBytes(StandardCharsets.UTF_8));
+            if (sent != null) wire.write(sent);
+            wire.flush();
+            InputStream in = new BufferedInputStream(socket.getInputStream());
+            String status = lineOf(in);
+            code = Integer.parseInt(status.split(" ")[1]);
+            fields.put(null, Collections.singletonList(status));
+            long length = -1;
+            boolean chunked = false;
+            for (String line = lineOf(in); !line.isEmpty(); line = lineOf(in)) {
+                int colon = line.indexOf(':');
+                String name = line.substring(0, colon).trim();
+                String value = line.substring(colon + 1).trim();
+                if (!fields.containsKey(name)) fields.put(name, new ArrayList<String>());
+                fields.get(name).add(value);
+                if (name.equalsIgnoreCase("Content-Length")) length = Long.parseLong(value);
+                if (name.equalsIgnoreCase("Transfer-Encoding") && value.equalsIgnoreCase("chunked")) chunked = true;
+            }
+            ByteArrayOutputStream answer = new ByteArrayOutputStream();
+            if (chunked) {
+                for (int size = Integer.parseInt(lineOf(in).split(";")[0].trim(), 16); size > 0; size = Integer.parseInt(lineOf(in).split(";")[0].trim(), 16)) {
+                    copy(in, answer, size);
+                    lineOf(in);
+                }
+            } else if (length >= 0) {
+                copy(in, answer, length);
+            } else {
+                copy(in, answer, Long.MAX_VALUE);
+            }
+            body = answer.toByteArray();
+        }
+
+        private static String lineOf(InputStream in) throws IOException {
+            ByteArrayOutputStream line = new ByteArrayOutputStream();
+            for (int c = in.read(); c != -1 && c != '\n'; c = in.read()) if (c != '\r') line.write(c);
+            return new String(line.toByteArray(), StandardCharsets.ISO_8859_1);
+        }
+
+        private static void copy(InputStream in, ByteArrayOutputStream to, long most) throws IOException {
+            byte[] buffer = new byte[8192];
+            long left = most;
+            while (left > 0) {
+                int count = in.read(buffer, 0, (int) Math.min(buffer.length, left));
+                if (count == -1) break;
+                to.write(buffer, 0, count);
+                left -= count;
+            }
+        }
+
+        @Override public int getResponseCode() throws IOException {
+            exchange();
+            return code;
+        }
+
+        @Override public Map<String, List<String>> getHeaderFields() {
+            try {
+                exchange();
+            } catch (IOException failed) {
+                return Collections.emptyMap();
+            }
+            return fields;
+        }
+
+        @Override public String getHeaderField(String name) {
+            for (Map.Entry<String, List<String>> field : getHeaderFields().entrySet()) {
+                if (field.getKey() != null && field.getKey().equalsIgnoreCase(name)) return field.getValue().get(0);
+            }
+            return null;
+        }
+
+        @Override public long getContentLengthLong() {
+            String length = getHeaderField("Content-Length");
+            return length == null ? -1 : Long.parseLong(length);
+        }
+
+        @Override public InputStream getInputStream() throws IOException {
+            exchange();
+            if (code >= 400) throw new IOException("HTTP " + code);
+            return new ByteArrayInputStream(body);
+        }
+
+        @Override public InputStream getErrorStream() {
+            return code >= 400 ? new ByteArrayInputStream(body) : null;
+        }
+
+        @Override public void disconnect() {
+            try {
+                if (socket != null) socket.close();
+            } catch (IOException closed) {
+                // Gone already.
+            }
+        }
+
+        @Override public boolean usingProxy() {
+            return false;
+        }
     }
 }
