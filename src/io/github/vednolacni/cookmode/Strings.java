@@ -4,13 +4,12 @@ package io.github.vednolacni.cookmode;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 
-/** Everything the views say, in English or Slovenian, with Slovenian's four plural forms, for Tandoor or Norish. */
+/** Everything the views say, in English or Slovenian, with Slovenian's four plural forms, for Tandoor, Norish or Mealie. */
 final class Strings {
     final Locale locale;
     final boolean decimalComma;
@@ -92,8 +91,10 @@ final class Strings {
     final String startTimer;
     private final DateTimeFormatter longDate;
     private final DateTimeFormatter shortDate;
-    /** Norish's meal slots in this language, by the name Norish sends. Empty where they stay as they come. */
+    /** The meal slots of Norish and Mealie in this language, by the name the app sends. Empty where they stay as they come. */
     private final Map<String, String> slots;
+    /** The slots Norish and Mealie know, in the order of the last words, which name them: Norish's four, then Mealie's other three. */
+    private static final String[] SLOTS = {"Breakfast", "Lunch", "Dinner", "Snack", "Side", "Drink", "Dessert"};
 
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
 
@@ -119,6 +120,7 @@ final class Strings {
         "{app} shares only this week and this month of the meal plan.",
         "{app} refused the API {key}. If it has worked before, wait up to an hour: Norish 0.25 refuses a good {key} after 500 requests with no hour's pause. Otherwise create a new one under Settings > User > API keys.",
         "Delete", "Fewer servings", "More servings", "Start timer %s",
+        "Breakfast", "Lunch", "Dinner", "Snack", "Side", "Drink", "Dessert",
     };
 
     private static final String[] SLOVENIAN_WORDS = {
@@ -142,48 +144,66 @@ final class Strings {
         "{app} deli le jedilnik tega tedna in tega meseca.",
         "{app} je zavrnil API {key}. Če je prej deloval, počakaj do eno uro: Norish 0.25 zavrne tudi dober {key}, ki je poslal 500 zahtev brez urnega premora. Sicer ustvari novega v Norishu pod Settings > User > API keys.",
         "Izbriši", "Manj porcij", "Več porcij", "Zaženi časovnik %s",
+        "Zajtrk", "Kosilo", "Večerja", "Prigrizek", "Priloga", "Pijača", "Sladica",
     };
 
     static final Strings ENGLISH = english(Settings.App.TANDOOR);
     static final Strings SLOVENIAN = slovenian(Settings.App.TANDOOR);
     private static final Strings ENGLISH_NORISH = english(Settings.App.NORISH);
     private static final Strings SLOVENIAN_NORISH = slovenian(Settings.App.NORISH);
+    private static final Strings ENGLISH_MEALIE = english(Settings.App.MEALIE);
+    private static final Strings SLOVENIAN_MEALIE = slovenian(Settings.App.MEALIE);
 
     private static Strings english(Settings.App app) {
         boolean norish = app == Settings.App.NORISH;
+        boolean mealie = app == Settings.App.MEALIE;
         Map<String, String> words = new LinkedHashMap<>();
         words.put("{app}", app.title);
         words.put("{in app}", "in " + app.title);
         words.put("{app's}", app.title + "'s");
         words.put("{key}", norish ? "key" : "token");
         words.put("{key's}", norish ? "key's" : "token's");
-        words.put("{new key}", norish ? "Create a new one under Settings > User > API keys." : "Create a new one under Settings > API.");
-        words.put("{recent}", norish ? "Newest" : "Recently opened");
-        // Norish keeps prep and cook apart, and both are the work.
-        words.put("{prep}", norish ? "Prep and cook" : "Prep");
-        return new Strings(Locale.ENGLISH, false, "EEEE, MMMM d", "EEEE, MMM d", filled(ENGLISH_WORDS, words), Collections.<String, String>emptyMap());
+        words.put("{new key}", norish ? "Create a new one under Settings > User > API keys." : mealie ? "Create a new one under your profile > API Tokens."
+            : "Create a new one under Settings > API.");
+        // Mealie's recent is what was cooked last, which it records for each household.
+        words.put("{recent}", norish ? "Newest" : mealie ? "Recently made" : "Recently opened");
+        // Norish and Mealie keep prep and cook apart, and both are the work.
+        words.put("{prep}", norish || mealie ? "Prep and cook" : "Prep");
+        String[] filled = filled(ENGLISH_WORDS, words);
+        return new Strings(Locale.ENGLISH, false, "EEEE, MMMM d", "EEEE, MMM d", filled, slots(app, filled));
     }
 
     private static Strings slovenian(Settings.App app) {
         boolean norish = app == Settings.App.NORISH;
+        boolean mealie = app == Settings.App.MEALIE;
         Map<String, String> words = new LinkedHashMap<>();
         words.put("{app}", app.title);
-        words.put("{in app}", norish ? "v Norishu" : "v Tandoorju");
-        words.put("{app's}", norish ? "Norishevega" : "Tandoorjevega");
+        words.put("{in app}", norish ? "v Norishu" : mealie ? "v Mealieju" : "v Tandoorju");
+        words.put("{app's}", norish ? "Norishevega" : mealie ? "Mealiejevega" : "Tandoorjevega");
         words.put("{key}", norish ? "ključ" : "žeton");
         words.put("{key's}", norish ? "ključa" : "žetona");
-        // Norish does not speak Slovenian, so its menu keeps its English names.
-        words.put("{new key}", norish ? "Ustvari novega v Norishu pod Settings > User > API keys." : "Ustvari novega v Nastavitvah > API.");
-        words.put("{recent}", norish ? "Najnovejši" : "Nazadnje odprti");
-        words.put("{prep}", norish ? "Priprava in kuhanje" : "Priprava");
+        // Norish does not speak Slovenian, so its menu keeps its English names, and so does Mealie's here, since its
+        // Slovenian may name them otherwise from one version to the next.
+        words.put("{new key}", norish ? "Ustvari novega v Norishu pod Settings > User > API keys." : mealie ? "Ustvari novega v Mealieju pod svojim profilom > API Tokens."
+            : "Ustvari novega v Nastavitvah > API.");
+        words.put("{recent}", norish ? "Najnovejši" : mealie ? "Nedavno skuhano" : "Nazadnje odprti");
+        words.put("{prep}", norish || mealie ? "Priprava in kuhanje" : "Priprava");
+        String[] filled = filled(SLOVENIAN_WORDS, words);
+        return new Strings(new Locale("sl"), true, "EEEE, d. MMMM", "EEEE, d. M.", filled, slots(app, filled));
+    }
+
+    /**
+     * The names of an app's meal slots, from the last words: Norish's four by the English names it sends, and Mealie's
+     * seven by its lower-case types. Tandoor's are the household's own, so they stay as they come.
+     */
+    private static Map<String, String> slots(Settings.App app, String[] words) {
         Map<String, String> slots = new HashMap<>();
-        if (norish) {
-            slots.put("Breakfast", "Zajtrk");
-            slots.put("Lunch", "Kosilo");
-            slots.put("Dinner", "Večerja");
-            slots.put("Snack", "Prigrizek");
+        int first = words.length - SLOTS.length;
+        for (int i = 0; i < SLOTS.length; i++) {
+            if (app == Settings.App.NORISH && i < 4) slots.put(SLOTS[i], words[first + i]);
+            if (app == Settings.App.MEALIE) slots.put(SLOTS[i].toLowerCase(Locale.ROOT), words[first + i]);
         }
-        return new Strings(new Locale("sl"), true, "EEEE, d. MMMM", "EEEE, d. M.", filled(SLOVENIAN_WORDS, words), slots);
+        return slots;
     }
 
     private static String[] filled(String[] templates, Map<String, String> words) {
@@ -275,13 +295,13 @@ final class Strings {
 
     /** The Language setting's choice, for the recipe app. Auto follows the device. */
     static Strings of(String language, Settings.App app) {
-        boolean norish = app == Settings.App.NORISH;
         boolean slovenian = "Slovenščina".equals(language) || (!"English".equals(language) && "sl".equals(Locale.getDefault().getLanguage()));
-        if (slovenian) return norish ? SLOVENIAN_NORISH : SLOVENIAN;
-        return norish ? ENGLISH_NORISH : ENGLISH;
+        if (app == Settings.App.NORISH) return slovenian ? SLOVENIAN_NORISH : ENGLISH_NORISH;
+        if (app == Settings.App.MEALIE) return slovenian ? SLOVENIAN_MEALIE : ENGLISH_MEALIE;
+        return slovenian ? SLOVENIAN : ENGLISH;
     }
 
-    /** A meal's slot as this language says it. Norish's own four are translated, and anything else stays as it is. */
+    /** A meal's slot as this language says it. Norish's four and Mealie's seven are named, and anything else stays as it is. */
     String slot(String name) {
         String own = slots.get(name);
         return own == null ? name : own;

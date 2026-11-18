@@ -9,7 +9,7 @@ import java.util.Map;
 final class Settings {
     /** The recipe app, with its name as the views say it. */
     enum App {
-        TANDOOR("Tandoor"), NORISH("Norish");
+        TANDOOR("Tandoor"), NORISH("Norish"), MEALIE("Mealie");
 
         final String title;
 
@@ -54,8 +54,14 @@ final class Settings {
     final String dockCorner;
 
     Settings(Map<String, Object> values) {
-        app = "Norish".equals(text(values.get("recipeApp"))) ? App.NORISH : App.TANDOOR;
-        serverUrl = app == App.NORISH ? NorishSource.normalize(text(values.get("serverUrl"))) : TandoorSource.normalize(text(values.get("serverUrl")));
+        switch (text(values.get("recipeApp"))) {
+            case "Norish": app = App.NORISH; break;
+            case "Mealie": app = App.MEALIE; break;
+            default: app = App.TANDOOR;
+        }
+        String address = text(values.get("serverUrl"));
+        // Mealie's source keeps a path it cannot use, to say that it left it out.
+        serverUrl = app == App.NORISH ? NorishSource.normalize(address) : app == App.MEALIE ? MealieSource.normalize(address) : TandoorSource.normalize(address);
         // A line break pasted along with it would fail in the request's header, with the token in the error's words.
         String token = text(values.get("apiToken")).replaceAll("\\p{Cntrl}", "");
         apiToken = token.regionMatches(true, 0, "Bearer ", 0, 7) ? token.substring(7).trim() : token;
@@ -82,7 +88,7 @@ final class Settings {
         }
         kioskNode = node(text(values.get("kioskNode")));
         autoRead = Boolean.TRUE.equals(values.get("autoRead"));
-        // Norish keeps no cook log, so nothing asks to record one.
+        // Norish keeps no cook log, so nothing asks to record one. Mealie records the day it was last made.
         String mark = app == App.NORISH ? "Never" : text(values.get("markCooked"));
         switch (mark) {
             case "Always": markCooked = MarkCooked.ALWAYS; break;
@@ -120,6 +126,7 @@ final class Settings {
         if (serverUrl.isEmpty()) return "Set the server address under Recipe server.";
         if (!serverUrl.startsWith("http://") && !serverUrl.startsWith("https://")) return "The server address must start with http:// or https://.";
         if (apiToken.isEmpty() && app == App.NORISH) return "Set the API key under Recipe server. Create it in Norish under Settings > User > API keys.";
+        if (apiToken.isEmpty() && app == App.MEALIE) return "Set the API token under Recipe server. Create it in Mealie under your profile > API Tokens.";
         if (apiToken.isEmpty()) return "Set the API token under Recipe server. Create it in Tandoor under Settings > API with the scope \"read write\".";
         return null;
     }

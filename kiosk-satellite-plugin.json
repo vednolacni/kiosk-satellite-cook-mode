@@ -7,7 +7,7 @@
   "minAndroidSdk": 26,
   "minAppVersion": "2026.10.42",
   "entryClass": "io.github.vednolacni.cookmode.CookModePlugin",
-  "description": "A real cook mode for the kitchen tablet. Connects straight to your Tandoor or Norish server: today's meal one tap away, every recipe to browse and search, pictures, one big step at a time, servings that rescale, timers from the recipe's own words, read-aloud, and a screen that stays on while you cook. No Home Assistant integration needed.",
+  "description": "A real cook mode for the kitchen tablet. Connects straight to your Tandoor, Norish or Mealie server: today's meal one tap away, every recipe to browse and search, pictures, one big step at a time, servings that rescale, timers from the recipe's own words, read-aloud, and a screen that stays on while you cook. No Home Assistant integration needed.",
   "author": "vednolacni",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -26,10 +26,11 @@
       "default": "Tandoor",
       "options": [
         "Tandoor",
-        "Norish"
+        "Norish",
+        "Mealie"
       ],
       "group": "Recipe server",
-      "description": "Tandoor: create the token under Settings > API with the scope \"read write\". Norish: create the key under Settings > User > API keys. A Norish key can also change recipes, so a household member of its own for the tablets is safest, and each tablet needs its own key, since Norish allows a key 500 requests an hour."
+      "description": "Tandoor: create the token under Settings > API with the scope \"read write\". Norish: create the key under Settings > User > API keys, one for each tablet, since it allows a key 500 requests an hour. Mealie: create the token under your profile > API Tokens. A Norish key or Mealie token can also change recipes, so a household member of its own for the tablets is safest."
     },
     {
       "key": "serverUrl",
@@ -37,7 +38,7 @@
       "title": "Server address",
       "default": "",
       "group": "Recipe server",
-      "description": "The address you open the recipe app with in a browser, such as http://192.168.1.20:8080. A Norish under a base path keeps it, such as https://home.example/norish."
+      "description": "The address you open the recipe app with in a browser, such as http://192.168.1.20:8080. A Norish under a base path keeps it, such as https://home.example/norish. Mealie runs only at the root of an address, so a path after it is left out."
     },
     {
       "key": "apiToken",
@@ -45,7 +46,7 @@
       "title": "API token or key",
       "default": "",
       "group": "Recipe server",
-      "description": "Copy it right after creating it: Tandoor shows it only briefly, Norish only once. It goes only to the address above. A Fleet Management profile with Plugin secrets copies it to every tablet, so with Norish, which allows a key 500 requests an hour, keep Cook Mode out of such a profile. A configuration export does not hold it, so a replaced tablet needs it again."
+      "description": "Copy it right after creating it: Tandoor shows it only briefly, Norish and Mealie only once. It goes only to the address above. A Fleet Management profile with Plugin secrets copies it to every tablet, so with Norish, which allows a key 500 requests an hour, keep Cook Mode out of such a profile. A configuration export does not hold it, so a replaced tablet needs it again."
     },
     {
       "key": "planDays",
@@ -91,7 +92,7 @@
     {
       "key": "markCooked",
       "type": "select",
-      "title": "Record the meal in Tandoor",
+      "title": "Record the meal in Tandoor or Mealie",
       "default": "Ask",
       "options": [
         "Ask",
@@ -101,9 +102,9 @@
       "group": "Cooking",
       "visibleWhen": {
         "key": "recipeApp",
-        "equals": "Tandoor"
+        "notEquals": "Norish"
       },
-      "description": "After the last step, add it to Tandoor's cook log. Never also keeps opened recipes out of Tandoor's recently viewed list."
+      "description": "After the last step, add it to Tandoor's cook log, or make today the recipe's last made day in Mealie, which also reaches the household's Mealie notifiers. Never also keeps opened recipes out of Tandoor's recently viewed list."
     },
     {
       "key": "language",

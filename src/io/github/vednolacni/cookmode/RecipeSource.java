@@ -10,7 +10,7 @@ import java.util.Objects;
 import java.util.function.LongSupplier;
 
 /**
- * A recipe app the plugin can cook from: Tandoor and Norish. Mealie, KitchenOwl and Grocy fit the same shape: see
+ * A recipe app the plugin can cook from: Tandoor, Norish and Mealie. KitchenOwl and Grocy fit the same shape: see
  * docs/DESIGN.md for how each maps. Every method blocks on the network, so the plugin calls them only on its own
  * network thread, and each throws SourceException with a message fit for the user.
  */
@@ -135,10 +135,11 @@ interface RecipeSource {
     /** The source for the app the settings name. steadyMillis is a clock nobody can set that counts while the tablet sleeps. */
     static RecipeSource of(Settings settings, LongSupplier steadyMillis) {
         if (settings.app == Settings.App.NORISH) return new NorishSource(settings.serverUrl, settings.apiToken, new Http(), steadyMillis);
+        if (settings.app == Settings.App.MEALIE) return new MealieSource(settings.serverUrl, settings.apiToken, new Http());
         return new TandoorSource(settings.serverUrl, settings.apiToken, new Http());
     }
 
-    /** How the recipe list is ordered. RECENT is what the app knows as recent: viewed in Tandoor, added in Norish. */
+    /** How the recipe list is ordered. RECENT is what the app knows as recent: viewed in Tandoor, added in Norish, made in Mealie. */
     enum Order { NAME, RECENT }
 
     /** Check the address and the token. Returns what Test connection reports, such as "Connected to Tandoor 2.7.2, 140 recipes." */
