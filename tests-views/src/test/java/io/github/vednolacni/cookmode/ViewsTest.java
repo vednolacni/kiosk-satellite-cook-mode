@@ -2587,6 +2587,25 @@ public final class ViewsTest {
         shot("dock");
     }
 
+    /** After End cooking no recipe is open, so the dock keeps the timer's own name, with its recipe in front. */
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void theDockNamesATimerLeftAfterCooking() {
+        begin("dock-after-cooking", true, settings("English"));
+        open();
+        tap(find("Goveji golaž"));
+        tap(find(s.startCooking));
+        cook.startTimer("Sauce", 600);
+        settle();
+        cook.endCooking();
+        settle();
+        assertNull(host.overlays.get(Cook.MAIN));
+        assertNotNull(host.overlays.get(Cook.DOCK));
+        View dock = host.overlays.get(Cook.DOCK).view;
+        assertNotNull(findText(dock, text -> text.equals(Durations.clock(600))));
+        assertNotNull("the dock says which timer counts down", findText(dock, text -> text.equals("Goveji golaž · " + s.stepWord + " 1 · Sauce")));
+        shot("dock");
+    }
+
     /** How many texts a person could see that match. */
     private static int count(View view, Words words) {
         if (view.getVisibility() != View.VISIBLE) return 0;
