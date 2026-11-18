@@ -2,9 +2,9 @@
 
 A real cook mode for a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite) kitchen tablet. It connects straight to your recipe server and draws its own screens, so the recipe app is only the place the recipes live. There is no web page in a frame and no Home Assistant integration to install.
 
-Tandoor Recipes and Norish are supported, and Mealie is planned as the third. KitchenOwl and Grocy fit the same design too: see [docs/DESIGN.md](docs/DESIGN.md).
+Tandoor Recipes, Norish and Mealie are supported. KitchenOwl and Grocy fit the same design too: see [docs/DESIGN.md](docs/DESIGN.md).
 
-> **Status:** first release. Not listed in Community Plugins yet. It has been tried on a kiosk tablet with Norish 0.25, from the list of recipes through every step of one to its last page. Tandoor has run only in the tests so far: the views under Robolectric, with real drawing, and the source against a stand-in server.
+> **Status:** first release. Not listed in Community Plugins yet. It has been tried on a kiosk tablet with Norish 0.25, from the list of recipes through every step of one to its last page. Tandoor has run only in the tests so far: the views under Robolectric, with real drawing, and the source against a stand-in server. So has Mealie, against a stand-in server that answers like v2.3, v3.0 and v3.31.
 
 ![The first page: today's meals beside every recipe, with a search](docs/images/home.png)
 
@@ -16,16 +16,16 @@ Tandoor Recipes and Norish are supported, and Mealie is planned as the third. Ki
 ## What it does
 
 - **Today's meal, one tap away.** The first page shows today's meals from the meal plan, then the next days. A tap lands on exactly that recipe. The **Cook today's meal** action goes there without any tap, from a gesture or from Home Assistant.
-- **No meal plan needed.** Every recipe is on the same page, with the recently opened ones, or with Norish the newest, and a search. The search has its own keys, Č, Š and Ž included, so it works on a kiosk with no Android keyboard.
+- **No meal plan needed.** Every recipe is on the same page, with the recently opened ones, with Norish the newest or with Mealie the recently made, and a search. The search has its own keys, Č, Š and Ž included, so it works on a kiosk with no Android keyboard.
 - **Pictures.** Recipes and meals show their photos, loaded at the size they are shown so an old tablet copes.
 - **A recipe before you start.** Its photo, times, ingredients to tick off, and servings that rescale every amount, including the amounts inside the steps. Chips warn of what is worth planning around: an overnight rest, a long wait, the oven's temperature.
 - **One big step at a time.** The text grows to fill the screen for a short step and shrinks for a long one, within the size you choose, with the steps around it fading away. Swipe in any direction or press Next. Long imported steps split into paragraphs. Each step shows its own ingredients, and the whole list can stay open beside it.
-- **Honest amounts.** The amounts the recipe app knows scale: Tandoor's, also inside the steps, and Norish's ingredient list with each step's share of it. A number simply typed into a step stays as written, so with changed servings the step says for how many servings its words were written.
+- **Honest amounts.** The amounts the recipe app knows scale: Tandoor's, also inside the steps, Norish's ingredient list with each step's share of it, and Mealie's ingredient list with the lines each step names. A number simply typed into a step stays as written, so with changed servings the step says for how many servings its words were written.
 - **Timers from the recipe's own words.** "Simmer for 10–15 minutes" shows the duration as a chip in the sentence: tap it and the timer runs. Several run at once, with pause, plus and minus one minute and an alarm that a touch anywhere stops. They keep running when you leave the recipe or close the panel, when a small card shows them over the dashboard and the screensaver. A black screensaver turns the screen off, so there the card shows only once a timer rings.
 - **Read aloud.** The tablet's own voice, or Home Assistant's through the kiosk's announcements, which is how a kiosk gets a Slovenian voice, with no card over the step. Each step can read itself.
 - **A screen that stays on.** The screensaver holds back while a recipe is up, until nobody has touched the tablet for as long as you choose, so a forgotten recipe does not keep it on all night.
 - **Hands-free.** Next step, Previous step, Read step, Start the step's timer, One more minute and Stop the alarm are plugin actions for claps, corner taps and Show fingers. A ringing timer takes the first such command and only goes quiet, so a false clap cannot wipe what ended. The next one clears it. One more minute is the exception: it starts the timer again for a minute.
-- **Finish.** After the last step it can add the meal to Tandoor's cook log. Norish keeps none.
+- **Finish.** After the last step it can add the meal to Tandoor's cook log, or make today the recipe's last made day in Mealie. Norish keeps none.
 - **It remembers.** Closing the panel keeps your place. Opening it again returns to the same step, until you end cooking. Closing the last page ends cooking, because the meal is ready. The step also survives a restart of the kiosk, unless it stays off for about 12 hours. The timers survive however long it stays off. A timer that ended less than half an hour ago rings when the kiosk comes back, and the plugin's page mentions an older one.
 
 English and Slovenian, including Slovenian's four plural forms and decimal commas.
@@ -59,7 +59,7 @@ Each [release](https://github.com/vednolacni/kiosk-satellite-cook-mode/releases/
 ### First steps
 
 1. Turn on **Cook Mode** in the Plugin Manager and open its page, on the kiosk or in the remote admin.
-2. Under **Recipe server**, pick Tandoor or Norish, enter the server's address and the API token or key, and press **Test** on the **Test connection** row. [Creating the token or key](#creating-the-token-or-key) says how to make one.
+2. Under **Recipe server**, pick Tandoor, Norish or Mealie, enter the server's address and the API token or key, and press **Test** on the **Test connection** row. [Creating the token or key](#creating-the-token-or-key) says how to make one.
 3. Press **Ring** on the **Test the timer sound** row, so a silent alarm shows before dinner.
 4. Give the panel a way to open: **Open Cook Mode** or **Toggle Cook Mode** on a gesture, in the kiosk drawer or as a Home Assistant button. See [Actions and Home Assistant](#actions-and-home-assistant).
 
@@ -68,15 +68,15 @@ Each [release](https://github.com/vednolacni/kiosk-satellite-cook-mode/releases/
 
 | Group | Setting | What it does |
 | --- | --- | --- |
-| Recipe server | Recipe app | Tandoor or Norish. |
-| | Server address | The address you open the app with in a browser. A Norish under a base path keeps it, such as `https://home.example/norish`. |
+| Recipe server | Recipe app | Tandoor, Norish or Mealie. |
+| | Server address | The address you open the app with in a browser. A Norish under a base path keeps it, such as `https://home.example/norish`. Mealie runs only at the root of an address, so a path after it is left out, and Test connection says so. |
 | | API token or key | Stored as a Kiosk Satellite secret. See [Creating the token or key](#creating-the-token-or-key). |
 | | Test connection | Checks both, and says which app answered and how many recipes it has. |
 | Meal plan | Days of the meal plan | Today and the days after it, 1 to 14. Norish shares only this week and this month, so with it the plan ends at the later of the two, and the first page says so. |
 | Cooking | Size of a step's text | Normal, Large or Extra large. Short steps grow and long ones shrink within it. |
 | | Split long steps | Shows each paragraph of a long step as a step of its own. |
 | | Swipe to change steps | Turn off if a splashing hand keeps changing the step. |
-| | Record the meal in Tandoor | Ask, Always or Never. Never also keeps opened recipes out of Tandoor's recently viewed list. Only with Tandoor. |
+| | Record the meal in Tandoor or Mealie | Ask, Always or Never. Tandoor adds the meal to its cook log, and Never also keeps opened recipes out of its recently viewed list. Mealie makes today the recipe's last made day. Not with Norish, which keeps none. |
 | | Language | Auto, English or Slovenščina. |
 | | Look | Kiosk Satellite, or Warm kitchen for a cream or deep brown ground and a herb green, after Norish's look. The timer card over the dashboard keeps the kiosk's colors. |
 | Timers | Timer sound | Alarm tone, Beeps or Silent. A tablet with no alarm tone beeps. |
@@ -116,6 +116,14 @@ Norish 0.26 or newer works best, and from 0.26.1 the plan also shows Norish's no
 
 Norish counts its today, its week and its month in its own time zone, which is UTC unless `TZ` is set for its container. Set `TZ` to your own, such as `Europe/Ljubljana`, so its days change at your midnight.
 
+With **Mealie**:
+
+1. Sign in as the user whose meal plan the kitchen follows. Mealie shows each user the meal plan of their own household and the recipes of their whole group. A token can do anything its user can, also change recipes, so a household member of its own for the tablets is the safest choice.
+2. Open your profile from the menu, choose **API Tokens**, give the token a name, generate it and copy it at once. Mealie shows it only once.
+3. Paste it into **API token or key** and press **Test** on the **Test connection** row.
+
+Mealie v2.3 or newer is needed, and Test connection says when the server is older. Mealie runs only at the root of an address, such as `http://192.168.1.20:9000`, so a path after it is left out, and Test connection says so. Mealie keeps no list of opened recipes, so the recent list is what the household made last. Units and foods show as Mealie keeps them, since it does not translate them. A meal planned at a multiple of its recipe, from Mealie 3.29, opens at that many servings, and a meal for a whole week, from 3.30, shows on each of its days. A step's own time, from 3.30, is that step's timer.
+
 ### When Test connection fails
 
 <details>
@@ -130,6 +138,10 @@ Norish counts its today, its week and its month in its own time zone, which is U
 | Norish asks to wait | That key made its 500 requests within the hour. It works again after the time it names. |
 | The plugin waits before it uses the key again | Norish 0.25 refused a key that had worked, which it does after 500 requests with no hour's pause. It works again within the hour. Norish 0.26 or newer does not do this. |
 | Something in front of Norish answered HTTP 502 | Norish is stopped or still starting behind its proxy. The plugin tries again. |
+| Mealie refused the API token | Create a new token under your profile > **API Tokens** and copy it at once. A token deleted in Mealie stops working. |
+| Cook Mode needs Mealie v2.3 or newer | Update Mealie. |
+| Mealie, or something in front of it, answered HTTP 502 | Mealie is stopped or still starting, or failed on that request, which its own logs show. The plugin tries again. |
+| Mealie runs only at the root of an address | Not a failure: the path after the address was left out. Mealie cannot be served under a path, so give it a host or a port of its own. |
 | The address answered with a web page, or sent the request on | Check the address, with Norish's base path if it has one. A login page in front of the app needs an address that goes around it. The token or key is never sent on to another server. |
 | This tablet cannot find the server | Android before version 12 cannot resolve `.local` names, so use the IP address. |
 | The secure connection failed | Install a private CA in Android, which Kiosk Satellite trusts, or use plain http on the home network. Android 8.1 cannot use a server that only offers TLS 1.3. |
@@ -150,7 +162,7 @@ Opening one recipe can also say it is private and not shared with the token's us
 | Action | What it does |
 | --- | --- |
 | Open Cook Mode, Close Cook Mode, Toggle Cook Mode | The panel. Opening wakes the screen and closes the screensaver. |
-| Cook today's meal | Goes straight to the next meal planned today, reading the plan first when what it has is more than five minutes old, so a meal changed meanwhile counts. Norish's meals have no time, so they count as breakfast at 8:00, lunch at 12:00, dinner at 18:00 and a snack at 21:00. |
+| Cook today's meal | Goes straight to the next meal planned today, reading the plan first when what it has is more than five minutes old, so a meal changed meanwhile counts. Norish's and Mealie's meals have no time, so they count as breakfast at 8:00, lunch at 12:00, dinner at 18:00 and a snack at 21:00. Mealie's other types count as a side right after dinner, a dessert at 19:00 and a drink after the day's meals. |
 | Next step, Previous step | Move through the recipe. On the first page Next opens today's meal. With the panel closed or under a screensaver, the first one only brings it back. A ringing timer comes first, and the panel comes back after it is cleared. |
 | Read step | Reads the current step aloud. |
 | Start the step's timer | Starts the first of the step's timers that does not run yet. |
@@ -179,8 +191,8 @@ Kiosk Mode's exit gesture of several fast taps counts taps anywhere, also on the
 
 ## Where data goes
 
-- **Your recipe server.** The plugin calls the address in **Server address** with your token or key, to read the meal plan and recipes and, with Tandoor unless **Record the meal in Tandoor** is **Never**, to record what you opened and cooked. Norish's health check, which Test connection asks first, gets no key. The token or key never goes to any other host: a redirect to another host is not followed, nor to another port unless it goes from http up to https on the same host, nor from https back to http, and a next-page link from another host is rewritten to your server. With Fleet Management, Kiosk Satellite copies it to other kiosks only if a profile includes **Plugin secrets**. Plugin settings are not part of a configuration export, so a replaced tablet needs it again.
-- **Pictures.** They load from wherever the app says they are, which can be S3 storage if you set that up in Tandoor. Each is fetched once and kept in a folder of Kiosk Satellite's cache on the tablet, at most 48 MB unless the pictures the panel shows take more, which Android may empty. Tandoor's signed S3 links change with every answer, so those are fetched each time and not kept. One the server says does not exist is not asked for again for a quarter of an hour, and one the tablet cannot show, such as AVIF before Android 12 or one over 8 MB, not until the plugin starts again. Tandoor's media is public, so the token is not sent with them. Norish's pictures need the key, so it goes with the pictures on your Norish server, under its base path, and with no others. While Norish has asked the plugin to wait, the pictures the tablet does not have yet wait too.
+- **Your recipe server.** The plugin calls the address in **Server address** with your token or key, to read the meal plan and recipes and, unless **Record the meal in Tandoor or Mealie** is **Never**, to record with Tandoor what you opened and cooked, and with Mealie the day a recipe was last made. Mealie passes that on to the household's notifiers and webhooks, as it does when the day is set in its own app, so a notifier or an automation listening for it hears of each meal recorded here. Norish's health check and Mealie's version, which Test connection asks first, get no key or token. The token or key never goes to any other host: a redirect to another host is not followed, nor to another port unless it goes from http up to https on the same host, nor from https back to http, and a next-page link from another host is rewritten to your server. With Fleet Management, Kiosk Satellite copies it to other kiosks only if a profile includes **Plugin secrets**. Plugin settings are not part of a configuration export, so a replaced tablet needs it again.
+- **Pictures.** They load from wherever the app says they are, which can be S3 storage if you set that up in Tandoor. Each is fetched once and kept in a folder of Kiosk Satellite's cache on the tablet, at most 48 MB unless the pictures the panel shows take more, which Android may empty. Tandoor's signed S3 links change with every answer, so those are fetched each time and not kept. One the server says does not exist is not asked for again for a quarter of an hour, and one the tablet cannot show, such as AVIF before Android 12 or one over 8 MB, not until the plugin starts again. Tandoor's media is public, so the token is not sent with them. Norish's pictures need the key, so it goes with the pictures on your Norish server, under its base path, and with no others. While Norish has asked the plugin to wait, the pictures the tablet does not have yet wait too. Mealie's pictures are public, so the token is not sent with them. A replaced picture in Mealie keeps its address, so the plugin names each one by the key Mealie gives it, after a `#` that never reaches the server, and fetches a new picture once more.
 - **Home Assistant.** Only with the Home Assistant voice: the text of a step or the ingredient list goes through Kiosk Satellite's own connection to the kiosk's announce action, and on to whichever text-to-speech engine you chose, which may be a cloud service. The plugin never sees your Home Assistant token.
 - **ESPHome entities.** With them on, the recipe, the step, the timers and today's meals go to Home Assistant.
 - **The tablet.** With the tablet voice, Android's text-to-speech engine reads the step. Which engine that is, and what it does with the text, is up to the tablet. The **Saved session** setting holds the recipe's id and name, the servings, the step and the timers, in Kiosk Satellite's settings. It never holds the token. It is stored as a secret, so Fleet Management leaves it out unless a profile includes **Plugin secrets**. With Plugin secrets the leader's value replaces each follower's, so a follower's session does not survive a restart and every step syncs the fleet: keep Cook Mode out of such a profile, or turn Plugin secrets off in it and type the token on each kiosk.
@@ -199,8 +211,8 @@ The plugin is built from the [Kiosk Satellite plugin template](https://github.co
 
 | Path | What it holds |
 | --- | --- |
-| `src/io/github/vednolacni/cookmode/` | `CookModePlugin` is the entry class. `Cook` is the controller, with no Android in it. `RecipeSource` is what a recipe app must offer, and `TandoorSource` and `NorishSource` are the two so far. `AndroidUi`, `CookView` and the `*Screen` classes are the views. |
-| `tests/io/github/vednolacni/cookmode/` | Tests that run without a device, including against local HTTP servers that answer like Tandoor and like Norish. |
+| `src/io/github/vednolacni/cookmode/` | `CookModePlugin` is the entry class. `Cook` is the controller, with no Android in it. `RecipeSource` is what a recipe app must offer, and `TandoorSource`, `NorishSource` and `MealieSource` are the three so far. `AndroidUi`, `CookView` and the `*Screen` classes are the views. |
+| `tests/io/github/vednolacni/cookmode/` | Tests that run without a device, including against local HTTP servers that answer like Tandoor, Norish and Mealie. |
 | `tests-views/` | The real views under Robolectric, with real drawing, touched the way a finger touches them through the whole of cooking, on the screens the kiosks have, down to Android 8.1. The **Views** workflow saves a screenshot of every page. |
 | `docs/DESIGN.md` | How it fits together, what a real cook mode needs, how other recipe apps map, and what comes next. |
 
@@ -223,10 +235,10 @@ Raise `version` in `kiosk-satellite-plugin.json`, add the release to [CHANGELOG.
 
 ## Credits
 
-Built for [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite), the kiosk app by [@jxlarrea](https://github.com/jxlarrea), whose plugin SDK, overlays and theme give Cook Mode a native look. It started from the [Kiosk Satellite plugin template](https://github.com/jxlarrea/kiosk-satellite-plugins). The cooking view takes ideas from [Norish](https://norish.dev/), but no code. `NorishSource` is written from Norish's API docs and its source, read only to learn how its API answers, and no Norish code is in the plugin.
+Built for [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satellite), the kiosk app by [@jxlarrea](https://github.com/jxlarrea), whose plugin SDK, overlays and theme give Cook Mode a native look. It started from the [Kiosk Satellite plugin template](https://github.com/jxlarrea/kiosk-satellite-plugins). The cooking view takes ideas from [Norish](https://norish.dev/), but no code. `NorishSource` is written from Norish's API docs and its source, read only to learn how its API answers, and no Norish code is in the plugin. `MealieSource` is written from Mealie's OpenAPI description and documentation, and no Mealie code is in the plugin either.
 
 The food photos in the screenshots are from Wikimedia Commons, under CC0 or in the public domain. [SOURCES.md](tests-views/src/test/resources/food/SOURCES.md) names each photo and who took it.
 
 ## License
 
-[Apache-2.0](LICENSE). The icon is this project's own. Not affiliated with Kiosk Satellite, Tandoor Recipes, Norish or any other recipe app.
+[Apache-2.0](LICENSE). The icon is this project's own. Not affiliated with Kiosk Satellite, Tandoor Recipes, Norish, Mealie or any other recipe app.
