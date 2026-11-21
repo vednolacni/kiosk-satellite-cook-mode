@@ -332,10 +332,12 @@ final class MealieSource implements RecipeSource {
                 text = summary;
                 summary = "";
             }
+            // Each note once, though the step names it twice.
+            Map<String, Boolean> added = new HashMap<>();
             for (Object reference : Json.list(step.get("noteReferences"))) {
                 String noteId = Json.text(Json.object(reference).get("referenceId")).trim();
                 String note = notes.get(noteId);
-                if (note != null) text = text.isEmpty() ? note : text + "\n\n" + note;
+                if (note != null && added.put(noteId, true) == null) text = text.isEmpty() ? note : text + "\n\n" + note;
                 unnamed.remove(noteId);
             }
             text = capped(text);
@@ -690,6 +692,8 @@ final class MealieSource implements RecipeSource {
     }
 
     private String reason(IOException failed) {
+        // The parser's words repeat the address, with any user name and password typed in it.
+        if (failed instanceof MalformedURLException) return "the address is not a valid web address";
         String message = failed.getMessage();
         return message == null || message.isEmpty() ? failed.getClass().getSimpleName() : safe(message);
     }

@@ -148,6 +148,9 @@ public final class TandoorTest {
         assert "/api/food/?page=2".equals(TandoorSource.shown("http://kuhinja:geslo@127.0.0.1:1/api/food/?page=2")) && "/api/recipe/7/".equals(TandoorSource.shown("/api/recipe/7/"));
         String away = message(new TandoorSource("http://kuhinja:geslo@127.0.0.1:1", "t", new Http()));
         assert away.startsWith("Could not reach Tandoor at 127.0.0.1:1:") && !away.contains("geslo") && !away.contains("kuhinja") : away;
+        // Nor in an address the parser cannot read, whose words would repeat it.
+        String broken = message(new TandoorSource("http://kuhinja:geslo@[::1", "t", new Http()));
+        assert !broken.contains("geslo") && !broken.contains("kuhinja") : broken;
         assert kind(new TandoorSource("http://127.0.0.1:1", "t", new Http())) == RecipeSource.SourceException.Kind.NETWORK;
         assert kind(new TandoorSource("", "t", new Http())) == RecipeSource.SourceException.Kind.HOST;
         assert kind(new TandoorSource(base + "/v2", "", new Http())) == RecipeSource.SourceException.Kind.AUTH;

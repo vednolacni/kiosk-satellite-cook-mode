@@ -702,7 +702,7 @@ public final class MealieTest {
                 line(null, 0, null, null, "", "R8")));
             Map<String, Object> stew = step("Kuhanje", "Dušenje", "Duši 90 minut.", v331 ? 5400 : null, "R4");
             if (v331) {
-                stew.put("noteReferences", list(map("referenceId", "N1"), map("referenceId", "N404")));
+                stew.put("noteReferences", list(map("referenceId", "N1"), map("referenceId", "N404"), map("referenceId", "N1")));
                 recipe.put("notes", list(map("title", "Namig", "text", "Golaž je boljši naslednji dan.", "referenceId", "N1"),
                     map("title", "", "text", "Splošna opomba.", "referenceId", "N2")));
             } else {

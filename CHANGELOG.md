@@ -3,7 +3,8 @@
 ## 0.3.1
 
 - **Added** Mealie notes that no step names, shown after the last step, where Mealie shows its notes.
-- **Fixed** messages about Tandoor or Norish named a user name and password typed in front of the address. Only the host and port are named now, as for Mealie.
+- **Fixed** messages about Tandoor or Norish named a user name and password typed in front of the address. Only the host and port are named now, as for Mealie, also for an address that is not valid.
+- **Fixed** a Mealie note a step names twice shows once.
 
 ## 0.3.0
 

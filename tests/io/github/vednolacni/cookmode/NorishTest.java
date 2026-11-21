@@ -390,6 +390,8 @@ public final class NorishTest {
         // A user name and password typed in front of the address are never in a message.
         RecipeSource.SourceException away = failure(() -> new NorishSource("http://kuhinja:geslo@127.0.0.1:1", KEY, new Http()).probe());
         assert away.getMessage().startsWith("Could not reach Norish at 127.0.0.1:1:") && !away.getMessage().contains("geslo") && !away.getMessage().contains("kuhinja") : away.getMessage();
+        RecipeSource.SourceException broken = failure(() -> new NorishSource("http://kuhinja:geslo@[::1", KEY, new Http()).probe());
+        assert !broken.getMessage().contains("geslo") && !broken.getMessage().contains("kuhinja") : broken.getMessage();
         RecipeSource.SourceException down = failure(() -> new NorishSource(server + "/olddown", KEY, new Http()).recipe(JOTA));
         assert down.kind == RecipeSource.SourceException.Kind.SERVER && down.getMessage().startsWith("Norish is not ready: Database is error.") && down.passing : down.getMessage();
         // Only its parser down has nothing to do with the key.

@@ -697,6 +697,8 @@ final class NorishSource implements RecipeSource {
     }
 
     private static String reason(IOException failed) {
+        // The parser's words repeat the address, with any user name and password typed in it.
+        if (failed instanceof MalformedURLException) return "the address is not a valid web address";
         String message = failed.getMessage();
         return message == null || message.isEmpty() ? failed.getClass().getSimpleName() : message;
     }
