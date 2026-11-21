@@ -181,7 +181,7 @@ final class Parts {
         final Handler handler = new Handler(Looper.getMainLooper());
         final boolean[] ran = new boolean[1];
         final Runnable[] again = new Runnable[1];
-        again[0] = () -> {
+        again[0] = () -> guard(() -> {
             // A view taken away under the finger may never hear that the finger left.
             if (!view.isPressed() || !view.isAttachedToWindow()) return;
             ran[0] = true;
@@ -189,7 +189,7 @@ final class Parts {
             if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(true);
             guard(action);
             handler.postDelayed(again[0], REPEAT_EVERY_MS);
-        };
+        });
         view.setOnTouchListener((touched, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:

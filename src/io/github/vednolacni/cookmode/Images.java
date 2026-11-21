@@ -96,6 +96,8 @@ final class Images {
     private long batch;
     private long asked;
     private volatile boolean closed;
+    /** The panel is closed: pictures that arrive now go to the tablet only, not to memory. */
+    private volatile boolean released;
 
     Images() {
         this(KEPT_MOST);
@@ -204,6 +206,7 @@ final class Images {
 
     /** As load, with the picture's bytes when they are here already, from the job another size waited on. */
     private void load(ImageView view, String url, Function<String, Map<String, String>> headers, int width, byte[] given) {
+        released = false;
         view.setTag(url);
         if (url == null || url.isEmpty()) {
             view.setImageDrawable(null);
@@ -262,7 +265,7 @@ final class Images {
         job.fetch = new Fetch(batch, asked++, () -> {
             Bitmap bitmap = fetch(job);
             if (closed) return;
-            if (bitmap != null) cache.put(key, bitmap);
+            if (bitmap != null && !released) cache.put(key, bitmap);
             main.post(() -> Parts.guard(() -> finished(key, job, bitmap)));
         });
         try {
@@ -299,6 +302,7 @@ final class Images {
 
     /** Drop the pictures held in memory, while nothing shows them. Those on the tablet stay, and fetching goes on. */
     void release() {
+        released = true;
         cache.evictAll();
         bytes.evictAll();
     }
@@ -323,7 +327,7 @@ final class Images {
             if (picture != null) {
                 Bitmap bitmap = decode(picture, job.width);
                 if (bitmap != null) {
-                    bytes.put(job.url, picture);
+                    if (!released) bytes.put(job.url, picture);
                     job.body = job.handOff ? picture : null;
                     return bitmap;
                 }
@@ -347,7 +351,7 @@ final class Images {
                 job.leave = response.header("Content-Type").toLowerCase(Locale.ROOT).startsWith("image/") ? UNREADABLE_MS : 0;
                 return null;
             }
-            bytes.put(job.url, response.body);
+            if (!released) bytes.put(job.url, response.body);
             keep(job.url, response.body);
             job.body = job.handOff ? response.body : null;
             return bitmap;

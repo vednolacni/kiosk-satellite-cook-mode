@@ -73,6 +73,9 @@ final class Hints {
         }
     }
 
+    /** Nothing found, for a recipe whose steps could not be searched. */
+    static final Found NONE = new Found(false, Collections.<Integer>emptyList(), Collections.<Integer, String>emptyMap());
+
     /** Search the steps once, off the main thread, so that showing the recipe only words what was found. */
     static void prepare(Recipe recipe) {
         if (recipe.hints == null) recipe.hints = scan(recipe);

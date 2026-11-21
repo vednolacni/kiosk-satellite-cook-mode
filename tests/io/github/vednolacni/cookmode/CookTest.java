@@ -1267,6 +1267,35 @@ public final class CookTest {
         cook.startCooking();
         assert ui.model.pageCount == 1 : ui.model.pageCount;
         cook.stop();
+
+        // Set aside before its new pages were made: it comes back paged for the setting now.
+        fresh(values);
+        source.recipe = recipe;
+        cooking();
+        assert ui.model.pageCount == 3 : ui.model.pageCount;
+        cook.configure(whole);
+        cook.home();
+        source.fail = down();
+        cook.openRecipe(new RecipeSource.Summary("8", "Soup", "", 45));
+        cook.confirm(true);
+        net.runAll();
+        assert cook.cooking() && "Stew".equals(ui.model.recipeName) && ui.model.pageCount == 1 : ui.model.pageCount;
+        source.fail = null;
+        cook.stop();
+
+        // A recipe that cannot be paged did not come, and cooking it cannot start.
+        fresh(values);
+        source.recipe = new Recipe("9", "Broken", "", "", 4, "", 0, 0, "", "",
+            Arrays.asList(new Recipe.Step("", null, Recipe.Format.PLAIN, Collections.<Recipe.Ingredient>emptyList(), 0)));
+        net.runAll();
+        cook.execute("openCookMode");
+        net.runAll();
+        cook.openRecipe(new RecipeSource.Summary("9", "Broken", "", 30));
+        net.runAll();
+        assert ui.model.recipe == null && !ui.model.recipeLoading && !ui.model.banner.isEmpty() : ui.model.banner;
+        cook.startCooking();
+        assert !cook.cooking();
+        cook.stop();
     }
 
     static RecipeSource.SourceException down() {

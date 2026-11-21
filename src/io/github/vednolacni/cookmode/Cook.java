@@ -79,13 +79,15 @@ final class Cook implements Ui.Actions {
         final String image;
         final double servings;
         final List<Pages.Page> pages;
+        final boolean pagedSplit;
         final int pageIndex;
         final long started;
         final Set<Recipe.Ingredient> checked;
         final boolean logged;
         final boolean logFailed;
 
-        Stash(Recipe recipe, String id, String image, double servings, List<Pages.Page> pages, int pageIndex, long started, Set<Recipe.Ingredient> checked, boolean logged, boolean logFailed) {
+        Stash(Recipe recipe, String id, String image, double servings, List<Pages.Page> pages, boolean pagedSplit, int pageIndex, long started, Set<Recipe.Ingredient> checked, boolean logged, boolean logFailed) {
+            this.pagedSplit = pagedSplit;
             this.recipe = recipe;
             this.id = id;
             this.image = image;
@@ -162,6 +164,8 @@ final class Cook implements Ui.Actions {
     private boolean recipeLoading;
     private int recipeGeneration;
     private int pageGeneration;
+    /** The setting the pages in hand were made for. */
+    private boolean pagedSplit;
     private double servings;
     /** The servings to start at when the loading recipe arrives, or 0 for its own. */
     private double plannedServings;
@@ -921,7 +925,7 @@ final class Cook implements Ui.Actions {
             return;
         }
         // Set aside, not ended: this recipe may not come, and the recipe in hand cannot be read again while the server is away.
-        if (cooking && recipe != null) stash = new Stash(recipe, recipeId, recipeImage, servings, pages, pageIndex, sessionStart, copyChecked(), logged, logFailed);
+        if (cooking && recipe != null) stash = new Stash(recipe, recipeId, recipeImage, servings, pages, pagedSplit, pageIndex, sessionStart, copyChecked(), logged, logFailed);
         if (resume != null) waitingAside = resume;
         forget();
         recipeId = id;
@@ -953,7 +957,10 @@ final class Cook implements Ui.Actions {
             } catch (RecipeSource.SourceException failed) {
                 problem = failed;
             } catch (RuntimeException | Error bug) {
-                problem = unexpected(bug);
+                // A recipe that cannot be paged is no recipe to cook. Hints that cannot be found are none.
+                if (paged == null) read = null;
+                else read.hints = Hints.NONE;
+                if (read == null) problem = unexpected(bug);
             }
             synchronized (this) {
                 if (host == null || generation != recipeGeneration) return;
@@ -966,10 +973,11 @@ final class Cook implements Ui.Actions {
                     recipeName = read.name;
                     if (!read.image.isEmpty()) recipeImage = read.image;
                     servings = plannedServings > 0 ? plannedServings : read.servings;
-                    pages = paged;
+                    // Changed while it came: paged again for the setting now, before a saved session picks up its page. Seldom.
+                    pages = split == settings.splitSteps ? paged : Pages.of(read, settings.splitSteps);
+                    pagedSplit = settings.splitSteps;
                     pageIndex = 0;
                     pageGeneration++;
-                    if (split != settings.splitSteps) repage();
                     checked.clear();
                     cleared(Trouble.RECIPE);
                     if (replaced) fire("cookingFinished");
@@ -1000,6 +1008,7 @@ final class Cook implements Ui.Actions {
             synchronized (this) {
                 if (host == null || generation != pageGeneration || recipe != paging || split != settings.splitSteps) return;
                 pages = paged;
+                pagedSplit = split;
                 pageIndex = Math.min(pageIndex, Math.max(0, pages.size() - 1));
                 changed();
             }
@@ -1050,7 +1059,10 @@ final class Cook implements Ui.Actions {
         recipeImage = left.image;
         servings = left.servings;
         pages = left.pages;
+        pagedSplit = left.pagedSplit;
         pageIndex = left.pageIndex;
+        // The setting may have changed while it was set aside, before its pages were made again.
+        if (pagedSplit != settings.splitSteps) repage();
         sessionStart = left.started;
         checked.clear();
         checked.addAll(left.checked);
