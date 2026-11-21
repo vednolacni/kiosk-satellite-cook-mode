@@ -144,7 +144,8 @@ public final class TandoorTest {
         assert message(new TandoorSource(base + "/denied", "t", new Http())).contains("(Authentication credentials were not provided or access is forbidden.)");
         assert kind(new TandoorSource(base + "/web", "t", new Http())) == RecipeSource.SourceException.Kind.NOT_API;
         assert kind(new TandoorSource("http://no-such-server.invalid.local:1", "t", new Http())) == RecipeSource.SourceException.Kind.LOCAL_NAME;
-        // A user name and password typed in front of the address are never in a message.
+        // A user name and password typed in front of the address are never in a message, also not with a next page's address.
+        assert "/api/food/?page=2".equals(TandoorSource.shown("http://kuhinja:geslo@127.0.0.1:1/api/food/?page=2")) && "/api/recipe/7/".equals(TandoorSource.shown("/api/recipe/7/"));
         String away = message(new TandoorSource("http://kuhinja:geslo@127.0.0.1:1", "t", new Http()));
         assert away.startsWith("Could not reach Tandoor at 127.0.0.1:1:") && !away.contains("geslo") && !away.contains("kuhinja") : away;
         assert kind(new TandoorSource("http://127.0.0.1:1", "t", new Http())) == RecipeSource.SourceException.Kind.NETWORK;

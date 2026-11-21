@@ -268,6 +268,15 @@ final class TandoorSource implements RecipeSource {
         return all;
     }
 
+    /** A path for a message. A next page's whole address loses its server, and with it any user name and password. */
+    static String shown(String path) {
+        try {
+            return new URL(path).getFile();
+        } catch (MalformedURLException relative) {
+            return path;
+        }
+    }
+
     /** A next link names the host Tandoor saw. Behind a proxy that may differ, so keep the configured server. */
     private String sameServer(String link) {
         try {
@@ -334,9 +343,9 @@ final class TandoorSource implements RecipeSource {
         }
         if (status == 404 && path.matches("/api/recipe/[0-9]+/") && !response.text().trim().startsWith("{")) {
             // Tandoor says it in JSON. This is something in front of it, such as a proxy while Tandoor starts, and says nothing about the recipe.
-            throw new SourceException(SourceException.Kind.NETWORK, "Something in front of Tandoor answered 404 for " + path + ".");
+            throw new SourceException(SourceException.Kind.NETWORK, "Something in front of Tandoor answered 404 for " + shown(path) + ".");
         }
-        if (status == 404) throw new SourceException(SourceException.Kind.NOT_FOUND, "Tandoor has nothing at " + path + "." + detail(response));
+        if (status == 404) throw new SourceException(SourceException.Kind.NOT_FOUND, "Tandoor has nothing at " + shown(path) + "." + detail(response));
         if (status >= 300) throw new SourceException(SourceException.Kind.SERVER, "Tandoor answered HTTP " + status + "." + detail(response));
         if (response.body.length == 0) return null;
         String text = response.text().trim();
