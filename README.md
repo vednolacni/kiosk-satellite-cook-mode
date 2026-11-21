@@ -4,7 +4,7 @@ A real cook mode for a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satel
 
 Tandoor Recipes, Norish and Mealie are supported. KitchenOwl and Grocy fit the same design too: see [docs/DESIGN.md](docs/DESIGN.md).
 
-> **Status:** listed in [Community Plugins](https://kiosksatellite.com/plugins/). It has been tried on a kiosk tablet with Norish 0.25 and with a current Mealie, from the meal plan and the list of recipes through every step of one to its last page. Older Mealie releases have run against a stand-in server that answers like v2.3, v3.0 and v3.31. Tandoor has run only in the tests so far: the views under Robolectric, with real drawing, and the source against a stand-in server.
+> **Status:** listed in [Community Plugins](https://kiosksatellite.com/plugins/). It has been tried by hand on three different kiosk tablets with self-hosted Tandoor, Norish 0.25 and a current Mealie, from the meal plan and the list of recipes through every step of one to its last page. The tests also run the views under Robolectric, with real drawing, and each source against a stand-in server, for Mealie one that answers like v2.3, v3.0 and v3.31.
 
 ![The first page: today's meals beside every recipe, with a search](docs/images/home.png)
 
