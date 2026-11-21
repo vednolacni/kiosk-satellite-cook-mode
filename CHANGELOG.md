@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- **Fixed** a picture that came after the panel closed could load its other sizes into memory again.
+
 ## 0.3.1
 
 - **Added** Mealie notes that no step names, shown after the last step, where Mealie shows its notes.

@@ -185,6 +185,11 @@ final class Images {
         return held;
     }
 
+    /** Whether no picture is held in memory, for a test. */
+    boolean holdsNone() {
+        return cache.size() == 0 && bytes.size() == 0;
+    }
+
     /** Whether nothing is on its way. Main thread only. */
     boolean idle() {
         return jobs.isEmpty();
@@ -296,7 +301,9 @@ final class Images {
         jobs.remove(key);
         if (bitmap == null) return;
         for (ImageView view : job.views) if (job.url.equals(view.getTag())) view.setImageBitmap(bitmap);
-        // The other sizes, from the bytes now in memory or on the tablet.
+        // The other sizes, from the bytes now in memory or on the tablet. Not once the panel has closed: nothing shows
+        // them then, and loading them would fill the memory just let go.
+        if (released) return;
         for (Parked waiting : job.parked) if (job.url.equals(waiting.view.getTag())) load(waiting.view, job.url, waiting.headers, waiting.width, job.body);
     }
 

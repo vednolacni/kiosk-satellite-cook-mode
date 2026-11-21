@@ -1570,6 +1570,27 @@ public final class ViewsTest {
     }
 
     @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
+    public void aPictureThatComesAfterThePanelClosedStaysOutOfMemory() {
+        begin("pictures-released", true, settings("English"));
+        Images images = new Images();
+        String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/picture/9.png";
+        picturesHeld = new java.util.concurrent.CountDownLatch(1);
+        // Two sizes of one picture: the second waits for the first's bytes.
+        images.load(new ImageView(activity), url, NO_HEADERS, 100);
+        images.load(new ImageView(activity), url, NO_HEADERS, 400);
+        long until = System.currentTimeMillis() + 10_000;
+        while (picturesAsked.isEmpty() && System.currentTimeMillis() < until) Thread.yield();
+        // The panel closes while the picture is on its way.
+        images.release();
+        picturesHeld.countDown();
+        picturesHeld = null;
+        waitUntil(images::idle);
+        later(500);
+        assertTrue("a picture came back into memory", images.holdsNone());
+        images.close();
+    }
+
+    @Test @Config(qualifiers = "w960dp-h600dp-land-tvdpi")
     public void aPictureIsFetchedOnceForEverySizeAndOneThatDoesNotExistIsLeftBe() {
         begin("pictures-once", true, settings("English"));
         Images images = new Images();
