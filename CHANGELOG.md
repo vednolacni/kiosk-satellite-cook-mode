@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- **Added** Mealie notes that no step names, shown after the last step, where Mealie shows its notes.
+- **Fixed** messages about Tandoor or Norish named a user name and password typed in front of the address. Only the host and port are named now, as for Mealie.
+
 ## 0.3.0
 
 Mealie, and what the Community Plugins review asked for.

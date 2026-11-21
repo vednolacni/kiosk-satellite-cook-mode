@@ -362,11 +362,13 @@ final class TandoorSource implements RecipeSource {
         }
     }
 
+    /** The server's host and port, without a user name or password typed in front of them. */
     private String host() {
         try {
-            return new URL(base).getAuthority();
+            URL server = new URL(base);
+            return server.getHost() + (server.getPort() == -1 ? "" : ":" + server.getPort());
         } catch (MalformedURLException bad) {
-            return base;
+            return "the Tandoor address";
         }
     }
 

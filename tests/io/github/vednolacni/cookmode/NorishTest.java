@@ -387,6 +387,9 @@ public final class NorishTest {
         assert rested.recipes("", RecipeSource.Order.NAME, 1).items.size() == 1;
         RecipeSource.SourceException twinRefused = failure(() -> rested.twin().probe());
         assert twinRefused.kind == RecipeSource.SourceException.Kind.LIMIT && twinRefused.getMessage().startsWith("The plugin waits") : twinRefused.kind + " " + twinRefused.getMessage();
+        // A user name and password typed in front of the address are never in a message.
+        RecipeSource.SourceException away = failure(() -> new NorishSource("http://kuhinja:geslo@127.0.0.1:1", KEY, new Http()).probe());
+        assert away.getMessage().startsWith("Could not reach Norish at 127.0.0.1:1:") && !away.getMessage().contains("geslo") && !away.getMessage().contains("kuhinja") : away.getMessage();
         RecipeSource.SourceException down = failure(() -> new NorishSource(server + "/olddown", KEY, new Http()).recipe(JOTA));
         assert down.kind == RecipeSource.SourceException.Kind.SERVER && down.getMessage().startsWith("Norish is not ready: Database is error.") && down.passing : down.getMessage();
         // Only its parser down has nothing to do with the key.

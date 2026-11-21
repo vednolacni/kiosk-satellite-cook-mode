@@ -302,15 +302,19 @@ final class MealieSource implements RecipeSource {
             String reference = Json.text(line.get("referenceId")).trim();
             if (!reference.isEmpty() && !byReference.containsKey(reference)) byReference.put(reference, ingredient);
         }
-        // Notes a step names go with it.
+        // Notes a step names go with it. The others come after the last step, where Mealie shows its notes.
         Map<String, String> notes = new HashMap<>();
+        Map<String, String> unnamed = new LinkedHashMap<>();
+        int noteIndex = 0;
         for (Object item : Json.list(recipe.get("notes"))) {
             Map<String, Object> note = Json.object(item);
             String reference = Json.text(note.get("referenceId")).trim();
             String title = Json.text(note.get("title")).trim();
             String text = Json.text(note.get("text")).trim();
             String words = title.isEmpty() ? text : text.isEmpty() ? title : title + ": " + text;
-            if (!reference.isEmpty() && !words.isEmpty()) notes.put(reference, words);
+            if (words.isEmpty()) continue;
+            if (!reference.isEmpty()) notes.put(reference, words);
+            unnamed.put(reference.isEmpty() ? "#" + noteIndex++ : reference, words);
         }
         List<Draft> drafts = new ArrayList<>();
         // How many steps name each line, since a line more than one step names is ticked off in each apart.
@@ -329,8 +333,10 @@ final class MealieSource implements RecipeSource {
                 summary = "";
             }
             for (Object reference : Json.list(step.get("noteReferences"))) {
-                String note = notes.get(Json.text(Json.object(reference).get("referenceId")).trim());
+                String noteId = Json.text(Json.object(reference).get("referenceId")).trim();
+                String note = notes.get(noteId);
                 if (note != null) text = text.isEmpty() ? note : text + "\n\n" + note;
+                unnamed.remove(noteId);
             }
             text = capped(text);
             long seconds = Json.integer(step.get("durationSeconds"), 0);
@@ -345,6 +351,12 @@ final class MealieSource implements RecipeSource {
             if (text.isEmpty() && uses.isEmpty() && !timed) continue;
             String name = summary.isEmpty() ? section : section.isEmpty() ? summary : section + ": " + summary;
             drafts.add(new Draft(name, text, uses, timed ? (int) seconds : 0));
+        }
+        if (!unnamed.isEmpty()) {
+            String rest = String.join("\n\n", unnamed.values());
+            Draft last = drafts.isEmpty() ? null : drafts.remove(drafts.size() - 1);
+            drafts.add(last == null ? new Draft("", capped(rest), new ArrayList<Recipe.Ingredient>(), 0)
+                : new Draft(last.title, capped(last.text.isEmpty() ? rest : last.text + "\n\n" + rest), last.uses, last.seconds));
         }
         List<Recipe.Step> steps = new ArrayList<>();
         for (Draft draft : drafts) {

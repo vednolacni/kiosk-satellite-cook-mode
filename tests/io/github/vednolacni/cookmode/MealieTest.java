@@ -323,7 +323,9 @@ public final class MealieTest {
             assert "Kuhanje".equals(serve.title) && serve.ingredients.size() == 1 && serve.ingredients.get(0) == list.get(7);
             // A step with only its summary says that.
             Recipe.Step rest = recipe.steps.get(4);
-            assert "Kuhanje".equals(rest.title) && "Pusti počivati 10 minut.".equals(Instructions.render(rest, 1, false)) && rest.ingredients.isEmpty();
+            // The notes no step names come after the last step, where Mealie shows them.
+            String restText = Instructions.render(rest, 1, false);
+            assert "Kuhanje".equals(rest.title) && restText.equals(newest ? "Pusti počivati 10 minut.\n\nSplošna opomba." : "Pusti počivati 10 minut.\n\nNamig: Golaž je boljši naslednji dan.") && rest.ingredients.isEmpty() : restText;
             // The group is asked for once.
             mealie.recipe(GOLAZ);
             assert last().equals(flavor + " GET /api/recipes/" + GOLAZ + " token ") : last();
