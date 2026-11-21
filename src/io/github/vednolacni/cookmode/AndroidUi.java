@@ -8,6 +8,8 @@ import android.view.View;
 import java.io.File;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import me.jxl.kiosk.plugins.KsTheme;
 import me.jxl.kiosk.plugins.OverlayFactory;
@@ -30,6 +32,8 @@ class AndroidUi implements Ui {
         Parts.guard(this::apply);
     };
     private final Runnable tick = this::tick;
+    /** Cook's tasks, each in a guard of its own, so that the same task can be taken back off the queue. */
+    private final Map<Runnable, Runnable> guarded = new ConcurrentHashMap<>();
     private final Runnable endTest = () -> Parts.guard(this::endTest);
 
     // Written on any thread, read on the main thread.
@@ -77,6 +81,8 @@ class AndroidUi implements Ui {
             @Override public void onDestroy(View shown) {
                 ((CookView) shown).leave();
                 if (view == shown) view = null;
+                // Nothing shows a picture while the panel is closed, and on a small tablet the memory is wanted. The tablet keeps them.
+                if (view == null) Parts.guard(images::release);
             }
         };
     }
@@ -249,10 +255,14 @@ class AndroidUi implements Ui {
     }
 
     @Override public void post(Runnable task, long delayMs) {
-        main.postDelayed(task, delayMs);
+        main.postDelayed(guarded(task), delayMs);
     }
 
     @Override public void cancel(Runnable task) {
-        main.removeCallbacks(task);
+        main.removeCallbacks(guarded(task));
+    }
+
+    private Runnable guarded(Runnable task) {
+        return guarded.computeIfAbsent(task, own -> () -> Parts.guard(own));
     }
 }

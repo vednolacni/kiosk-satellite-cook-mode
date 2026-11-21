@@ -58,8 +58,49 @@ final class Hints {
 
     private Hints() {}
 
+    /** What the steps say, in no language: the searching, which is slow for a long recipe. */
+    static final class Found {
+        final boolean overnight;
+        /** Long waits in seconds, longest first. */
+        final List<Integer> rests;
+        /** Each oven temperature with its named scale, C or F, or an empty string. */
+        final Map<Integer, String> temperatures;
+
+        Found(boolean overnight, List<Integer> rests, Map<Integer, String> temperatures) {
+            this.overnight = overnight;
+            this.rests = rests;
+            this.temperatures = temperatures;
+        }
+    }
+
+    /** Search the steps once, off the main thread, so that showing the recipe only words what was found. */
+    static void prepare(Recipe recipe) {
+        if (recipe.hints == null) recipe.hints = scan(recipe);
+    }
+
     static List<Hint> of(Recipe recipe, Strings strings) {
-        // Each oven temperature with its named scale, C or F, or an empty string.
+        Found found = recipe.hints;
+        if (found == null) {
+            found = scan(recipe);
+            recipe.hints = found;
+        }
+        List<Hint> hints = new ArrayList<>();
+        if (found.overnight) hints.add(new Hint(NIGHT, strings.overnight));
+        for (int rest : found.rests.subList(0, Math.min(MOST_OF_EACH, found.rests.size()))) hints.add(new Hint("mdi:timer-sand", strings.duration(rest / 60)));
+        // A number with no scale takes the recipe's, when it uses only one.
+        boolean celsius = found.temperatures.containsValue("C");
+        boolean fahrenheit = found.temperatures.containsValue("F");
+        int shown = 0;
+        for (Map.Entry<Integer, String> oven : found.temperatures.entrySet()) {
+            if (shown++ == MOST_OF_EACH) break;
+            String scale = oven.getValue();
+            if (scale.isEmpty()) scale = celsius != fahrenheit ? (fahrenheit ? "F" : "C") : oven.getKey() > SURELY_FAHRENHEIT ? "F" : "C";
+            hints.add(new Hint("mdi:thermometer", oven.getKey() + " °" + scale));
+        }
+        return hints;
+    }
+
+    static Found scan(Recipe recipe) {
         Map<Integer, String> temperatures = new LinkedHashMap<>();
         List<Integer> rests = new ArrayList<>();
         boolean overnight = false;
@@ -79,20 +120,7 @@ final class Hints {
             }
         }
         Collections.sort(rests, Collections.reverseOrder());
-        List<Hint> hints = new ArrayList<>();
-        if (overnight) hints.add(new Hint(NIGHT, strings.overnight));
-        for (int rest : rests.subList(0, Math.min(MOST_OF_EACH, rests.size()))) hints.add(new Hint("mdi:timer-sand", strings.duration(rest / 60)));
-        // A number with no scale takes the recipe's, when it uses only one.
-        boolean celsius = temperatures.containsValue("C");
-        boolean fahrenheit = temperatures.containsValue("F");
-        int shown = 0;
-        for (Map.Entry<Integer, String> oven : temperatures.entrySet()) {
-            if (shown++ == MOST_OF_EACH) break;
-            String scale = oven.getValue();
-            if (scale.isEmpty()) scale = celsius != fahrenheit ? (fahrenheit ? "F" : "C") : oven.getKey() > SURELY_FAHRENHEIT ? "F" : "C";
-            hints.add(new Hint("mdi:thermometer", oven.getKey() + " °" + scale));
-        }
-        return hints;
+        return new Found(overnight, Collections.unmodifiableList(rests), Collections.unmodifiableMap(temperatures));
     }
 
     private static void oven(Map<Integer, String> temperatures, String number, String scale) {

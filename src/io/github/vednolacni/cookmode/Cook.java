@@ -161,6 +161,7 @@ final class Cook implements Ui.Actions {
     private String recipeId = "";
     private boolean recipeLoading;
     private int recipeGeneration;
+    private int pageGeneration;
     private double servings;
     /** The servings to start at when the loading recipe arrives, or 0 for its own. */
     private double plannedServings;
@@ -417,10 +418,7 @@ final class Cook implements Ui.Actions {
             loadPlan();
         }
         if (dockShown && previous != null && (!settings.dockCorner.equals(previous.dockCorner) || settings.dockOnTop != previous.dockOnTop)) showDock(OverlaySpec.NONE);
-        if (recipe != null && previous != null && previous.splitSteps != settings.splitSteps) {
-            pages = Pages.of(recipe, settings.splitSteps);
-            pageIndex = Math.min(pageIndex, Math.max(0, pages.size() - 1));
-        }
+        if (recipe != null && previous != null && previous.splitSteps != settings.splitSteps) repage();
         report();
         updateAwake();
         updateDock();
@@ -941,12 +939,17 @@ final class Cook implements Ui.Actions {
         final String id = recipeId;
         final int generation = ++recipeGeneration;
         final boolean tell = settings.markCooked != Settings.MarkCooked.NEVER;
+        final boolean split = settings.splitSteps;
         recipeLoading = true;
         background(() -> {
             Recipe read = null;
+            List<Pages.Page> paged = null;
             RecipeSource.SourceException problem = null;
             try {
                 read = current.recipe(id);
+                // A long recipe takes a while to page and to search for hints, which must not keep the main thread waiting.
+                paged = Pages.of(read, split);
+                Hints.prepare(read);
             } catch (RecipeSource.SourceException failed) {
                 problem = failed;
             } catch (RuntimeException | Error bug) {
@@ -963,8 +966,10 @@ final class Cook implements Ui.Actions {
                     recipeName = read.name;
                     if (!read.image.isEmpty()) recipeImage = read.image;
                     servings = plannedServings > 0 ? plannedServings : read.servings;
-                    pages = Pages.of(read, settings.splitSteps);
+                    pages = paged;
                     pageIndex = 0;
+                    pageGeneration++;
+                    if (split != settings.splitSteps) repage();
                     checked.clear();
                     cleared(Trouble.RECIPE);
                     if (replaced) fire("cookingFinished");
@@ -981,6 +986,22 @@ final class Cook implements Ui.Actions {
                 } catch (RecipeSource.SourceException ignored) {
                     // Only the app's own list misses it.
                 }
+            }
+        });
+    }
+
+    /** The steps paged again for a changed setting, on the network thread. Until then the old pages stay. */
+    private void repage() {
+        final Recipe paging = recipe;
+        final boolean split = settings.splitSteps;
+        final int generation = ++pageGeneration;
+        background(() -> {
+            List<Pages.Page> paged = Pages.of(paging, split);
+            synchronized (this) {
+                if (host == null || generation != pageGeneration || recipe != paging || split != settings.splitSteps) return;
+                pages = paged;
+                pageIndex = Math.min(pageIndex, Math.max(0, pages.size() - 1));
+                changed();
             }
         });
     }
@@ -1356,12 +1377,10 @@ final class Cook implements Ui.Actions {
     private List<String> announceNodes() {
         if (!assistantNode.isEmpty()) return Collections.singletonList(assistantNode);
         if (!settings.kioskNode.isEmpty()) return Collections.singletonList(settings.kioskNode);
-        // KS leaves out letters such as š from a new node, and one that announced itself under another name keeps its node.
+        // KS leaves out letters such as š from a new node. The bare name is not tried: it may be another ESPHome device's.
         Set<String> nodes = new LinkedHashSet<>();
         for (String slug : new String[] {Settings.ksSlug(deviceName), Settings.slug(deviceName)}) {
-            if (slug.isEmpty()) continue;
-            nodes.add("ks_" + slug);
-            nodes.add(slug);
+            if (!slug.isEmpty()) nodes.add("ks_" + slug);
         }
         return new ArrayList<>(nodes);
     }

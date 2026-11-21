@@ -69,6 +69,8 @@ final class Images {
     private final ThreadPoolExecutor pool = new ThreadPoolExecutor(2, 2, 0, TimeUnit.MILLISECONDS, new PriorityBlockingQueue<Runnable>(), task -> {
         Thread thread = new Thread(task, "cook-mode-images");
         thread.setDaemon(true);
+        // Anything left uncaught here would end the app.
+        thread.setUncaughtExceptionHandler((which, anything) -> {});
         thread.setPriority(Thread.NORM_PRIORITY - 2);
         return thread;
     });
@@ -293,6 +295,12 @@ final class Images {
         for (ImageView view : job.views) if (job.url.equals(view.getTag())) view.setImageBitmap(bitmap);
         // The other sizes, from the bytes now in memory or on the tablet.
         for (Parked waiting : job.parked) if (job.url.equals(waiting.view.getTag())) load(waiting.view, job.url, waiting.headers, waiting.width, job.body);
+    }
+
+    /** Drop the pictures held in memory, while nothing shows them. Those on the tablet stay, and fetching goes on. */
+    void release() {
+        cache.evictAll();
+        bytes.evictAll();
     }
 
     /** Stop fetching and drop the cache. */

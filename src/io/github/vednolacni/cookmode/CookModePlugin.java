@@ -27,6 +27,8 @@ public final class CookModePlugin implements KioskPlugin {
         net = Executors.newFixedThreadPool(NETWORK_THREADS, task -> {
             Thread thread = new Thread(task, "cook-mode-net");
             thread.setDaemon(true);
+            // Anything left uncaught here would end the app. Cook's own work catches what it can and reports it.
+            thread.setUncaughtExceptionHandler((which, anything) -> {});
             return thread;
         });
         cook = new Cook(new AndroidUi(), Clock.systemDefaultZone(), net, values -> RecipeSource.of(values, SystemClock::elapsedRealtime));

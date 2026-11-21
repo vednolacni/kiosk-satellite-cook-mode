@@ -64,13 +64,13 @@ final class Parts {
 
     /**
      * Click listeners and posted work run on the main thread, outside the callbacks KS guards. The session can end
-     * between a tap and the host call, and an exception thrown there would end the app, so it is dropped.
+     * between a tap and the host call, and anything thrown there, an Error too, would end the app, so it is dropped.
      */
     static void guard(Runnable action) {
         try {
             action.run();
-        } catch (RuntimeException sessionEnded) {
-            // The plugin is stopping.
+        } catch (Throwable anything) {
+            // Usually the plugin is stopping. Whatever it is, Kiosk Satellite goes on.
         }
     }
 

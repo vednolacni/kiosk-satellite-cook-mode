@@ -141,11 +141,15 @@ final class Settings {
         return other == null || app != other.app || !serverUrl.equals(other.serverUrl);
     }
 
-    /** A node as it may be typed: ks-kitchen, ks_kitchen or the whole action esphome.ks_kitchen_announce. */
+    /**
+     * A node as it may be typed: ks-kitchen, ks_kitchen or the whole action esphome.ks_kitchen_announce. Anything else
+     * than letters, digits and underscores is no node, and is read as none: the node is then worked out from the name.
+     */
     static String node(String typed) {
         String node = typed.toLowerCase(Locale.ROOT).replace('-', '_');
         if (node.startsWith("esphome.")) node = node.substring("esphome.".length());
-        return node.endsWith("_announce") ? node.substring(0, node.length() - "_announce".length()) : node;
+        if (node.endsWith("_announce")) node = node.substring(0, node.length() - "_announce".length());
+        return node.matches("[a-z0-9_]+") ? node : "";
     }
 
     /** A device's name the way ESPHome names its node: Dedo&babi becomes dedo_babi. */

@@ -4,7 +4,7 @@ A real cook mode for a [Kiosk Satellite](https://github.com/jxlarrea/kiosk-satel
 
 Tandoor Recipes, Norish and Mealie are supported. KitchenOwl and Grocy fit the same design too: see [docs/DESIGN.md](docs/DESIGN.md).
 
-> **Status:** first release. Not listed in Community Plugins yet. It has been tried on a kiosk tablet with Norish 0.25, from the list of recipes through every step of one to its last page. Tandoor has run only in the tests so far: the views under Robolectric, with real drawing, and the source against a stand-in server. So has Mealie, against a stand-in server that answers like v2.3, v3.0 and v3.31.
+> **Status:** listed in [Community Plugins](https://kiosksatellite.com/plugins/). It has been tried on a kiosk tablet with Norish 0.25 and with a current Mealie, from the meal plan and the list of recipes through every step of one to its last page. Older Mealie releases have run against a stand-in server that answers like v2.3, v3.0 and v3.31. Tandoor has run only in the tests so far: the views under Robolectric, with real drawing, and the source against a stand-in server.
 
 ![The first page: today's meals beside every recipe, with a search](docs/images/home.png)
 
@@ -44,7 +44,7 @@ Needs Kiosk Satellite **2026.10.42** or newer. From 2026.10.40 on, Kiosk Satelli
 
 ### Install in Kiosk Satellite
 
-Cook Mode is not listed in [Community Plugins](https://kiosksatellite.com/plugins/) yet. The button still opens it in your kiosk's remote admin, which says so, and nothing installs until you choose **Trust and install**. The remote admin must be on, under **Settings > Device > Remote Administration** on the kiosk.
+Cook Mode is listed in [Community Plugins](https://kiosksatellite.com/plugins/), so you can also find it there. The button opens it in your kiosk's remote admin, and nothing installs until you choose **Trust and install**. The remote admin must be on, under **Settings > Device > Remote Administration** on the kiosk.
 
 [![Install in Kiosk Satellite](https://kiosksatellite.com/img/badges/plugin-add.svg)](https://kiosksatellite.com/redirect/plugin/?repository=vednolacni/kiosk-satellite-cook-mode)
 
@@ -156,7 +156,7 @@ Opening one recipe can also say it is private and not shared with the token's us
 
 **Tablet voice** uses Android's text-to-speech. Not every tablet has one, few speak Slovenian, and Kiosk Satellite's permissions may keep it from working on Android 11 or newer. The plugin's page says when it cannot speak.
 
-**Home Assistant** calls the kiosk's own action, `esphome.<node>_announce`, with the card turned off. The engine and voice are the ones under **Settings > ESPHome > Announcements** on the kiosk. The plugin works out the node from the device's name, so a kiosk called Letna Kuhinja is `ks_letna_kuhinja`. If yours is named otherwise, copy the middle of the action's name into **ESPHome node of this kiosk**.
+**Home Assistant** calls the kiosk's own action, `esphome.<node>_announce`, with the card turned off. The engine and voice are the ones under **Settings > ESPHome > Announcements** on the kiosk. The plugin works out the node from the device's name, so a kiosk called Letna Kuhinja is `ks_letna_kuhinja`. If yours is named otherwise, copy the middle of the action's name into **ESPHome node of this kiosk**. A node has only letters, digits and underscores; anything else is ignored, and the node is worked out from the name again. The plugin never tries the bare name without `ks_`, which could be another ESPHome device.
 
 ## Actions and Home Assistant
 

@@ -49,6 +49,8 @@ public final class TextTest {
             plain("Prove for 2 hours, then for 3 hours more. Bake 40 min at 220 °C, then at 180°.", 0),
             plain("Rest.", 90 * 60),
             plain("A 500 g loaf. Serve at 20 °C with 100 friends.", 0)));
+        Hints.prepare(recipe);
+        assert recipe.hints != null && recipe.hints.overnight;
         List<Hints.Hint> hints = Hints.of(recipe, Strings.ENGLISH);
         List<String> words = new ArrayList<>();
         for (Hints.Hint hint : hints) words.add(hint.text);
@@ -150,6 +152,8 @@ public final class TextTest {
         assert "Izbriši".equals(Strings.SLOVENIAN.erase) && "Manj porcij".equals(Strings.SLOVENIAN.fewerServings) && "Zaženi časovnik %s".equals(Strings.SLOVENIAN.startTimer);
         assert "1 porcijo".equals(Strings.SLOVENIAN.servingsFor(1, "")) && "2 porciji".equals(Strings.SLOVENIAN.servingsFor(2, "")) && "1 serving".equals(Strings.ENGLISH.servingsFor(1, ""));
         assert "ks_a".equals(Settings.node("KS_A_announce")) && "dedo_babi".equals(Settings.slug("Dedo&babi")) && "".equals(Settings.slug("  "));
+        // Only letters, digits and underscores make a node; anything else is read as none, and the node is worked out.
+        assert "".equals(Settings.node("ks kitchen")) && "".equals(Settings.node("ks_kitchen.x")) && "".equals(Settings.node("ključ")) && "".equals(Settings.node(""));
         // KS knows fewer accents than Android does.
         assert "otro_ka_soba".equals(Settings.ksSlug("Otroška soba")) && "kuhinja_iri".equals(Settings.ksSlug("Kuhinja Žiri")) && "letna_kuhinja".equals(Settings.ksSlug("Letna Kuhinja"));
         assert "caffe_gross".equals(Settings.ksSlug("Caffè Groß")) && "dedo_babi".equals(Settings.ksSlug("Dedo&babi")) && "".equals(Settings.ksSlug("  "));

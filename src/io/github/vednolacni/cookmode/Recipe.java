@@ -160,6 +160,8 @@ final class Recipe {
     final List<Step> steps;
     /** The recipe's own list, for apps that keep one apart from the steps, as Norish does. Empty when the steps hold them. */
     private final List<Ingredient> list;
+    /** What the steps say about ovens and long waits, found on the network thread when the recipe comes, or null. */
+    volatile Hints.Found hints;
 
     Recipe(String id, String name, String description, String image, double servings, String servingsText, int workingMinutes, int waitingMinutes, String webUrl, String sourceUrl, List<Step> steps) {
         this(id, name, description, image, servings, servingsText, workingMinutes, waitingMinutes, webUrl, sourceUrl, steps, Collections.<Ingredient>emptyList());

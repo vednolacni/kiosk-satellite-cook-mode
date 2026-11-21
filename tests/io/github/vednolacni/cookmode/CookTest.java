@@ -258,6 +258,7 @@ public final class CookTest {
         stepTimers();
         finishing();
         switching();
+        paging();
         otherRecipe();
         settingsChange();
         readingBusy();
@@ -893,28 +894,26 @@ public final class CookTest {
         assert "Mix 200 g flour for 5 min.".equals(data.get("message")) && Boolean.TRUE.equals(data.get("audio_only")) && Boolean.FALSE.equals(data.get("chime"));
         assert data.keySet().equals(new HashSet<>(Arrays.asList("message", "url", "volume", "repeat", "repeat_pause", "chime", "chime_file", "tts_engine", "tts_language", "tts_voice", "audio_only"))) : data.keySet();
 
-        // No such action: the other name a kiosk's node can have, then an honest status.
+        // No such action: an honest status. The bare name kitchen is not tried, as it may be another ESPHome device.
         host.haAnswers.get(0).onResult(false, null, "not_found: Service esphome.ks_kitchen_announce not found.");
-        assert "kitchen_announce".equals(host.haCalls.get(1).get("service"));
-        host.haAnswers.get(1).onResult(false, null, "not_found: Service esphome.kitchen_announce not found.");
-        assert host.haCalls.size() == 2 && host.statusError && host.status.contains("kitchen");
+        assert host.haCalls.size() == 1 && host.statusError && host.status.contains("ks_kitchen") : host.haCalls;
         // No answer within the limit is no failure: it may still be speaking, and must not be read twice.
         host.status = "";
         cook.read();
-        host.haAnswers.get(2).onResult(false, null, "timeout: No answer within 25 seconds");
-        assert host.haCalls.size() == 3 && host.status.isEmpty();
+        host.haAnswers.get(1).onResult(false, null, "timeout: No answer within 25 seconds");
+        assert host.haCalls.size() == 2 && host.status.isEmpty();
         // The node that worked is the one used from then on, and leaving the step stops what is being read.
-        host.haAnswers.get(2).onResult(true, null, null);
+        host.haAnswers.get(1).onResult(true, null, null);
         cook.read();
-        assert "ks_kitchen_announce".equals(host.haCalls.get(3).get("service")) : host.haCalls.get(3);
+        assert "ks_kitchen_announce".equals(host.haCalls.get(2).get("service")) : host.haCalls.get(2);
         cook.next();
-        Map<String, Object> stop = host.haCalls.get(4);
+        Map<String, Object> stop = host.haCalls.get(3);
         assert "ks_kitchen_announce_stop".equals(stop.get("service")) : stop;
         // Older kiosks have no stop action. That is remembered, and costs nothing.
-        host.haAnswers.get(4).onResult(false, null, "not_found: Service esphome.ks_kitchen_announce_stop not found.");
+        host.haAnswers.get(3).onResult(false, null, "not_found: Service esphome.ks_kitchen_announce_stop not found.");
         cook.read();
         cook.previous();
-        assert host.haCalls.size() == 6 : host.haCalls.size();
+        assert host.haCalls.size() == 5 : host.haCalls.size();
 
         // A typed node wins, in whichever form it was copied, and the setting can be changed while cooking.
         Map<String, Object> typed = new LinkedHashMap<>(assistant);
@@ -925,6 +924,7 @@ public final class CookTest {
         assert "dedo_babi".equals(Settings.slug("Dedo&babi")) && "otroska_soba".equals(Settings.slug("Otroška soba"));
 
         // A kiosk named with a letter KS leaves out: KS's own form first, and then the form an older node may have.
+        // Never the bare names, which may be other ESPHome devices.
         Host accented = new Host();
         accented.deviceName = "Otroška soba";
         FakeUi accentedUi = new FakeUi();
@@ -939,11 +939,11 @@ public final class CookTest {
         accentedCook.startCooking();
         accentedCook.read();
         List<String> tried = new ArrayList<>();
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 2; i++) {
             tried.add((String) accented.haCalls.get(i).get("service"));
             accented.haAnswers.get(i).onResult(false, null, "not_found: Service not found.");
         }
-        assert tried.equals(Arrays.asList("ks_otro_ka_soba_announce", "otro_ka_soba_announce", "ks_otroska_soba_announce", "otroska_soba_announce")) : tried;
+        assert accented.haCalls.size() == 2 && tried.equals(Arrays.asList("ks_otro_ka_soba_announce", "ks_otroska_soba_announce")) : tried;
         assert accented.statusError && accented.status.contains("otroska_soba") : accented.status;
         accentedCook.stop();
     }
@@ -1227,6 +1227,46 @@ public final class CookTest {
         cook.openRecipe(new RecipeSource.Summary("7", "Pancakes", "", 30));
         net.runAll();
         cook.startCooking();
+    }
+
+    /** Paging and the search for hints happen on the network thread, never under the lock the main thread waits on. */
+    static void paging() {
+        StringBuilder longer = new StringBuilder();
+        for (int i = 0; i < 3; i++) longer.append("Stir the pot slowly and keep the heat low, so that nothing sticks to the bottom of the pan. Overnight in the fridge. \n\n");
+        Recipe recipe = new Recipe("7", "Stew", "", "", 4, "", 0, 0, "", "",
+            Arrays.asList(new Recipe.Step("", longer.toString(), Recipe.Format.PLAIN, Collections.<Recipe.Ingredient>emptyList(), 0)));
+        Map<String, Object> values = settings();
+        fresh(values);
+        source.recipe = recipe;
+        cooking();
+        assert ui.model.pageCount == 3 : ui.model.pageCount;
+        assert recipe.hints != null && recipe.hints.overnight : "Searched for hints when the recipe came";
+
+        // A changed setting pages again on the network thread. Until then the old pages stay.
+        Map<String, Object> whole = new LinkedHashMap<>(values);
+        whole.put("splitSteps", false);
+        cook.configure(whole);
+        assert ui.model.pageCount == 3 : ui.model.pageCount;
+        net.runAll();
+        assert ui.model.pageCount == 1 : ui.model.pageCount;
+        // Changed twice before the thread came to it: the last setting wins.
+        cook.configure(values);
+        cook.configure(whole);
+        net.runAll();
+        assert ui.model.pageCount == 1 : ui.model.pageCount;
+        // Changed while the recipe was on its way: the recipe is paged again for the setting now.
+        cook.stop();
+        fresh(values);
+        source.recipe = recipe;
+        net.runAll();
+        cook.execute("openCookMode");
+        net.runAll();
+        cook.openRecipe(new RecipeSource.Summary("7", "Stew", "", 30));
+        cook.configure(whole);
+        net.runAll();
+        cook.startCooking();
+        assert ui.model.pageCount == 1 : ui.model.pageCount;
+        cook.stop();
     }
 
     static RecipeSource.SourceException down() {
